@@ -1577,6 +1577,227 @@ func (s *Store) refundOrderLocked(req RefundOrderRequest) (*RefundTransaction, *
 	return cloneRefundTransaction(refund), cloneOrder(order), cloneWalletAccount(account), nil
 }
 
+func (s *Store) AdminOperationsSnapshot(req AdminOperationsSnapshotRequest) (*AdminOperationsSnapshot, error) {
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	limit := normalizeAdminOperationsSnapshotLimit(req.Limit)
+	_, cleanupGrace, cleanupNow, err := normalizeObjectStorageCleanupWindow(ObjectStorageCleanupCandidatesRequest{
+		Limit:        limit,
+		GraceSeconds: int64(req.ObjectCleanupGraceSeconds),
+		Now:          now,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	counts := AdminOperationsCounts{}
+	orders := make([]Order, 0, len(s.orders))
+	for _, order := range s.orders {
+		if order == nil {
+			continue
+		}
+		counts.TotalOrders++
+		switch order.Status {
+		case StatusMerchantPending:
+			counts.PendingMerchantOrders++
+		case StatusDispatching:
+			counts.DispatchingOrders++
+		case StatusRiderAssigned, StatusPickedUp, StatusDelivering:
+			counts.RiderAssignedOrders++
+		case StatusCompleted:
+			counts.CompletedOrders++
+		case StatusRefunded:
+			counts.RefundedOrders++
+		}
+		if isAdminExceptionOrder(order, now) {
+			counts.ExceptionOrders++
+		}
+		orders = append(orders, *cloneOrder(order))
+	}
+	sort.SliceStable(orders, func(i, j int) bool {
+		leftRisk := isAdminExceptionOrder(&orders[i], now)
+		rightRisk := isAdminExceptionOrder(&orders[j], now)
+		if leftRisk != rightRisk {
+			return leftRisk
+		}
+		if !orders[i].CreatedAt.Equal(orders[j].CreatedAt) {
+			return orders[i].CreatedAt.After(orders[j].CreatedAt)
+		}
+		return orders[i].ID < orders[j].ID
+	})
+	if len(orders) > limit {
+		orders = orders[:limit]
+	}
+
+	merchants := make([]AdminMerchantSnapshot, 0, len(s.merchants))
+	for merchantID := range s.merchants {
+		profile := s.merchantProfileLocked(merchantID)
+		if profile == nil {
+			continue
+		}
+		counts.TotalMerchants++
+		deposit := cloneDepositAccount(s.deposits[depositKey("merchant", merchantID)])
+		if len(profile.MissingQualifications) > 0 || profile.QualificationPopupRequired {
+			counts.MerchantQualificationRisks++
+		}
+		if deposit == nil || deposit.Status != DepositStatusPaid || profile.Account.DepositStatus != DepositStatusPaid {
+			counts.MerchantDepositMissing++
+		}
+		merchantShops := make([]Shop, 0)
+		for _, shop := range s.shops {
+			if shop == nil || shop.MerchantID != merchantID {
+				continue
+			}
+			cloned := cloneShop(shop)
+			if !s.shopCanAcceptOrdersLocked(cloned.ID) {
+				cloned.Status = ShopStatusQualificationExpired
+			}
+			merchantShops = append(merchantShops, *cloned)
+		}
+		sort.SliceStable(merchantShops, func(i, j int) bool {
+			return merchantShops[i].ID < merchantShops[j].ID
+		})
+		merchants = append(merchants, AdminMerchantSnapshot{
+			Account:                    profile.Account,
+			Shops:                      merchantShops,
+			Qualifications:             append([]MerchantQualification{}, profile.Qualifications...),
+			MissingQualifications:      append([]string{}, profile.MissingQualifications...),
+			StaffCount:                 len(profile.Staff),
+			SupplementalMaterialCount:  len(profile.SupplementalMaterials),
+			Deposit:                    deposit,
+			CanAcceptOrders:            profile.CanAcceptOrders,
+			QualificationPopupRequired: profile.QualificationPopupRequired,
+			QualificationPopupCode:     profile.QualificationPopupCode,
+			SupplementalMaterials:      append([]MerchantSupplementalMaterial{}, profile.SupplementalMaterials...),
+		})
+	}
+	sort.SliceStable(merchants, func(i, j int) bool {
+		leftRisk := adminMerchantRiskRank(merchants[i])
+		rightRisk := adminMerchantRiskRank(merchants[j])
+		if leftRisk != rightRisk {
+			return leftRisk > rightRisk
+		}
+		return merchants[i].Account.ID < merchants[j].Account.ID
+	})
+	if len(merchants) > limit {
+		merchants = merchants[:limit]
+	}
+
+	riders := make([]RiderAccount, 0, len(s.riders))
+	for _, rider := range s.riders {
+		if rider == nil {
+			continue
+		}
+		if rider.Type == RiderAccountStationManager {
+			counts.StationManagers++
+		}
+		if rider.Type == RiderAccountRider {
+			counts.TotalRiders++
+			if rider.Online {
+				counts.OnlineRiders++
+			}
+			if rider.DepositStatus != DepositStatusPaid && rider.DepositStatus != DepositStatusWechatExemptApproved {
+				counts.RiderDepositMissing++
+			}
+		}
+		riders = append(riders, *cloneRiderAccount(rider))
+	}
+	sort.SliceStable(riders, func(i, j int) bool {
+		if riders[i].Type != riders[j].Type {
+			return riders[i].Type == RiderAccountRider
+		}
+		if riders[i].Online != riders[j].Online {
+			return riders[i].Online
+		}
+		if riders[i].DispatchPriority != riders[j].DispatchPriority {
+			return riders[i].DispatchPriority > riders[j].DispatchPriority
+		}
+		return riders[i].ID < riders[j].ID
+	})
+	if len(riders) > limit {
+		riders = riders[:limit]
+	}
+
+	riderPerformance, err := s.riderPerformanceSnapshotLocked(req.StationManagerID)
+	if err != nil {
+		return nil, err
+	}
+	if len(riderPerformance) > limit {
+		riderPerformance = riderPerformance[:limit]
+	}
+
+	afterSales := make([]AfterSalesRequest, 0, len(s.afterSalesRequests))
+	for _, request := range s.afterSalesRequests {
+		if request == nil {
+			continue
+		}
+		switch request.Status {
+		case AfterSalesPendingMerchant:
+			counts.AfterSalesPending++
+		case AfterSalesAdminReview:
+			counts.AfterSalesAdminReview++
+		}
+		afterSales = append(afterSales, *s.afterSalesRequestViewLocked(request))
+	}
+	sortAfterSalesRequests(afterSales)
+	if len(afterSales) > limit {
+		afterSales = afterSales[:limit]
+	}
+
+	dispatchEvents := make([]DispatchEvent, 0, len(s.dispatchEvents))
+	for _, event := range s.dispatchEvents {
+		if event == nil {
+			continue
+		}
+		counts.DispatchEventCount++
+		dispatchEvents = append(dispatchEvents, *cloneDispatchEvent(event))
+	}
+	sort.SliceStable(dispatchEvents, func(i, j int) bool {
+		if !dispatchEvents[i].CreatedAt.Equal(dispatchEvents[j].CreatedAt) {
+			return dispatchEvents[i].CreatedAt.After(dispatchEvents[j].CreatedAt)
+		}
+		return dispatchEvents[i].ID < dispatchEvents[j].ID
+	})
+	if len(dispatchEvents) > limit {
+		dispatchEvents = dispatchEvents[:limit]
+	}
+
+	outboxEvents := make([]OutboxEvent, 0, len(s.outboxEvents))
+	for _, event := range s.outboxEvents {
+		if event != nil {
+			outboxEvents = append(outboxEvents, *cloneOutboxEvent(event))
+		}
+	}
+	outboxStats := buildOutboxStats(outboxEvents, "", now, req.LeaseExpiringWithinSeconds)
+	objectCleanupStats := s.objectStorageCleanupStatsLocked(cleanupNow, cleanupGrace)
+	counts.OutboxReady = outboxStats.Ready
+	counts.OutboxBlocked = outboxStats.Blocked
+	counts.ObjectCleanupFailed = objectCleanupStats.Failed
+	counts.ObjectCleanupTotalCandidate = objectCleanupStats.Pending
+
+	refundSettings := s.refundSettings
+	refundSettings.DefaultStrategy = NormalizeRefundStrategy(refundSettings.DefaultStrategy)
+	return &AdminOperationsSnapshot{
+		GeneratedAt:               now,
+		Counts:                    counts,
+		Orders:                    orders,
+		Merchants:                 merchants,
+		Riders:                    riders,
+		RiderPerformance:          riderPerformance,
+		AfterSales:                afterSales,
+		DispatchEvents:            dispatchEvents,
+		RefundSettings:            refundSettings,
+		OutboxStats:               *outboxStats,
+		ObjectStorageCleanupStats: objectCleanupStats,
+	}, nil
+}
+
 func (s *Store) CreateAfterSales(req CreateAfterSalesRequest) (*AfterSalesRequest, error) {
 	userID := strings.TrimSpace(req.UserID)
 	orderID := strings.TrimSpace(req.OrderID)
@@ -1937,9 +2158,14 @@ func (s *Store) ObjectStorageCleanupStats(req ObjectStorageCleanupCandidatesRequ
 	if err != nil {
 		return nil, err
 	}
-	stats := &ObjectStorageCleanupStats{}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	stats := s.objectStorageCleanupStatsLocked(now, grace)
+	return &stats, nil
+}
+
+func (s *Store) objectStorageCleanupStatsLocked(now time.Time, grace time.Duration) ObjectStorageCleanupStats {
+	stats := ObjectStorageCleanupStats{}
 	for _, ticket := range s.afterSalesUploadTickets {
 		if ticket == nil {
 			continue
@@ -1970,7 +2196,7 @@ func (s *Store) ObjectStorageCleanupStats(req ObjectStorageCleanupCandidatesRequ
 			stats.ScanRejected++
 		}
 	}
-	return stats, nil
+	return stats
 }
 
 func (s *Store) CompleteObjectStorageCleanup(req ObjectStorageCleanupCompleteRequest) (*AfterSalesEvidenceUploadTicket, error) {
@@ -2802,6 +3028,10 @@ func (s *Store) StationRiderPerformance(stationManagerID string) ([]RiderPerform
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.riderPerformanceSnapshotLocked(stationManagerID)
+}
+
+func (s *Store) riderPerformanceSnapshotLocked(stationManagerID string) ([]RiderPerformance, error) {
 	stationID, allStations, err := s.stationScopeLocked(stationManagerID)
 	if err != nil {
 		return nil, err
@@ -4809,6 +5039,52 @@ func sortAfterSalesRequests(requests []AfterSalesRequest) {
 		}
 		return requests[i].ID < requests[j].ID
 	})
+}
+
+func normalizeAdminOperationsSnapshotLimit(limit int) int {
+	if limit <= 0 {
+		return 20
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
+}
+
+func isAdminExceptionOrder(order *Order, now time.Time) bool {
+	if order == nil {
+		return false
+	}
+	switch order.Status {
+	case StatusRefundPending, StatusCancelled:
+		return true
+	}
+	referenceAt := order.UpdatedAt
+	if referenceAt.IsZero() {
+		referenceAt = order.CreatedAt
+	}
+	if referenceAt.IsZero() {
+		return false
+	}
+	switch order.Status {
+	case StatusDispatching:
+		return referenceAt.Before(now.Add(-10 * time.Minute))
+	case StatusRiderAssigned:
+		return referenceAt.Before(now.Add(-30 * time.Minute))
+	default:
+		return false
+	}
+}
+
+func adminMerchantRiskRank(snapshot AdminMerchantSnapshot) int {
+	score := 0
+	if !snapshot.CanAcceptOrders || snapshot.QualificationPopupRequired || len(snapshot.MissingQualifications) > 0 {
+		score += 10
+	}
+	if snapshot.Deposit == nil || snapshot.Deposit.Status != DepositStatusPaid || snapshot.Account.DepositStatus != DepositStatusPaid {
+		score += 5
+	}
+	return score
 }
 
 func sortAfterSalesEvents(events []AfterSalesEvent) {

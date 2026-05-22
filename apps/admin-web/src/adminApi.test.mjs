@@ -24,6 +24,7 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
     "refund-settings-read",
     "refund-settings-save",
     "after-sales-list",
+    "operations-snapshot",
     "object-cleanup-stats",
     "object-cleanup-candidates",
     "outbox-stats",
@@ -65,6 +66,9 @@ test("admin request builder normalizes auth query path and body", () => {
 
   const statsRequest = buildAdminRequest(getAdminOperation("outbox-stats"), { topic: "order.paid", lease_expiring_within_seconds: 30 }, "Bearer admin.token");
   assert.equal(statsRequest.url, "/api/admin/outbox/stats?topic=order.paid&lease_expiring_within_seconds=30");
+
+  const snapshotRequest = buildAdminRequest(getAdminOperation("operations-snapshot"), { limit: 10, lease_expiring_within_seconds: 45 }, "admin.token");
+  assert.equal(snapshotRequest.url, "/api/admin/operations/snapshot?limit=10&lease_expiring_within_seconds=45&object_cleanup_grace_seconds=3600");
 
   const loginFields = fieldsForOperation(getAdminOperation("admin-login"));
   assert.deepEqual(loginFields.map((field) => field.key), ["account_id", "password"]);

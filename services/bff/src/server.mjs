@@ -29,6 +29,7 @@ function isApiProxyRoute(method, pathname) {
   if (method === "GET" && pathname === "/api/admin/refund-settings") return true;
   if (method === "PUT" && pathname === "/api/admin/refund-settings") return true;
   if (method === "GET" && pathname === "/api/admin/after-sales") return true;
+  if (method === "GET" && pathname === "/api/admin/operations/snapshot") return true;
   if (method === "GET" && pathname === "/api/admin/object-storage/cleanup-candidates") return true;
   if (method === "GET" && pathname === "/api/admin/object-storage/cleanup-stats") return true;
   if (method === "POST" && pathname === "/api/admin/object-storage/cleanup-complete") return true;

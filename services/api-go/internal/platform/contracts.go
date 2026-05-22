@@ -1016,6 +1016,66 @@ type ObjectStorageCleanupStats struct {
 	LastDeletedAt       time.Time `json:"last_deleted_at,omitempty"`
 }
 
+type AdminOperationsSnapshotRequest struct {
+	Now                        time.Time `json:"now"`
+	Limit                      int       `json:"limit"`
+	StationManagerID           string    `json:"station_manager_id,omitempty"`
+	LeaseExpiringWithinSeconds int       `json:"lease_expiring_within_seconds"`
+	ObjectCleanupGraceSeconds  int       `json:"object_cleanup_grace_seconds"`
+}
+
+type AdminOperationsCounts struct {
+	TotalOrders                 int `json:"total_orders"`
+	PendingMerchantOrders       int `json:"pending_merchant_orders"`
+	DispatchingOrders           int `json:"dispatching_orders"`
+	RiderAssignedOrders         int `json:"rider_assigned_orders"`
+	CompletedOrders             int `json:"completed_orders"`
+	RefundedOrders              int `json:"refunded_orders"`
+	ExceptionOrders             int `json:"exception_orders"`
+	TotalMerchants              int `json:"total_merchants"`
+	MerchantQualificationRisks  int `json:"merchant_qualification_risks"`
+	MerchantDepositMissing      int `json:"merchant_deposit_missing"`
+	TotalRiders                 int `json:"total_riders"`
+	OnlineRiders                int `json:"online_riders"`
+	RiderDepositMissing         int `json:"rider_deposit_missing"`
+	StationManagers             int `json:"station_managers"`
+	AfterSalesPending           int `json:"after_sales_pending"`
+	AfterSalesAdminReview       int `json:"after_sales_admin_review"`
+	DispatchEventCount          int `json:"dispatch_event_count"`
+	OutboxReady                 int `json:"outbox_ready"`
+	OutboxBlocked               int `json:"outbox_blocked"`
+	ObjectCleanupFailed         int `json:"object_cleanup_failed"`
+	ObjectCleanupTotalCandidate int `json:"object_cleanup_total_candidate"`
+}
+
+type AdminMerchantSnapshot struct {
+	Account                    MerchantAccount                `json:"account"`
+	Shops                      []Shop                         `json:"shops"`
+	Qualifications             []MerchantQualification        `json:"qualifications"`
+	MissingQualifications      []string                       `json:"missing_qualifications"`
+	StaffCount                 int                            `json:"staff_count"`
+	SupplementalMaterialCount  int                            `json:"supplemental_material_count"`
+	Deposit                    *DepositAccount                `json:"deposit,omitempty"`
+	CanAcceptOrders            bool                           `json:"can_accept_orders"`
+	QualificationPopupRequired bool                           `json:"qualification_popup_required"`
+	QualificationPopupCode     string                         `json:"qualification_popup_code,omitempty"`
+	SupplementalMaterials      []MerchantSupplementalMaterial `json:"supplemental_materials,omitempty"`
+}
+
+type AdminOperationsSnapshot struct {
+	GeneratedAt               time.Time                 `json:"generated_at"`
+	Counts                    AdminOperationsCounts     `json:"counts"`
+	Orders                    []Order                   `json:"orders"`
+	Merchants                 []AdminMerchantSnapshot   `json:"merchants"`
+	Riders                    []RiderAccount            `json:"riders"`
+	RiderPerformance          []RiderPerformance        `json:"rider_performance"`
+	AfterSales                []AfterSalesRequest       `json:"after_sales"`
+	DispatchEvents            []DispatchEvent           `json:"dispatch_events"`
+	RefundSettings            RefundSettings            `json:"refund_settings"`
+	OutboxStats               OutboxStats               `json:"outbox_stats"`
+	ObjectStorageCleanupStats ObjectStorageCleanupStats `json:"object_storage_cleanup_stats"`
+}
+
 type ObjectUploadTicket struct {
 	TicketID     string            `json:"ticket_id"`
 	Provider     string            `json:"provider"`

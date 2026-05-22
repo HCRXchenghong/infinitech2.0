@@ -140,6 +140,104 @@ func TestRefundSettingsAndBalanceRefundFlow(t *testing.T) {
 	}
 }
 
+func TestAdminOperationsSnapshotAggregatesP0Data(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	dispatchOrder, err := store.CreateOrder(CreateOrderRequest{UserID: "user_1", Type: OrderTypeTakeout, AmountFen: 900})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: "user_1", AmountFen: 900, IdempotencyKey: "credit_admin_snapshot_dispatch"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(SetWalletPaymentPasswordRequest{UserID: "user_1", Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, paidOrder, _, err := store.PayOrderWithBalance(BalancePayRequest{UserID: "user_1", OrderID: dispatchOrder.ID, PaymentPassword: "123456", IdempotencyKey: "pay_admin_snapshot_dispatch"}); err != nil || paidOrder.Status != StatusDispatching {
+		t.Fatalf("expected dispatching order setup, order=%+v err=%v", paidOrder, err)
+	}
+	if _, err := store.SetRiderOnlineStatus(SetRiderOnlineStatusRequest{RiderID: "rider_1", Online: true, Capacity: 2, DistanceMeters: 500}); err != nil {
+		t.Fatal(err)
+	}
+	assignedOrder, decision, err := store.AutoAssignOrder(AutoAssignOrderRequest{OrderID: dispatchOrder.ID, Now: dispatchOrder.CreatedAt.Add((DispatchGrabHallSeconds + 1) * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assignedOrder.Status != StatusRiderAssigned || decision.CandidateRiderID == "" {
+		t.Fatalf("expected auto-assigned order, order=%+v decision=%+v", assignedOrder, decision)
+	}
+
+	lat := 39.99
+	lng := 116.48
+	address, err := store.SaveAddress(UserAddress{
+		UserID:       "user_2",
+		ContactName:  "张三",
+		ContactPhone: "13800000000",
+		City:         "北京",
+		Detail:       "望京SOHO",
+		Latitude:     &lat,
+		Longitude:    &lng,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertCartItem(UpsertCartItemRequest{UserID: "user_2", ShopID: "shop_1", ProductID: "prod_beef_rice", Quantity: 1}); err != nil {
+		t.Fatal(err)
+	}
+	merchantOrder, _, err := store.CheckoutCart(CheckoutCartRequest{UserID: "user_2", ShopID: "shop_1", AddressID: address.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: "user_2", AmountFen: merchantOrder.AmountFen, IdempotencyKey: "credit_admin_snapshot_after_sales"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(SetWalletPaymentPasswordRequest{UserID: "user_2", Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, paidMerchantOrder, _, err := store.PayOrderWithBalance(BalancePayRequest{UserID: "user_2", OrderID: merchantOrder.ID, PaymentPassword: "123456", IdempotencyKey: "pay_admin_snapshot_after_sales"}); err != nil || paidMerchantOrder.Status != StatusMerchantPending {
+		t.Fatalf("expected merchant-pending order setup, order=%+v err=%v", paidMerchantOrder, err)
+	}
+	afterSales, err := store.CreateAfterSales(CreateAfterSalesRequest{
+		UserID:             "user_2",
+		OrderID:            merchantOrder.ID,
+		Reason:             "餐品漏送",
+		RequestedAmountFen: merchantOrder.AmountFen,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterSales.Status != AfterSalesPendingMerchant {
+		t.Fatalf("expected pending after-sales request, got %+v", afterSales)
+	}
+
+	snapshot, err := store.AdminOperationsSnapshot(AdminOperationsSnapshotRequest{
+		Now:                        time.Now().UTC().Add(20 * time.Minute),
+		Limit:                      5,
+		LeaseExpiringWithinSeconds: 60,
+		ObjectCleanupGraceSeconds:  60,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Counts.TotalOrders != 2 || snapshot.Counts.PendingMerchantOrders != 1 || snapshot.Counts.RiderAssignedOrders != 1 {
+		t.Fatalf("expected order counts in snapshot, got %+v", snapshot.Counts)
+	}
+	if snapshot.Counts.AfterSalesPending != 1 || len(snapshot.AfterSales) != 1 || snapshot.AfterSales[0].ID != afterSales.ID {
+		t.Fatalf("expected after-sales queue in snapshot, counts=%+v afterSales=%+v", snapshot.Counts, snapshot.AfterSales)
+	}
+	if len(snapshot.Merchants) == 0 || len(snapshot.Riders) == 0 || len(snapshot.RiderPerformance) == 0 {
+		t.Fatalf("expected merchants riders and performance in snapshot, got %+v", snapshot)
+	}
+	if snapshot.Counts.DispatchEventCount == 0 || len(snapshot.DispatchEvents) == 0 {
+		t.Fatalf("expected dispatch events in snapshot, counts=%+v events=%+v", snapshot.Counts, snapshot.DispatchEvents)
+	}
+	if snapshot.OutboxStats.Total == 0 || snapshot.Counts.OutboxReady == 0 {
+		t.Fatalf("expected outbox health in snapshot, stats=%+v counts=%+v", snapshot.OutboxStats, snapshot.Counts)
+	}
+	if snapshot.RefundSettings.DefaultStrategy != RefundStrategyBalanceFirst {
+		t.Fatalf("expected refund settings in snapshot, got %+v", snapshot.RefundSettings)
+	}
+}
+
 func TestPartialRefundsAccumulateWithoutOverRefund(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	order, err := store.CreateOrder(CreateOrderRequest{UserID: "user_1", Type: OrderTypeTakeout, AmountFen: 1200})

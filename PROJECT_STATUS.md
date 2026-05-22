@@ -58,7 +58,7 @@
 - 已完成美团/旧版能力对标矩阵：`docs/product/meituan-legacy-parity-matrix.md`。
 - 已完成商业级验收清单：`docs/product/commercial-readiness-checklist.md`。
 - 已完成容量与容灾规划：`docs/operations/capacity-and-dr.md`。
-- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260522-080`。
+- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260522-081`。
 - 已完成 GitHub 协作与质量门禁首版：`verify.yml` 会在 `push`/`pull_request` 跑 `npm run verify` 和 uncached Go 测试；PR 模板要求商业影响、验证和回滚说明；Issue 模板区分 bug、feature、commercial readiness gap；CODEOWNERS 和 Dependabot 已建立。
 
 ### 3.2 品牌和 UI 基线
@@ -160,6 +160,7 @@
 - `apps/admin-web` 最小运营控制台首版：静态入口、运营导航、P0 指标位、今日必盯队列、模块状态、RBAC 草案和接口操作台。
 - `apps/admin-web` 接口操作台已接入管理员登录、商户/站长/骑手邀约、退款策略、售后列表、对象清理、outbox 运维和订单状态补偿等现有 BFF/API。
 - `apps/admin-web` 已补 P0 业务视图首版：订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略均有独立页面结构、指标、表格、操作入口和安全约束。
+- 管理端已新增 `/api/admin/operations/snapshot` 运营快照首版，按后台视角聚合订单、商户资质/保证金、骑手/站长、骑手绩效、售后、派单审计、退款策略、outbox 健康和对象清理统计；BFF 与管理端操作台已接入该入口。
 - `apps/admin-uni` 骨架。
 - `packages/admin-core` 已定义关键运营模块。
 - 核心后台 API 已覆盖很多运营动作：退款策略、售后、outbox、对象存储清理、派单事件、站长任务、骑手绩效等。
@@ -167,7 +168,7 @@
 未完成：
 
 - 桌面管理端完整业务页面和详情页。
-- 管理端 P0 视图仍需接真实 API 数据源、分页筛选、详情抽屉、审核表单、操作审计、敏感字段脱敏和服务端细分 RBAC。
+- 管理端 P0 视图已有运营快照聚合 API，但页面仍需把表格/指标绑定真实数据，并继续补分页筛选、详情抽屉、审核表单、操作审计、敏感字段脱敏和服务端细分 RBAC。
 - 移动管理端实际页面。
 - RBAC 细分权限、操作审计页面、敏感字段脱敏展示。
 - 订单、售后、用户、商户、骑手、首页卡片、优惠券、圈子/饭搭、团购、买药、跑腿、客服、RTC、OAuth/API、对象存储告警等后台面板。
@@ -218,6 +219,7 @@
 - 售后上传回调验签与扫描门禁首版。
 - 对象扫描 worker 首版。
 - 对象扫描 worker ClamAV 适配与下载首版。
+- 管理端运营快照 API 首版：订单、商户、骑手、售后、调度、退款策略、outbox 和对象清理统一聚合。
 - 对象生命周期清理 worker 首版。
 - 对象清理失败账本首版。
 - 对象清理统计接口首版。

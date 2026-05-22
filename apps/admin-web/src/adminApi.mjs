@@ -79,6 +79,20 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     fields: []
   },
   {
+    key: "operations-snapshot",
+    title: "运营快照",
+    method: "GET",
+    path: "/api/admin/operations/snapshot",
+    authRequired: true,
+    area: "ops",
+    queryFields: [
+      { key: "limit", label: "条数", type: "number", defaultValue: 20 },
+      { key: "lease_expiring_within_seconds", label: "租约预警秒", type: "number", defaultValue: 60 },
+      { key: "object_cleanup_grace_seconds", label: "对象清理宽限秒", type: "number", defaultValue: 3600 }
+    ],
+    fields: []
+  },
+  {
     key: "object-cleanup-stats",
     title: "对象清理统计",
     method: "GET",

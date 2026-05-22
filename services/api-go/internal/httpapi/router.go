@@ -114,6 +114,7 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("GET /api/admin/refund-settings", r.handleAdminRefundSettings)
 	r.mux.HandleFunc("PUT /api/admin/refund-settings", r.handleAdminSaveRefundSettings)
 	r.mux.HandleFunc("GET /api/admin/after-sales", r.handleAdminAfterSales)
+	r.mux.HandleFunc("GET /api/admin/operations/snapshot", r.handleAdminOperationsSnapshot)
 	r.mux.HandleFunc("GET /api/admin/object-storage/cleanup-candidates", r.handleAdminObjectStorageCleanupCandidates)
 	r.mux.HandleFunc("GET /api/admin/object-storage/cleanup-stats", r.handleAdminObjectStorageCleanupStats)
 	r.mux.HandleFunc("POST /api/admin/object-storage/cleanup-complete", r.handleAdminObjectStorageCleanupComplete)
@@ -1143,6 +1144,64 @@ func (r *Router) handleAdminAfterSales(w http.ResponseWriter, req *http.Request)
 		return
 	}
 	writeSuccess(w, requests)
+}
+
+func (r *Router) handleAdminOperationsSnapshot(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.IsAdmin() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	query := req.URL.Query()
+	now := time.Time{}
+	if value := strings.TrimSpace(query.Get("now")); value != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, value)
+		if err != nil {
+			writePlatformError(w, platform.ErrInvalidArgument)
+			return
+		}
+		now = parsed
+	}
+	limit, ok := parseOptionalIntQuery(w, query.Get("limit"))
+	if !ok {
+		return
+	}
+	leaseExpiringWithinSeconds, ok := parseOptionalIntQuery(w, query.Get("lease_expiring_within_seconds"))
+	if !ok {
+		return
+	}
+	objectCleanupGraceSeconds, ok := parseOptionalIntQuery(w, query.Get("object_cleanup_grace_seconds"))
+	if !ok {
+		return
+	}
+	snapshot, err := r.store.AdminOperationsSnapshot(platform.AdminOperationsSnapshotRequest{
+		Now:                        now,
+		Limit:                      limit,
+		StationManagerID:           query.Get("station_manager_id"),
+		LeaseExpiringWithinSeconds: leaseExpiringWithinSeconds,
+		ObjectCleanupGraceSeconds:  objectCleanupGraceSeconds,
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccess(w, snapshot)
+}
+
+func parseOptionalIntQuery(w http.ResponseWriter, value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, true
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return 0, false
+	}
+	return parsed, true
 }
 
 func (r *Router) handleAdminRefundOrder(w http.ResponseWriter, req *http.Request) {

@@ -93,6 +93,27 @@ test("bff proxies user-facing api routes with authorization", async () => {
       res.end(JSON.stringify({ success: true, data: [{ id: "asr_1", status: "pending_merchant", authorization: req.headers.authorization }] }));
       return;
     }
+    if (req.method === "GET" && req.url === "/api/admin/operations/snapshot?limit=5&lease_expiring_within_seconds=60&object_cleanup_grace_seconds=60") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          generated_at: "2026-05-22T12:00:00Z",
+          counts: { total_orders: 3, after_sales_pending: 1, outbox_ready: 1 },
+          orders: [{ id: "ord_1", status: "dispatching" }],
+          merchants: [{ account: { id: "merchant_1" }, can_accept_orders: true }],
+          riders: [{ id: "rider_1", online: true }],
+          rider_performance: [{ rider_id: "rider_1", level: "S" }],
+          after_sales: [{ id: "asr_1", status: "pending_merchant" }],
+          dispatch_events: [],
+          refund_settings: { default_refund_strategy: "balance_first" },
+          outbox_stats: { ready: 1, blocked: 0 },
+          object_storage_cleanup_stats: { pending: 0 },
+          authorization: req.headers.authorization
+        }
+      }));
+      return;
+    }
     if (req.method === "GET" && req.url === "/api/admin/object-storage/cleanup-candidates?limit=1&grace_seconds=60") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
@@ -935,6 +956,7 @@ test("bff proxies user-facing api routes with authorization", async () => {
   const afterSalesEvidence = await getJSON(`${baseUrl}/api/after-sales/asr_1/evidence`, "Bearer merchant:merchant_1");
   const reviewedAfterSales = await postJSON(`${baseUrl}/api/after-sales/asr_1/review`, "Bearer merchant:merchant_1", { decision: "approve", reason: "确认漏送" });
   const adminAfterSales = await getJSON(`${baseUrl}/api/admin/after-sales`, "Bearer admin:admin_1");
+  const adminOperationsSnapshot = await getJSON(`${baseUrl}/api/admin/operations/snapshot?limit=5&lease_expiring_within_seconds=60&object_cleanup_grace_seconds=60`, "Bearer admin:admin_1");
   const objectCleanupCandidates = await getJSON(`${baseUrl}/api/admin/object-storage/cleanup-candidates?limit=1&grace_seconds=60`, "Bearer admin:admin_1");
   const objectCleanupStats = await getJSON(`${baseUrl}/api/admin/object-storage/cleanup-stats?grace_seconds=60`, "Bearer admin:admin_1");
   const failedObjectCleanup = await postJSON(`${baseUrl}/api/admin/object-storage/cleanup-failed`, "Bearer admin:admin_1", { ticket_id: "aset_1", object_key: "after-sales/asr_1/sig/evidence.jpg", reason: "expired_unconfirmed", error: "delete denied" });
@@ -1065,6 +1087,9 @@ test("bff proxies user-facing api routes with authorization", async () => {
   assert.equal(reviewedAfterSales.data.after_sales.status, "refunded");
   assert.equal(reviewedAfterSales.data.wallet_account.balance_fen, 1200);
   assert.equal(adminAfterSales.data[0].authorization, "Bearer admin:admin_1");
+  assert.equal(adminOperationsSnapshot.data.authorization, "Bearer admin:admin_1");
+  assert.equal(adminOperationsSnapshot.data.counts.total_orders, 3);
+  assert.equal(adminOperationsSnapshot.data.refund_settings.default_refund_strategy, "balance_first");
   assert.equal(objectCleanupCandidates.data[0].authorization, "Bearer admin:admin_1");
   assert.equal(objectCleanupCandidates.data[0].reason, "expired_unconfirmed");
   assert.equal(objectCleanupStats.data.authorization, "Bearer admin:admin_1");

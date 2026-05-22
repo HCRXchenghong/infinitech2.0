@@ -130,6 +130,43 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	}
 }
 
+func TestAdminOperationsSnapshotHTTPFlow(t *testing.T) {
+	store := platform.NewStore(platform.DefaultHomeModules())
+	order, err := store.CreateOrder(platform.CreateOrderRequest{UserID: "user_1", Type: platform.OrderTypeTakeout, AmountFen: 1200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreditWallet(platform.CreditWalletRequest{UserID: "user_1", AmountFen: 1200, IdempotencyKey: "credit_http_admin_snapshot"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(platform.SetWalletPaymentPasswordRequest{UserID: "user_1", Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, paidOrder, _, err := store.PayOrderWithBalance(platform.BalancePayRequest{UserID: "user_1", OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_http_admin_snapshot"}); err != nil || paidOrder.Status != platform.StatusDispatching {
+		t.Fatalf("expected paid order setup, order=%+v err=%v", paidOrder, err)
+	}
+
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	authGetJSON(t, server.URL+"/api/admin/operations/snapshot?limit=3&lease_expiring_within_seconds=60&object_cleanup_grace_seconds=60", userToken("user_1"), http.StatusForbidden)
+	body := authGetJSON(t, server.URL+"/api/admin/operations/snapshot?limit=3&lease_expiring_within_seconds=60&object_cleanup_grace_seconds=60", adminToken("admin_1"), http.StatusOK)
+	data := body["data"].(map[string]any)
+	counts := data["counts"].(map[string]any)
+	if counts["total_orders"] != float64(1) || counts["dispatching_orders"] != float64(1) {
+		t.Fatalf("expected order counts in operations snapshot, got %+v", body)
+	}
+	if len(data["orders"].([]any)) != 1 || len(data["merchants"].([]any)) == 0 || len(data["riders"].([]any)) == 0 || len(data["rider_performance"].([]any)) == 0 {
+		t.Fatalf("expected P0 lists in operations snapshot, got %+v", body)
+	}
+	if data["refund_settings"].(map[string]any)["default_refund_strategy"] != platform.RefundStrategyBalanceFirst {
+		t.Fatalf("expected refund settings in operations snapshot, got %+v", body)
+	}
+	if data["outbox_stats"].(map[string]any)["total"] == float64(0) {
+		t.Fatalf("expected outbox stats in operations snapshot, got %+v", body)
+	}
+}
+
 func TestAfterSalesHTTPFlow(t *testing.T) {
 	store := platform.NewStore(platform.DefaultHomeModules())
 	lat := 39.99

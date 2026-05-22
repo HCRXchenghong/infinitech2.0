@@ -62,7 +62,7 @@
 - UI 使用旧版 logo 和 `#009bf5`。
 - 核心流程必须有真机/浏览器截图验收。
 - 端侧只访问 BFF 或公开 API，不直连内部 Worker 和数据库。
-- 当前证据：`apps/admin-web` 已有最小运营控制台首版，接入管理员登录、邀约准入、退款策略、售后列表、对象清理、outbox 运维和订单状态补偿等 BFF/API；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略 P0 业务视图首版；`npm run test --workspace @infinitech/admin-web` 和浏览器打开验证已通过。仍需接真实列表 API、完整详情页、细分 RBAC、操作审计、敏感字段脱敏和截图归档。
+- 当前证据：`apps/admin-web` 已有最小运营控制台首版，接入管理员登录、邀约准入、运营快照、退款策略、售后列表、对象清理、outbox 运维和订单状态补偿等 BFF/API；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略 P0 业务视图首版；`/api/admin/operations/snapshot` 已能聚合订单、商户、骑手、售后、派单、退款策略、outbox 和对象清理状态；`npm run test --workspace @infinitech/admin-web` 和浏览器打开验证已通过。仍需把页面表格/指标真实绑定接口响应、补完整详情页、细分 RBAC、操作审计、敏感字段脱敏和截图归档。
 
 ## 7. 容量和容灾
 
@@ -120,6 +120,7 @@
 - 已有 outbox relay 租约续租首版测试：管理员可通过 `POST /api/admin/outbox/events/{eventID}/lease/renew` 续租当前 owner 的活动租约，错误 owner、过期租约和非 pending/failed 状态会冲突；outbox relay worker 在慢发布期间按 `OUTBOX_RELAY_LEASE_RENEW_INTERVAL_MS=30000` 心跳续租，完成 publish 后清理 timer，BFF 和架构检查均覆盖该链路。
 - 已有 PostgreSQL outbox 规范化 relay 路径首版：`PostgresStore` 启动时确保 `platform_outbox_events` 表/索引存在，把 snapshot outbox 幂等补入规范化表；pending/stats/claim/renew/ack/fail/replay 走规范化表，claim 和批量 replay 使用 `FOR UPDATE SKIP LOCKED`，并由架构检查防回退。
 - 已有 outbox 租约健康观测首版：`GET /api/admin/outbox/stats` 支持 `lease_expiring_within_seconds`，返回全局、per-topic 和 per-owner 的 `lease_expiring_soon`、`next_lease_expires_at`、`next_lease_expires_in_seconds`，可用于发现 relay 心跳异常、worker 倾斜和租约即将过期的重复投递风险；内存 Store、PostgreSQL outbox 路径、HTTP、BFF 和架构检查均已覆盖。
+- 已有管理端运营快照首版：`GET /api/admin/operations/snapshot` 按统一后台口径聚合订单状态/异常、商户资质与保证金、骑手在线与保证金、站长数量、骑手绩效等级、售后队列、派单审计、退款策略、outbox 健康和对象清理统计；HTTP、BFF、Admin Web 操作台和测试已覆盖，为后续真实后台列表页绑定提供数据源。
 - 已有消费端幂等落库首版：`@infinitech/domain-core` 提供 consumed-event ledger 和 `createIdempotentConsumer`，dispatch/payment/notification/integration/settlement 五个 worker 已覆盖重复 outbox 投递只执行一次；PostgreSQL 迁移和启动建表已新增 `platform_consumed_events`，为真实 Kafka/NATS 至少一次投递的消费端落库防重做准备。
 - 已有支付/钱包 PostgreSQL 规范化恢复首版：`PostgresStore` 启动和写入后会同步/恢复 `orders`、`order_items`、`order_events`、`wallet_accounts`、`wallet_transactions`、`wallet_payment_passwords`、`payment_transactions`，并重建钱包幂等索引、支付密码和微信 `out_trade_no`/`transaction_id` 索引；测试覆盖余额支付重复请求、支付密码恢复、微信回调重复投递和订单事件恢复。
 - 已有订单创建 PostgreSQL 事务化首版：`PostgresStore.CreateOrder` 使用数据库事务写入 `orders` 和初始 `order_events`，通过 `platform_sequences` 的 `orders` 序列行级锁生成订单号，并在序列缺失或灾备恢复后根据现有订单最大编号追平；提交后刷新规范化表镜像和 snapshot，架构检查防止回退到内存先写。

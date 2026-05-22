@@ -9,7 +9,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "调度阻塞", value: "0", tone: "green" },
       { label: "队列积压", value: "0", tone: "blue" }
     ],
-    actions: ["after-sales-list", "refund-settings-read", "outbox-stats", "object-cleanup-stats"],
+    actions: ["operations-snapshot", "after-sales-list", "refund-settings-read", "outbox-stats", "object-cleanup-stats"],
     columns: ["队列", "归属", "SLA", "处理入口"],
     rows: [
       ["售后审核", "客服", "30 分钟首响", "售后列表"],
@@ -29,7 +29,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "配送中", value: "312", tone: "blue" },
       { label: "异常单", value: "6", tone: "red" }
     ],
-    actions: ["order-compensate", "outbox-events", "outbox-stats"],
+    actions: ["operations-snapshot", "order-compensate", "outbox-events", "outbox-stats"],
     columns: ["订单", "类型", "状态", "商户", "骑手", "风险"],
     rows: [
       ["ord_10031", "外卖", "待派单", "蓝湾轻食", "未分配", "超 8 分钟"],
@@ -49,7 +49,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "仲裁中", value: "9", tone: "blue" },
       { label: "超时风险", value: "3", tone: "red" }
     ],
-    actions: ["after-sales-list", "object-cleanup-candidates", "object-cleanup-stats"],
+    actions: ["operations-snapshot", "after-sales-list", "object-cleanup-candidates", "object-cleanup-stats"],
     columns: ["工单", "订单", "申请人", "状态", "可退金额", "证据"],
     rows: [
       ["asr_231", "ord_10031", "user_18", "商户待处理", "3200 分", "2 个附件"],
@@ -69,7 +69,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "资质过期", value: "7", tone: "red" },
       { label: "未缴保证金", value: "4", tone: "red" }
     ],
-    actions: ["merchant-invite"],
+    actions: ["operations-snapshot", "merchant-invite"],
     columns: ["商户", "店铺", "能力", "保证金", "资质", "到期"],
     rows: [
       ["merchant_12", "蓝湾轻食", "外卖/团购", "已缴", "营业执照/健康证", "2026-11-30"],
@@ -89,7 +89,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "免押审核", value: "6", tone: "blue" },
       { label: "纠纷退押", value: "3", tone: "red" }
     ],
-    actions: ["station-manager-invite", "rider-invite", "station-riders", "station-task-config"],
+    actions: ["operations-snapshot", "station-manager-invite", "rider-invite", "station-riders", "station-task-config"],
     columns: ["账号", "站点", "状态", "准入", "等级", "今日单量"],
     rows: [
       ["station_manager_2", "station_1", "在线", "站长", "A", "全部"],
@@ -109,7 +109,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "超时高风险", value: "11", tone: "red" },
       { label: "固定单量达成", value: "72%", tone: "amber" }
     ],
-    actions: ["station-performance", "station-riders"],
+    actions: ["operations-snapshot", "station-performance", "station-riders"],
     columns: ["骑手", "平均接单", "完成率", "取消率", "等级", "派单优先级"],
     rows: [
       ["rider_71", "19s", "98%", "0.4%", "S", "最高"],
@@ -129,7 +129,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "拒单顺延", value: "3", tone: "red" },
       { label: "手动派单", value: "2", tone: "blue" }
     ],
-    actions: ["station-orders", "station-performance", "order-compensate"],
+    actions: ["operations-snapshot", "station-orders", "station-performance", "order-compensate"],
     columns: ["订单", "阶段", "候选骑手", "策略", "下一步", "审计"],
     rows: [
       ["ord_10031", "抢单 08:12", "12", "抢单大厅", "等待", "已记录"],

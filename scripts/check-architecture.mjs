@@ -96,6 +96,7 @@ test("admin web has a minimum operable control center", () => {
   assert.match(main, /运营后台/);
   assert.match(api, /\/api\/auth\/admin\/login/);
   assert.match(api, /\/api\/admin\/merchant-invites/);
+  assert.match(api, /\/api\/admin\/operations\/snapshot/);
   assert.match(api, /\/api\/admin\/outbox\/stats/);
   assert.match(api, /\/api\/admin\/object-storage\/cleanup-stats/);
   assert.match(api, /\/api\/station-manager\/rider-performance/);

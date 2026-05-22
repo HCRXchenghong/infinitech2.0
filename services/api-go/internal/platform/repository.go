@@ -45,6 +45,7 @@ type Repository interface {
 	RefundSettings() (*RefundSettings, error)
 	SaveRefundSettings(req SaveRefundSettingsRequest) (*RefundSettings, error)
 	RefundOrder(req RefundOrderRequest) (*RefundTransaction, *Order, *WalletAccount, error)
+	AdminOperationsSnapshot(req AdminOperationsSnapshotRequest) (*AdminOperationsSnapshot, error)
 	CreateAfterSales(req CreateAfterSalesRequest) (*AfterSalesRequest, error)
 	UserAfterSalesRequests(userID string) ([]AfterSalesRequest, error)
 	MerchantAfterSalesRequests(merchantID string) ([]AfterSalesRequest, error)
