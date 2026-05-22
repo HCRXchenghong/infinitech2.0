@@ -35,6 +35,7 @@ type Store struct {
 	nextMerchantMaterialID  uint64
 	nextDispatchEventID     uint64
 	nextOutboxEventID       uint64
+	nextAuditLogID          uint64
 	nextAfterSalesID        uint64
 	nextAfterSalesEventID   uint64
 	nextRiderID             uint64
@@ -82,6 +83,7 @@ type Store struct {
 	freeCancelUsedByDate    map[string]string
 	outboxEvents            map[string]*OutboxEvent
 	outboxByIdempotency     map[string]string
+	auditLogs               map[string]*AuditLog
 	objectStorage           ObjectStorageConfig
 }
 
@@ -132,6 +134,7 @@ func NewStore(homeModules []HomeModule) *Store {
 		freeCancelUsedByDate:    map[string]string{},
 		outboxEvents:            map[string]*OutboxEvent{},
 		outboxByIdempotency:     map[string]string{},
+		auditLogs:               map[string]*AuditLog{},
 		objectStorage:           DefaultObjectStorageConfig(),
 	}
 }
@@ -3167,6 +3170,98 @@ func (s *Store) DispatchEvents(orderID string, stationManagerID string) ([]Dispa
 	return events, nil
 }
 
+func (s *Store) RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error) {
+	actorType := strings.TrimSpace(req.ActorType)
+	actorID := strings.TrimSpace(req.ActorID)
+	action := strings.TrimSpace(req.Action)
+	targetType := strings.TrimSpace(req.TargetType)
+	targetID := strings.TrimSpace(req.TargetID)
+	if actorType == "" || actorID == "" || action == "" || targetType == "" || targetID == "" {
+		return nil, ErrInvalidArgument
+	}
+	now := req.CreatedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextAuditLogID++
+	log := &AuditLog{
+		ID:         fmt.Sprintf("aud_%d", s.nextAuditLogID),
+		ActorType:  actorType,
+		ActorID:    actorID,
+		Action:     action,
+		TargetType: targetType,
+		TargetID:   targetID,
+		RequestID:  strings.TrimSpace(req.RequestID),
+		IPHash:     strings.TrimSpace(req.IPHash),
+		Payload:    cloneMapAny(req.Payload),
+		CreatedAt:  now,
+	}
+	s.auditLogs[log.ID] = log
+	return cloneAuditLog(log), nil
+}
+
+func (s *Store) AuditLogs(req AuditLogsRequest) ([]AuditLog, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	actorType := strings.TrimSpace(req.ActorType)
+	actorID := strings.TrimSpace(req.ActorID)
+	action := strings.TrimSpace(req.Action)
+	targetType := strings.TrimSpace(req.TargetType)
+	targetID := strings.TrimSpace(req.TargetID)
+	before := req.Before
+	if !before.IsZero() {
+		before = before.UTC()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	logs := make([]AuditLog, 0, len(s.auditLogs))
+	for _, log := range s.auditLogs {
+		if log == nil {
+			continue
+		}
+		if actorType != "" && log.ActorType != actorType {
+			continue
+		}
+		if actorID != "" && log.ActorID != actorID {
+			continue
+		}
+		if action != "" && log.Action != action {
+			continue
+		}
+		if targetType != "" && log.TargetType != targetType {
+			continue
+		}
+		if targetID != "" && log.TargetID != targetID {
+			continue
+		}
+		if !before.IsZero() && !log.CreatedAt.Before(before) {
+			continue
+		}
+		logs = append(logs, *cloneAuditLog(log))
+	}
+	sort.SliceStable(logs, func(i, j int) bool {
+		if !logs[i].CreatedAt.Equal(logs[j].CreatedAt) {
+			return logs[i].CreatedAt.After(logs[j].CreatedAt)
+		}
+		return logs[i].ID > logs[j].ID
+	})
+	if len(logs) > limit {
+		logs = logs[:limit]
+	}
+	return logs, nil
+}
+
 func (s *Store) OutboxEvents(req OutboxEventsRequest) ([]OutboxEvent, error) {
 	status := strings.TrimSpace(req.Status)
 	if status == "" {
@@ -5601,6 +5696,15 @@ func cloneDispatchEvent(input *DispatchEvent) *DispatchEvent {
 }
 
 func cloneOutboxEvent(input *OutboxEvent) *OutboxEvent {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Payload = cloneMapAny(input.Payload)
+	return &output
+}
+
+func cloneAuditLog(input *AuditLog) *AuditLog {
 	if input == nil {
 		return nil
 	}

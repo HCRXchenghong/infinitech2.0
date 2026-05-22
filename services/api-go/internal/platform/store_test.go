@@ -2693,6 +2693,48 @@ func TestOutboxStatsBacklogReadiness(t *testing.T) {
 	}
 }
 
+func TestAuditLogsRecordFilterAndProtectPayloadCopies(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	payload := map[string]any{"default_refund_strategy": RefundStrategyBalanceFirst}
+	log, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.refund_settings.updated",
+		TargetType: "refund_settings",
+		TargetID:   "default",
+		RequestID:  "req_1",
+		IPHash:     "ip_hash",
+		Payload:    payload,
+		CreatedAt:  now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload["default_refund_strategy"] = "mutated"
+	log.Payload["default_refund_strategy"] = "mutated_result"
+
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{ActorType: "admin", ActorID: "admin_1", Action: "admin.outbox.replayed", TargetType: "outbox_event", TargetID: "obe_1", CreatedAt: now.Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+
+	logs, err := store.AuditLogs(AuditLogsRequest{ActorType: "admin", TargetType: "refund_settings", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].ID != log.ID || logs[0].Payload["default_refund_strategy"] != RefundStrategyBalanceFirst || logs[0].RequestID != "req_1" || logs[0].IPHash != "ip_hash" {
+		t.Fatalf("expected filtered immutable audit log, got %+v", logs)
+	}
+
+	allLogs, err := store.AuditLogs(AuditLogsRequest{Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(allLogs) != 1 || allLogs[0].Action != "admin.outbox.replayed" {
+		t.Fatalf("expected newest audit log first with limit, got %+v", allLogs)
+	}
+}
+
 func mustPaidDispatchOrder(t *testing.T, store *Store, suffix string) *Order {
 	t.Helper()
 	userID := "user_" + suffix

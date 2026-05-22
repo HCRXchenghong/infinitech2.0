@@ -26,6 +26,7 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
     "refund-settings-save",
     "after-sales-list",
     "operations-snapshot",
+    "audit-logs",
     "object-cleanup-stats",
     "object-cleanup-candidates",
     "outbox-stats",
@@ -70,6 +71,10 @@ test("admin request builder normalizes auth query path and body", () => {
 
   const snapshotRequest = buildAdminRequest(getAdminOperation("operations-snapshot"), { limit: 10, lease_expiring_within_seconds: 45 }, "admin.token");
   assert.equal(snapshotRequest.url, "/api/admin/operations/snapshot?limit=10&lease_expiring_within_seconds=45&object_cleanup_grace_seconds=3600");
+
+  const auditRequest = buildAdminRequest(getAdminOperation("audit-logs"), { target_type: "order", limit: 5 }, "Bearer admin.token");
+  assert.equal(auditRequest.url, "/api/admin/audit-logs?target_type=order&limit=5");
+  assert.equal(auditRequest.headers.Authorization, "Bearer admin.token");
 
   const loginFields = fieldsForOperation(getAdminOperation("admin-login"));
   assert.deepEqual(loginFields.map((field) => field.key), ["account_id", "password"]);

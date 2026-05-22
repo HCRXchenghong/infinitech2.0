@@ -100,6 +100,7 @@ test("admin web has a minimum operable control center", () => {
   assert.match(api, /\/api\/auth\/admin\/login/);
   assert.match(api, /\/api\/admin\/merchant-invites/);
   assert.match(api, /\/api\/admin\/operations\/snapshot/);
+  assert.match(api, /\/api\/admin\/audit-logs/);
   assert.match(snapshot, /applySnapshotToAdminView/);
   assert.match(snapshot, /buildSnapshotKpis/);
   assert.match(snapshot, /buildSnapshotQueues/);
@@ -128,6 +129,8 @@ test("bff keeps browser CORS guard for local admin and uni shells", () => {
   assert.match(server, /req\.method === "OPTIONS"/);
   assert.match(tests, /admin api preflight and proxy responses/);
   assert.match(tests, /\/api\/admin\/operations\/snapshot/);
+  assert.match(server, /\/api\/admin\/audit-logs/);
+  assert.match(tests, /\/api\/admin\/audit-logs/);
 });
 
 test("core database migration records commercial-grade ledgers and events", () => {
@@ -331,6 +334,24 @@ test("refund settings and admin order refund are wired end to end", () => {
   assert.match(routerTest, /TestAdminRefundSettingsAndOrderRefundHTTPFlow/);
   assert.match(postgresStoreTest, /TestSQLRefundSideEffectsRestoreRefundAndOutbox/);
   assert.match(bffTest, /refundedOrder/);
+});
+
+test("admin operation audit logs are wired end to end", () => {
+  const contracts = readFileSync(join(root, "services/api-go/internal/platform/contracts.go"), "utf8");
+  const repository = readFileSync(join(root, "services/api-go/internal/platform/repository.go"), "utf8");
+  const store = readFileSync(join(root, "services/api-go/internal/platform/store.go"), "utf8");
+  const router = readFileSync(join(root, "services/api-go/internal/httpapi/router.go"), "utf8");
+  const bff = readFileSync(join(root, "services/bff/src/server.mjs"), "utf8");
+  assert.match(contracts, /type AuditLog struct/);
+  assert.match(repository, /RecordAuditLog/);
+  assert.match(repository, /AuditLogs/);
+  assert.match(store, /func \(s \*Store\) RecordAuditLog/);
+  assert.match(store, /func \(s \*Store\) AuditLogs/);
+  assert.match(router, /GET \/api\/admin\/audit-logs/);
+  assert.match(router, /recordAuditLog/);
+  assert.match(router, /admin\.refund_settings\.updated/);
+  assert.match(router, /admin\.order\.refunded/);
+  assert.match(bff, /\/api\/admin\/audit-logs/);
 });
 
 test("payment worker understands original-route refund outbox events", () => {

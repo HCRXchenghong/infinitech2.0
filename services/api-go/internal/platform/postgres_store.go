@@ -43,6 +43,7 @@ type storeSnapshot struct {
 	NextMerchantMaterialID  uint64                                     `json:"next_merchant_material_id"`
 	NextDispatchEventID     uint64                                     `json:"next_dispatch_event_id"`
 	NextOutboxEventID       uint64                                     `json:"next_outbox_event_id"`
+	NextAuditLogID          uint64                                     `json:"next_audit_log_id"`
 	NextAfterSalesID        uint64                                     `json:"next_after_sales_id"`
 	NextAfterSalesEventID   uint64                                     `json:"next_after_sales_event_id"`
 	NextRiderID             uint64                                     `json:"next_rider_id"`
@@ -90,6 +91,7 @@ type storeSnapshot struct {
 	FreeCancelUsedByDate    map[string]string                          `json:"free_cancel_used_by_date"`
 	OutboxEvents            map[string]*OutboxEvent                    `json:"outbox_events"`
 	OutboxByIdempotency     map[string]string                          `json:"outbox_by_idempotency"`
+	AuditLogs               map[string]*AuditLog                       `json:"audit_logs"`
 }
 
 func NewPostgresStore(ctx context.Context, databaseURL string, homeModules []HomeModule) (*PostgresStore, error) {
@@ -5497,6 +5499,7 @@ func (s *Store) snapshotLocked() storeSnapshot {
 		NextMerchantMaterialID:  s.nextMerchantMaterialID,
 		NextDispatchEventID:     s.nextDispatchEventID,
 		NextOutboxEventID:       s.nextOutboxEventID,
+		NextAuditLogID:          s.nextAuditLogID,
 		NextAfterSalesID:        s.nextAfterSalesID,
 		NextAfterSalesEventID:   s.nextAfterSalesEventID,
 		NextRiderID:             s.nextRiderID,
@@ -5544,6 +5547,7 @@ func (s *Store) snapshotLocked() storeSnapshot {
 		FreeCancelUsedByDate:    s.freeCancelUsedByDate,
 		OutboxEvents:            s.outboxEvents,
 		OutboxByIdempotency:     s.outboxByIdempotency,
+		AuditLogs:               s.auditLogs,
 	}
 }
 
@@ -5558,6 +5562,7 @@ func (s *Store) applySnapshot(snapshot storeSnapshot) {
 	s.nextMerchantMaterialID = snapshot.NextMerchantMaterialID
 	s.nextDispatchEventID = snapshot.NextDispatchEventID
 	s.nextOutboxEventID = snapshot.NextOutboxEventID
+	s.nextAuditLogID = snapshot.NextAuditLogID
 	s.nextAfterSalesID = snapshot.NextAfterSalesID
 	s.nextAfterSalesEventID = snapshot.NextAfterSalesEventID
 	s.nextRiderID = snapshot.NextRiderID
@@ -5605,6 +5610,7 @@ func (s *Store) applySnapshot(snapshot storeSnapshot) {
 	s.freeCancelUsedByDate = nonNilMap(snapshot.FreeCancelUsedByDate)
 	s.outboxEvents = nonNilMap(snapshot.OutboxEvents)
 	s.outboxByIdempotency = nonNilMap(snapshot.OutboxByIdempotency)
+	s.auditLogs = nonNilMap(snapshot.AuditLogs)
 	s.relinkIndexesLocked()
 }
 
@@ -5670,6 +5676,17 @@ func (s *Store) relinkIndexesLocked() {
 			event.ID = id
 		}
 	}
+	for id, log := range s.auditLogs {
+		if log == nil {
+			continue
+		}
+		if log.ID == "" {
+			log.ID = id
+		}
+		if value, err := strconv.ParseUint(strings.TrimPrefix(log.ID, "aud_"), 10, 64); err == nil && value > s.nextAuditLogID {
+			s.nextAuditLogID = value
+		}
+	}
 }
 
 func (s *PostgresStore) LoginWechatMini(req WechatMiniLoginRequest) (*WechatMiniLoginResult, error) {
@@ -5680,6 +5697,11 @@ func (s *PostgresStore) LoginWechatMini(req WechatMiniLoginRequest) (*WechatMini
 func (s *PostgresStore) CreateMerchantInvite(req CreateMerchantInviteRequest) (*MerchantOnboardingInvite, error) {
 	invite, err := s.Store.CreateMerchantInvite(req)
 	return invite, s.persistAfter(err)
+}
+
+func (s *PostgresStore) RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error) {
+	log, err := s.Store.RecordAuditLog(req)
+	return log, s.persistAfter(err)
 }
 
 func (s *PostgresStore) AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error) {

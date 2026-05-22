@@ -1342,6 +1342,41 @@ type WechatPaymentCallbackRequest struct {
 	AmountFen     int64  `json:"amount_fen"`
 }
 
+type AuditLog struct {
+	ID         string         `json:"id"`
+	ActorType  string         `json:"actor_type"`
+	ActorID    string         `json:"actor_id"`
+	Action     string         `json:"action"`
+	TargetType string         `json:"target_type"`
+	TargetID   string         `json:"target_id"`
+	RequestID  string         `json:"request_id"`
+	IPHash     string         `json:"ip_hash"`
+	Payload    map[string]any `json:"payload"`
+	CreatedAt  time.Time      `json:"created_at"`
+}
+
+type RecordAuditLogRequest struct {
+	ActorType  string         `json:"actor_type"`
+	ActorID    string         `json:"actor_id"`
+	Action     string         `json:"action"`
+	TargetType string         `json:"target_type"`
+	TargetID   string         `json:"target_id"`
+	RequestID  string         `json:"request_id"`
+	IPHash     string         `json:"ip_hash"`
+	Payload    map[string]any `json:"payload"`
+	CreatedAt  time.Time      `json:"created_at"`
+}
+
+type AuditLogsRequest struct {
+	ActorType  string    `json:"actor_type"`
+	ActorID    string    `json:"actor_id"`
+	Action     string    `json:"action"`
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id"`
+	Limit      int       `json:"limit"`
+	Before     time.Time `json:"before"`
+}
+
 func DefaultHomeModules() []HomeModule {
 	return []HomeModule{
 		{Key: "takeout", Title: "外卖", Route: "/pages/shop/list/index", Icon: "takeout", Enabled: true, SortOrder: 10, Scene: "home"},

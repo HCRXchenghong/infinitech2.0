@@ -115,6 +115,7 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("PUT /api/admin/refund-settings", r.handleAdminSaveRefundSettings)
 	r.mux.HandleFunc("GET /api/admin/after-sales", r.handleAdminAfterSales)
 	r.mux.HandleFunc("GET /api/admin/operations/snapshot", r.handleAdminOperationsSnapshot)
+	r.mux.HandleFunc("GET /api/admin/audit-logs", r.handleAdminAuditLogs)
 	r.mux.HandleFunc("GET /api/admin/object-storage/cleanup-candidates", r.handleAdminObjectStorageCleanupCandidates)
 	r.mux.HandleFunc("GET /api/admin/object-storage/cleanup-stats", r.handleAdminObjectStorageCleanupStats)
 	r.mux.HandleFunc("POST /api/admin/object-storage/cleanup-complete", r.handleAdminObjectStorageCleanupComplete)
@@ -280,6 +281,12 @@ func (r *Router) handleCreateMerchantInvite(w http.ResponseWriter, req *http.Req
 		writePlatformError(w, err)
 		return
 	}
+	if err := r.recordAuditLog(req, principal, "admin.merchant_invite.created", "merchant_invite", invite.Token, map[string]any{
+		"expires_at": invite.ExpiresAt,
+	}); err != nil {
+		writePlatformError(w, err)
+		return
+	}
 	writeSuccessStatus(w, http.StatusCreated, invite)
 }
 
@@ -309,6 +316,14 @@ func (r *Router) handleCreateRiderInvite(w http.ResponseWriter, req *http.Reques
 	}
 	invite, err := r.store.CreateRiderInvite(payload)
 	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if err := r.recordAuditLog(req, principal, "admin.rider_invite.created", "rider_invite", invite.Token, map[string]any{
+		"type":       invite.Type,
+		"station_id": invite.StationID,
+		"expires_at": invite.ExpiresAt,
+	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1088,6 +1103,18 @@ func (r *Router) handleAdminCompensateOrderState(w http.ResponseWriter, req *htt
 		writePlatformError(w, err)
 		return
 	}
+	if err := r.recordAuditLog(req, principal, "admin.order_state.compensated", "order", payload.OrderID, map[string]any{
+		"changed":           result.Changed,
+		"previous_status":   result.PreviousStatus,
+		"expected_status":   result.ExpectedStatus,
+		"compensation_type": result.CompensationType,
+		"evidence_count":    len(result.Evidence),
+		"previous_rider_id": result.PreviousRiderID,
+		"expected_rider_id": result.ExpectedRiderID,
+	}); err != nil {
+		writePlatformError(w, err)
+		return
+	}
 	writeSuccess(w, result)
 }
 
@@ -1123,6 +1150,12 @@ func (r *Router) handleAdminSaveRefundSettings(w http.ResponseWriter, req *http.
 	}
 	settings, err := r.store.SaveRefundSettings(payload)
 	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if err := r.recordAuditLog(req, principal, "admin.refund_settings.updated", "refund_settings", "default", map[string]any{
+		"default_refund_strategy": settings.DefaultStrategy,
+	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1204,6 +1237,72 @@ func parseOptionalIntQuery(w http.ResponseWriter, value string) (int, bool) {
 	return parsed, true
 }
 
+func (r *Router) handleAdminAuditLogs(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.IsAdmin() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	query := req.URL.Query()
+	limit, ok := parseOptionalIntQuery(w, query.Get("limit"))
+	if !ok {
+		return
+	}
+	before := time.Time{}
+	if value := strings.TrimSpace(query.Get("before")); value != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, value)
+		if err != nil {
+			writePlatformError(w, platform.ErrInvalidArgument)
+			return
+		}
+		before = parsed
+	}
+	logs, err := r.store.AuditLogs(platform.AuditLogsRequest{
+		ActorType:  query.Get("actor_type"),
+		ActorID:    query.Get("actor_id"),
+		Action:     query.Get("action"),
+		TargetType: query.Get("target_type"),
+		TargetID:   query.Get("target_id"),
+		Limit:      limit,
+		Before:     before,
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccess(w, logs)
+}
+
+func (r *Router) recordAuditLog(req *http.Request, principal Principal, action string, targetType string, targetID string, payload map[string]any) error {
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		targetID = "*"
+	}
+	_, err := r.store.RecordAuditLog(platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     action,
+		TargetType: targetType,
+		TargetID:   targetID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+		Payload:    payload,
+	})
+	return err
+}
+
+func requestID(req *http.Request) string {
+	for _, header := range []string{"X-Request-Id", "X-Request-ID", "X-Correlation-Id"} {
+		if value := strings.TrimSpace(req.Header.Get(header)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func (r *Router) handleAdminRefundOrder(w http.ResponseWriter, req *http.Request) {
 	var payload platform.RefundOrderRequest
 	if !decodeJSON(w, req, &payload) {
@@ -1222,6 +1321,16 @@ func (r *Router) handleAdminRefundOrder(w http.ResponseWriter, req *http.Request
 	payload.ActorRole = principal.Role
 	refund, order, account, err := r.store.RefundOrder(payload)
 	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if err := r.recordAuditLog(req, principal, "admin.order.refunded", "order", payload.OrderID, map[string]any{
+		"refund_id":       refund.ID,
+		"destination":     refund.Destination,
+		"status":          refund.Status,
+		"amount_fen":      refund.AmountFen,
+		"idempotency_key": refund.IdempotencyKey,
+	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1246,6 +1355,16 @@ func (r *Router) handleReviewAfterSales(w http.ResponseWriter, req *http.Request
 	payload.ActorRole = principal.Role
 	request, refund, order, account, err := r.store.ReviewAfterSales(payload)
 	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if err := r.recordAuditLog(req, principal, "after_sales.reviewed", "after_sales", payload.RequestID, map[string]any{
+		"decision":   payload.Decision,
+		"status":     request.Status,
+		"refund_id":  request.RefundID,
+		"order_id":   request.OrderID,
+		"actor_role": principal.Role,
+	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1465,6 +1584,14 @@ func (r *Router) handleAdminObjectStorageCleanupComplete(w http.ResponseWriter, 
 		writePlatformError(w, err)
 		return
 	}
+	if err := r.recordAuditLog(req, principal, "admin.object_cleanup.completed", "object_storage_ticket", payload.TicketID, map[string]any{
+		"object_key": payload.ObjectKey,
+		"reason":     payload.Reason,
+		"status":     ticket.Status,
+	}); err != nil {
+		writePlatformError(w, err)
+		return
+	}
 	writeSuccess(w, ticket)
 }
 
@@ -1483,6 +1610,14 @@ func (r *Router) handleAdminObjectStorageCleanupFailed(w http.ResponseWriter, re
 	}
 	ticket, err := r.store.RecordObjectStorageCleanupFailure(payload)
 	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if err := r.recordAuditLog(req, principal, "admin.object_cleanup.failed", "object_storage_ticket", payload.TicketID, map[string]any{
+		"object_key":       payload.ObjectKey,
+		"reason":           payload.Reason,
+		"cleanup_attempts": ticket.CleanupAttempts,
+	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1586,6 +1721,14 @@ func (r *Router) handleAdminClaimOutboxEvents(w http.ResponseWriter, req *http.R
 		writePlatformError(w, err)
 		return
 	}
+	if err := r.recordAuditLog(req, principal, "admin.outbox.claimed", "outbox_topic", result.Topic, map[string]any{
+		"claimed":       result.Claimed,
+		"lease_owner":   result.LeaseOwner,
+		"lease_seconds": payload.LeaseSeconds,
+	}); err != nil {
+		writePlatformError(w, err)
+		return
+	}
 	writeSuccess(w, result)
 }
 
@@ -1605,6 +1748,14 @@ func (r *Router) handleAdminRenewOutboxEventLease(w http.ResponseWriter, req *ht
 	payload.EventID = req.PathValue("eventID")
 	event, err := r.store.RenewOutboxEventLease(payload)
 	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if err := r.recordAuditLog(req, principal, "admin.outbox.lease_renewed", "outbox_event", payload.EventID, map[string]any{
+		"lease_owner":   payload.LeaseOwner,
+		"lease_seconds": payload.LeaseSeconds,
+		"status":        event.Status,
+	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1630,6 +1781,13 @@ func (r *Router) handleAdminMarkOutboxEventPublished(w http.ResponseWriter, req 
 		writePlatformError(w, err)
 		return
 	}
+	if err := r.recordAuditLog(req, principal, "admin.outbox.published", "outbox_event", payload.EventID, map[string]any{
+		"topic":  event.Topic,
+		"status": event.Status,
+	}); err != nil {
+		writePlatformError(w, err)
+		return
+	}
 	writeSuccess(w, event)
 }
 
@@ -1649,6 +1807,14 @@ func (r *Router) handleAdminMarkOutboxEventFailed(w http.ResponseWriter, req *ht
 	payload.EventID = req.PathValue("eventID")
 	event, err := r.store.MarkOutboxEventFailed(payload)
 	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if err := r.recordAuditLog(req, principal, "admin.outbox.failed", "outbox_event", payload.EventID, map[string]any{
+		"topic":    event.Topic,
+		"status":   event.Status,
+		"attempts": event.Attempts,
+	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1674,6 +1840,13 @@ func (r *Router) handleAdminReplayOutboxEvent(w http.ResponseWriter, req *http.R
 		writePlatformError(w, err)
 		return
 	}
+	if err := r.recordAuditLog(req, principal, "admin.outbox.replayed", "outbox_event", payload.EventID, map[string]any{
+		"topic":  event.Topic,
+		"status": event.Status,
+	}); err != nil {
+		writePlatformError(w, err)
+		return
+	}
 	writeSuccess(w, event)
 }
 
@@ -1692,6 +1865,13 @@ func (r *Router) handleAdminReplayOutboxEvents(w http.ResponseWriter, req *http.
 	}
 	result, err := r.store.ReplayOutboxEvents(payload)
 	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if err := r.recordAuditLog(req, principal, "admin.outbox.batch_replayed", "outbox_topic", result.Topic, map[string]any{
+		"replayed": result.Replayed,
+		"limit":    result.Limit,
+	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}

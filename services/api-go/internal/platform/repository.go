@@ -81,6 +81,8 @@ type Repository interface {
 	DispatchEvents(orderID string, stationManagerID string) ([]DispatchEvent, error)
 	OutboxEvents(req OutboxEventsRequest) ([]OutboxEvent, error)
 	OutboxStats(req OutboxStatsRequest) (*OutboxStats, error)
+	RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error)
+	AuditLogs(req AuditLogsRequest) ([]AuditLog, error)
 	MarkOutboxEventPublished(req MarkOutboxEventPublishedRequest) (*OutboxEvent, error)
 	MarkOutboxEventFailed(req MarkOutboxEventFailedRequest) (*OutboxEvent, error)
 	ClaimOutboxEvents(req ClaimOutboxEventsRequest) (*ClaimOutboxEventsResult, error)

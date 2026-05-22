@@ -62,7 +62,7 @@
 - UI 使用旧版 logo 和 `#009bf5`。
 - 核心流程必须有真机/浏览器截图验收。
 - 端侧只访问 BFF 或公开 API，不直连内部 Worker 和数据库。
-- 当前证据：`apps/admin-web` 已有最小运营控制台首版，接入管理员登录、邀约准入、运营快照、退款策略、售后列表、对象清理、outbox 运维和订单状态补偿等 BFF/API；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略 P0 业务视图首版；`/api/admin/operations/snapshot` 已能聚合订单、商户、骑手、售后、派单、退款策略、outbox 和对象清理状态；管理端已能用运营快照生成顶部 KPI、今日队列和 P0 表格，并对快照展示字段做 HTML 转义；BFF 已支持浏览器来源 CORS 白名单和 `OPTIONS` 预检，允许管理端 Web 携带 `Authorization` 访问快照接口；`npm run test --workspace @infinitech/admin-web`、`npm run test --workspace @infinitech/bff` 和浏览器打开验证已通过。仍需补完整详情页、筛选分页、细分 RBAC、操作审计、敏感字段脱敏策略和截图归档。
+- 当前证据：`apps/admin-web` 已有最小运营控制台首版，接入管理员登录、邀约准入、运营快照、操作审计、退款策略、售后列表、对象清理、outbox 运维和订单状态补偿等 BFF/API；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略 P0 业务视图首版；`/api/admin/operations/snapshot` 已能聚合订单、商户、骑手、售后、派单、退款策略、outbox 和对象清理状态；`/api/admin/audit-logs` 已能查询商户/骑手邀约、退款策略、订单退款、状态补偿、售后审核、对象清理和 outbox 运维等关键写操作审计；管理端已能用运营快照生成顶部 KPI、今日队列和 P0 表格，并对快照展示字段做 HTML 转义；BFF 已支持浏览器来源 CORS 白名单和 `OPTIONS` 预检，允许管理端 Web 携带 `Authorization` 访问快照接口；`go test -count=1 ./...`、`npm run test --workspace @infinitech/admin-web`、`npm run test --workspace @infinitech/bff` 和浏览器打开验证已通过。仍需补完整详情页、筛选分页、细分 RBAC、审计检索页、敏感字段脱敏策略和截图归档。
 
 ## 7. 容量和容灾
 
@@ -121,6 +121,7 @@
 - 已有 PostgreSQL outbox 规范化 relay 路径首版：`PostgresStore` 启动时确保 `platform_outbox_events` 表/索引存在，把 snapshot outbox 幂等补入规范化表；pending/stats/claim/renew/ack/fail/replay 走规范化表，claim 和批量 replay 使用 `FOR UPDATE SKIP LOCKED`，并由架构检查防回退。
 - 已有 outbox 租约健康观测首版：`GET /api/admin/outbox/stats` 支持 `lease_expiring_within_seconds`，返回全局、per-topic 和 per-owner 的 `lease_expiring_soon`、`next_lease_expires_at`、`next_lease_expires_in_seconds`，可用于发现 relay 心跳异常、worker 倾斜和租约即将过期的重复投递风险；内存 Store、PostgreSQL outbox 路径、HTTP、BFF 和架构检查均已覆盖。
 - 已有管理端运营快照首版：`GET /api/admin/operations/snapshot` 按统一后台口径聚合订单状态/异常、商户资质与保证金、骑手在线与保证金、站长数量、骑手绩效等级、售后队列、派单审计、退款策略、outbox 健康和对象清理统计；HTTP、BFF、Admin Web 操作台和测试已覆盖。管理端已新增快照适配层，可将快照生成 KPI、队列和 P0 表格，并对后端展示字段做 HTML 转义。BFF 已补浏览器来源 CORS 白名单与预检测试，确保本地或配置域名下的管理端 Web 能携带管理员 token 拉取快照。
+- 已有管理端操作审计日志首版：`GET /api/admin/audit-logs` 可按 actor、action、target、limit 和 before 查询审计账本；管理员关键写操作已开始记录 actor、action、target、request_id、ip_hash、非敏感 payload 和 created_at，覆盖商户邀约、骑手/站长邀约、退款策略保存、订单退款、订单状态补偿、售后审核、对象清理完成/失败、outbox 领取/续租/发布/失败/重放/批量重放；HTTP、BFF、Admin Web 操作台和测试已覆盖。当前仍待把审计从快照持久化推进到规范化 `audit_logs` 表事务内强制写入，并补审计检索页、导出、留存和告警。
 - 已有消费端幂等落库首版：`@infinitech/domain-core` 提供 consumed-event ledger 和 `createIdempotentConsumer`，dispatch/payment/notification/integration/settlement 五个 worker 已覆盖重复 outbox 投递只执行一次；PostgreSQL 迁移和启动建表已新增 `platform_consumed_events`，为真实 Kafka/NATS 至少一次投递的消费端落库防重做准备。
 - 已有支付/钱包 PostgreSQL 规范化恢复首版：`PostgresStore` 启动和写入后会同步/恢复 `orders`、`order_items`、`order_events`、`wallet_accounts`、`wallet_transactions`、`wallet_payment_passwords`、`payment_transactions`，并重建钱包幂等索引、支付密码和微信 `out_trade_no`/`transaction_id` 索引；测试覆盖余额支付重复请求、支付密码恢复、微信回调重复投递和订单事件恢复。
 - 已有订单创建 PostgreSQL 事务化首版：`PostgresStore.CreateOrder` 使用数据库事务写入 `orders` 和初始 `order_events`，通过 `platform_sequences` 的 `orders` 序列行级锁生成订单号，并在序列缺失或灾备恢复后根据现有订单最大编号追平；提交后刷新规范化表镜像和 snapshot，架构检查防止回退到内存先写。

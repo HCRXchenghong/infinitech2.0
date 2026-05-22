@@ -128,6 +128,21 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 		replayedData["wallet_account"].(map[string]any)["balance_fen"] != float64(1200) {
 		t.Fatalf("expected idempotent HTTP refund replay, got %+v", replayedBody)
 	}
+	authGetJSON(t, server.URL+"/api/admin/audit-logs", userToken("user_1"), http.StatusForbidden)
+	auditBody := authGetJSON(t, server.URL+"/api/admin/audit-logs?target_type=order&target_id="+order.ID+"&limit=5", adminToken("admin_1"), http.StatusOK)
+	auditLogs := auditBody["data"].([]any)
+	if len(auditLogs) != 2 || auditLogs[0].(map[string]any)["action"] != "admin.order.refunded" || auditLogs[0].(map[string]any)["actor_id"] != "admin_1" {
+		t.Fatalf("expected refund audit logs, got %+v", auditBody)
+	}
+	refundPayload := auditLogs[0].(map[string]any)["payload"].(map[string]any)
+	if refundPayload["idempotency_key"] != "refund_http_1" || refundPayload["amount_fen"] != float64(1200) {
+		t.Fatalf("expected refund audit payload without sensitive data, got %+v", refundPayload)
+	}
+	settingsAuditBody := authGetJSON(t, server.URL+"/api/admin/audit-logs?action=admin.refund_settings.updated&limit=1", adminToken("admin_1"), http.StatusOK)
+	settingsAuditLogs := settingsAuditBody["data"].([]any)
+	if len(settingsAuditLogs) != 1 || settingsAuditLogs[0].(map[string]any)["target_type"] != "refund_settings" {
+		t.Fatalf("expected refund settings audit log, got %+v", settingsAuditBody)
+	}
 }
 
 func TestAdminOperationsSnapshotHTTPFlow(t *testing.T) {

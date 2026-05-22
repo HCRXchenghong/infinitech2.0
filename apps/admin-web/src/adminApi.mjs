@@ -93,6 +93,21 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     fields: []
   },
   {
+    key: "audit-logs",
+    title: "操作审计",
+    method: "GET",
+    path: "/api/admin/audit-logs",
+    authRequired: true,
+    area: "ops",
+    queryFields: [
+      { key: "target_type", label: "目标类型", type: "text", defaultValue: "" },
+      { key: "target_id", label: "目标 ID", type: "text", defaultValue: "" },
+      { key: "action", label: "动作", type: "text", defaultValue: "" },
+      { key: "limit", label: "条数", type: "number", defaultValue: 20 }
+    ],
+    fields: []
+  },
+  {
     key: "object-cleanup-stats",
     title: "对象清理统计",
     method: "GET",
