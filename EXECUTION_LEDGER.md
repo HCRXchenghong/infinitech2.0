@@ -1571,6 +1571,43 @@
   - `PLATFORM_MASTER_PLAN.md`
   - `docs/product/commercial-readiness-checklist.md`
 
+### DONE-20260522-077 GitHub 协作与质量门禁首版
+
+- 日期：2026-05-22
+- 结果：仓库从“已上传代码”推进到“每次 push/PR 有基础质量门禁”。新增 `.github/workflows/verify.yml`，在 `push main` 和 `pull_request` 时设置 Node.js 22 与 Go，安装 workspace 依赖，运行 `npm run verify` 和 `cd services/api-go && go test -count=1 ./...`；新增 PR 模板，要求填写商业影响、验证和回滚说明；新增 Bug、Feature、Commercial readiness gap 三类 Issue 模板；新增 CODEOWNERS 和 Dependabot 配置。架构守卫已覆盖这些协作文件，防止后续误删质量门禁。
+- 验收证据：
+  - `npm run verify:architecture`
+  - `npm run verify`
+  - `cd services/api-go && go test -count=1 ./...`
+- 当前边界：本地验证已通过，CI 文件已入仓；仍需观察 GitHub 托管环境第一次 Actions 运行结果，后续补分支保护、必过检查、release/tag 策略、镜像构建和部署流水线。
+- 文件：
+  - `.github/workflows/verify.yml`
+  - `.github/pull_request_template.md`
+  - `.github/ISSUE_TEMPLATE/bug_report.yml`
+  - `.github/ISSUE_TEMPLATE/feature_request.yml`
+  - `.github/ISSUE_TEMPLATE/commercial_gap.yml`
+  - `.github/CODEOWNERS`
+  - `.github/dependabot.yml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `EXECUTION_LEDGER.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/commercial-readiness-checklist.md`
+
+### DONE-20260522-078 outbox 租约测试去时间漂移
+
+- 日期：2026-05-22
+- 结果：为保证 GitHub Actions 和本地非缓存 Go 测试稳定，修复 outbox 租约相关测试对固定 `2026-05-22T12:00:00Z` 的依赖。`TestClaimOutboxEventsLeasesReadyEvents`、`TestOutboxStatsReportsLeaseHealthByTopicAndOwner`、`TestRenewOutboxEventLeaseRequiresCurrentActiveOwner` 改为从真实 outbox event 的 `CreatedAt` 推导 claim/renew 时间；`TestAdminOutboxHTTPFlow` 改为从 HTTP 返回的 `created_at` 推导 claim/renew/stats 时间和期望租约过期时间，避免当前系统时间超过固定时间后事件被判断为未 ready，导致 CI 随机失败。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/platform ./internal/httpapi`
+  - `npm run verify:architecture`
+- 当前边界：outbox 租约测试已去固定日期漂移；仍需继续观察 GitHub Actions 首次运行，并后续补分支保护与必过检查。
+- 文件：
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `EXECUTION_LEDGER.md`
+
 ## 进行中
 
 ### TASK-USER-MP-001 用户端原生微信小程序

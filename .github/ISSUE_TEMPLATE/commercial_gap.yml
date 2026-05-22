@@ -1,0 +1,39 @@
+name: Commercial readiness gap
+description: Track a gap that blocks production-grade or commercial launch readiness.
+title: "[Commercial Gap] "
+labels:
+  - commercial-readiness
+body:
+  - type: textarea
+    id: gap
+    attributes:
+      label: Gap
+      description: What is missing before we can call this area commercial-grade?
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Blocks launch
+        - Blocks paid traffic
+        - Blocks scale test
+        - Blocks operational efficiency
+        - Documentation or governance
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: Required proof
+      description: Tests, screenshots, audit records, load test reports, or runbook evidence required.
+    validations:
+      required: true
+  - type: textarea
+    id: next_steps
+    attributes:
+      label: Next steps
+      description: Proposed implementation sequence.
+    validations:
+      required: false

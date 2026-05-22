@@ -740,31 +740,38 @@ func TestAdminOutboxHTTPFlow(t *testing.T) {
 	if event["topic"] != "order.paid" || event["aggregate_id"] != orderID || event["status"] != platform.OutboxStatusPending {
 		t.Fatalf("expected pending order.paid event, got %+v", event)
 	}
+	eventCreatedAt, err := time.Parse(time.RFC3339Nano, event["created_at"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimNow := eventCreatedAt.Add(time.Second).UTC()
+	renewNow := claimNow.Add(10 * time.Second)
+	afterRenewNow := renewNow.Add(time.Second)
 
-	authPostJSON(t, server.URL+"/api/admin/outbox/events/claim", userToken("user_1"), `{"topic":"order.paid","limit":1,"lease_owner":"relay-http","lease_seconds":30,"now":"2026-05-22T12:00:00Z"}`, http.StatusForbidden)
-	claimedBody := authPostJSON(t, server.URL+"/api/admin/outbox/events/claim", adminToken("admin_1"), `{"topic":"order.paid","limit":1,"lease_owner":"relay-http","lease_seconds":30,"now":"2026-05-22T12:00:00Z"}`, http.StatusOK)
+	authPostJSON(t, server.URL+"/api/admin/outbox/events/claim", userToken("user_1"), `{"topic":"order.paid","limit":1,"lease_owner":"relay-http","lease_seconds":30,"now":"`+claimNow.Format(time.RFC3339)+`"}`, http.StatusForbidden)
+	claimedBody := authPostJSON(t, server.URL+"/api/admin/outbox/events/claim", adminToken("admin_1"), `{"topic":"order.paid","limit":1,"lease_owner":"relay-http","lease_seconds":30,"now":"`+claimNow.Format(time.RFC3339)+`"}`, http.StatusOK)
 	claimed := claimedBody["data"].(map[string]any)
 	claimedEvents := claimed["events"].([]any)
 	if claimed["topic"] != "order.paid" || claimed["claimed"] != float64(1) || len(claimedEvents) != 1 || claimedEvents[0].(map[string]any)["id"] != eventID {
 		t.Fatalf("expected admin claim to lease one outbox event, got %+v", claimedBody)
 	}
 	claimedEvent := claimedEvents[0].(map[string]any)
-	if claimed["lease_owner"] != "relay-http" || claimedEvent["lease_owner"] != "relay-http" || claimedEvent["lease_expires_at"] != "2026-05-22T12:00:30Z" {
+	if claimed["lease_owner"] != "relay-http" || claimedEvent["lease_owner"] != "relay-http" || claimedEvent["lease_expires_at"] != claimNow.Add(30*time.Second).Format(time.RFC3339) {
 		t.Fatalf("expected claimed event lease metadata, got %+v", claimedBody)
 	}
-	authPostJSON(t, server.URL+"/api/admin/outbox/events/"+eventID+"/lease/renew", userToken("user_1"), `{"lease_owner":"relay-http","lease_seconds":60,"now":"2026-05-22T12:00:10Z"}`, http.StatusForbidden)
-	renewedBody := authPostJSON(t, server.URL+"/api/admin/outbox/events/"+eventID+"/lease/renew", adminToken("admin_1"), `{"lease_owner":"relay-http","lease_seconds":60,"now":"2026-05-22T12:00:10Z"}`, http.StatusOK)
+	authPostJSON(t, server.URL+"/api/admin/outbox/events/"+eventID+"/lease/renew", userToken("user_1"), `{"lease_owner":"relay-http","lease_seconds":60,"now":"`+renewNow.Format(time.RFC3339)+`"}`, http.StatusForbidden)
+	renewedBody := authPostJSON(t, server.URL+"/api/admin/outbox/events/"+eventID+"/lease/renew", adminToken("admin_1"), `{"lease_owner":"relay-http","lease_seconds":60,"now":"`+renewNow.Format(time.RFC3339)+`"}`, http.StatusOK)
 	renewed := renewedBody["data"].(map[string]any)
-	if renewed["lease_owner"] != "relay-http" || renewed["lease_expires_at"] != "2026-05-22T12:01:10Z" {
+	if renewed["lease_owner"] != "relay-http" || renewed["lease_expires_at"] != renewNow.Add(time.Minute).Format(time.RFC3339) {
 		t.Fatalf("expected renewed lease metadata, got %+v", renewedBody)
 	}
-	authPostJSON(t, server.URL+"/api/admin/outbox/events/"+eventID+"/lease/renew", adminToken("admin_1"), `{"lease_owner":"relay-other","lease_seconds":60,"now":"2026-05-22T12:00:11Z"}`, http.StatusConflict)
-	repeatedClaimBody := authPostJSON(t, server.URL+"/api/admin/outbox/events/claim", adminToken("admin_1"), `{"topic":"order.paid","limit":1,"lease_owner":"relay-other","lease_seconds":30,"now":"2026-05-22T12:00:11Z"}`, http.StatusOK)
+	authPostJSON(t, server.URL+"/api/admin/outbox/events/"+eventID+"/lease/renew", adminToken("admin_1"), `{"lease_owner":"relay-other","lease_seconds":60,"now":"`+afterRenewNow.Format(time.RFC3339)+`"}`, http.StatusConflict)
+	repeatedClaimBody := authPostJSON(t, server.URL+"/api/admin/outbox/events/claim", adminToken("admin_1"), `{"topic":"order.paid","limit":1,"lease_owner":"relay-other","lease_seconds":30,"now":"`+afterRenewNow.Format(time.RFC3339)+`"}`, http.StatusOK)
 	repeatedClaim := repeatedClaimBody["data"].(map[string]any)
 	if repeatedClaim["claimed"] != float64(0) || len(repeatedClaim["events"].([]any)) != 0 {
 		t.Fatalf("expected active lease to prevent duplicate claim, got %+v", repeatedClaimBody)
 	}
-	leasedStatsBody := authGetJSON(t, server.URL+"/api/admin/outbox/stats?topic=order.paid&now=2026-05-22T12:00:11Z&lease_expiring_within_seconds=60", adminToken("admin_1"), http.StatusOK)
+	leasedStatsBody := authGetJSON(t, server.URL+"/api/admin/outbox/stats?topic=order.paid&now="+afterRenewNow.Format(time.RFC3339)+"&lease_expiring_within_seconds=60", adminToken("admin_1"), http.StatusOK)
 	leasedStats := leasedStatsBody["data"].(map[string]any)
 	if leasedStats["leased"] != float64(1) || leasedStats["ready"] != float64(0) || leasedStats["lease_expiring_within_seconds"] != float64(60) || leasedStats["lease_expiring_soon"] != float64(1) || leasedStats["next_lease_expires_in_seconds"] != float64(59) {
 		t.Fatalf("expected leased outbox stats before ack, got %+v", leasedStatsBody)

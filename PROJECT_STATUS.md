@@ -58,7 +58,8 @@
 - 已完成美团/旧版能力对标矩阵：`docs/product/meituan-legacy-parity-matrix.md`。
 - 已完成商业级验收清单：`docs/product/commercial-readiness-checklist.md`。
 - 已完成容量与容灾规划：`docs/operations/capacity-and-dr.md`。
-- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260522-076`。
+- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260522-078`。
+- 已完成 GitHub 协作与质量门禁首版：`verify.yml` 会在 `push`/`pull_request` 跑 `npm run verify` 和 uncached Go 测试；PR 模板要求商业影响、验证和回滚说明；Issue 模板区分 bug、feature、commercial readiness gap；CODEOWNERS 和 Dependabot 已建立。
 
 ### 3.2 品牌和 UI 基线
 
@@ -404,10 +405,11 @@ npm run verify:architecture
 
 ### 第 1 优先级：GitHub 和协作基线
 
-- 初始化 Git 仓库并推送到 `HCRXchenghong/infinitech2.0`。
-- 补 GitHub Actions：`npm run verify`、`go test ./...`。
-- 补 PR 模板、Issue 模板、CODEOWNERS。
-- 确认 `.gitignore` 不上传本地二进制、日志、env 和临时文件。
+- 已完成初始化 Git 仓库并推送到 `HCRXchenghong/infinitech2.0`。
+- 已完成 GitHub Actions：`npm run verify`、`cd services/api-go && go test -count=1 ./...`。
+- 已完成 PR 模板、Issue 模板、CODEOWNERS、Dependabot。
+- 已确认 `.gitignore` 不上传本地二进制、日志、env 和临时文件。
+- 下一步：观察第一次 GitHub Actions 运行结果，若 GitHub 托管环境缺少 Go 1.25 工具链则把 workflow 调整为平台可用版本并同步 `go.mod` 策略。
 
 ### 第 2 优先级：管理端 Web 最小可运营
 

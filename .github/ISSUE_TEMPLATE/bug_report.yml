@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a defect in the Infinitech 2.0 platform.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is broken or risky?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include account role, endpoint/page, payload, and expected state.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Business impact
+      description: Orders, funds, dispatch, compliance, realtime, or user experience impact.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, screenshots, command output, trace IDs, or affected records.
+    validations:
+      required: false

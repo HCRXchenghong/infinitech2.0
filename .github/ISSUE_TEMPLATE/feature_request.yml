@@ -1,0 +1,45 @@
+name: Feature request
+description: Request a product or engineering feature.
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What user, merchant, rider, station manager, admin, or system outcome do we need?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - User miniprogram
+        - Merchant uni-app
+        - Rider uni-app
+        - Admin Web
+        - Admin uni-app
+        - Core API
+        - BFF
+        - Realtime/RTC
+        - Worker
+        - Infrastructure
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List the concrete behavior and tests needed for this feature to count as done.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and risks
+      description: External APIs, payment, compliance, migration, capacity, or rollout concerns.
+    validations:
+      required: false

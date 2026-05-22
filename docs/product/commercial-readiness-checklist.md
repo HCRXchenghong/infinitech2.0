@@ -89,6 +89,8 @@
 
 - `npm run verify` 通过。
 - `cd services/api-go && go test ./...` 通过。
+- GitHub Actions 质量门禁首版已建立：push 和 pull request 会运行 `npm run verify` 与 `cd services/api-go && go test -count=1 ./...`。
+- GitHub PR 模板、Issue 模板、CODEOWNERS 和 Dependabot 已建立，用于把商业影响、验证证据、回滚说明和商业化缺口纳入协作流程。
 - 已有核心数据库迁移：`infra/db/migrations/0001_core.sql`。
 - 已有认证和支付补充迁移：`infra/db/migrations/0002_auth_payment.sql`。
 - 已有 API 鉴权骨架：`services/api-go/internal/httpapi/auth.go`。

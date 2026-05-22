@@ -36,7 +36,15 @@ const requiredPaths = [
   "infra/loadtest",
   "assets/brand/logo.svg",
   "PLATFORM_MASTER_PLAN.md",
-  "EXECUTION_LEDGER.md"
+  "EXECUTION_LEDGER.md",
+  "PROJECT_STATUS.md",
+  ".github/workflows/verify.yml",
+  ".github/pull_request_template.md",
+  ".github/ISSUE_TEMPLATE/bug_report.yml",
+  ".github/ISSUE_TEMPLATE/feature_request.yml",
+  ".github/ISSUE_TEMPLATE/commercial_gap.yml",
+  ".github/CODEOWNERS",
+  ".github/dependabot.yml"
 ];
 
 test("architecture directories and governance files exist", () => {
@@ -50,6 +58,25 @@ test("master plan records the selected architecture", () => {
   assert.match(plan, /模块化核心 API \+ 事件驱动 Worker \+ 多端 BFF \+ 实时网关架构/);
   assert.match(plan, /自建\/混合云/);
   assert.match(plan, /10 万/);
+});
+
+test("github collaboration gates protect commercial readiness", () => {
+  const workflow = readFileSync(join(root, ".github/workflows/verify.yml"), "utf8");
+  const prTemplate = readFileSync(join(root, ".github/pull_request_template.md"), "utf8");
+  const commercialGap = readFileSync(join(root, ".github/ISSUE_TEMPLATE/commercial_gap.yml"), "utf8");
+  const codeowners = readFileSync(join(root, ".github/CODEOWNERS"), "utf8");
+  const dependabot = readFileSync(join(root, ".github/dependabot.yml"), "utf8");
+  assert.match(workflow, /npm run verify/);
+  assert.match(workflow, /go test -count=1 \.\/\.\.\./);
+  assert.match(workflow, /actions\/setup-node@v4/);
+  assert.match(workflow, /actions\/setup-go@v5/);
+  assert.match(prTemplate, /Commercial Impact/);
+  assert.match(prTemplate, /Rollback Notes/);
+  assert.match(commercialGap, /Commercial readiness gap/);
+  assert.match(commercialGap, /Required proof/);
+  assert.match(codeowners, /@HCRXchenghong/);
+  assert.match(dependabot, /github-actions/);
+  assert.match(dependabot, /gomod/);
 });
 
 test("core database migration records commercial-grade ledgers and events", () => {

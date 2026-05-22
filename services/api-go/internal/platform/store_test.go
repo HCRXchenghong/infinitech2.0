@@ -2149,7 +2149,7 @@ func TestClaimOutboxEventsLeasesReadyEvents(t *testing.T) {
 		t.Fatalf("expected one order.paid outbox event, got %+v", events)
 	}
 
-	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	now := events[0].CreatedAt.Add(time.Second)
 	firstClaim, err := store.ClaimOutboxEvents(ClaimOutboxEventsRequest{Topic: "order.paid", Limit: 1, LeaseOwner: "relay-a", LeaseSeconds: 30, Now: now})
 	if err != nil {
 		t.Fatal(err)
@@ -2220,7 +2220,7 @@ func TestOutboxStatsReportsLeaseHealthByTopicAndOwner(t *testing.T) {
 		t.Fatalf("expected one order.paid outbox event, got %+v", events)
 	}
 
-	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	now := events[0].CreatedAt.Add(time.Second)
 	if _, err := store.ClaimOutboxEvents(ClaimOutboxEventsRequest{Topic: "order.paid", Limit: 1, LeaseOwner: "relay-a", LeaseSeconds: 30, Now: now}); err != nil {
 		t.Fatal(err)
 	}
@@ -2293,10 +2293,13 @@ func TestRenewOutboxEventLeaseRequiresCurrentActiveOwner(t *testing.T) {
 		t.Fatalf("expected one order.paid outbox event, got %+v", events)
 	}
 
-	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	now := events[0].CreatedAt.Add(time.Second)
 	claimed, err := store.ClaimOutboxEvents(ClaimOutboxEventsRequest{Topic: "order.paid", Limit: 1, LeaseOwner: "relay-a", LeaseSeconds: 30, Now: now})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if claimed.Claimed != 1 || len(claimed.Events) != 1 {
+		t.Fatalf("expected relay-a to claim one event before renewal, got %+v", claimed)
 	}
 	eventID := claimed.Events[0].ID
 	renewedAt := now.Add(10 * time.Second)
