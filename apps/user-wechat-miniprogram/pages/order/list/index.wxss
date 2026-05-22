@@ -1,0 +1,51 @@
+.page {
+  min-height: 100vh;
+  padding: 28rpx;
+  box-sizing: border-box;
+  background: #f3f4f6;
+}
+
+.order-card {
+  margin-bottom: 18rpx;
+  padding: 24rpx;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.order-head,
+.order-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.shop-name {
+  color: #111827;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.status,
+.amount {
+  color: #009bf5;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.subtitle,
+.time {
+  display: block;
+  color: #6b7280;
+  font-size: 24rpx;
+}
+
+.subtitle {
+  margin-top: 14rpx;
+}
+
+.order-bottom {
+  margin-top: 18rpx;
+}

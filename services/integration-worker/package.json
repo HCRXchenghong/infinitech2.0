@@ -1,0 +1,13 @@
+{
+  "name": "@infinitech/integration-worker",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "dev": "node src/index.mjs",
+    "test": "node --test src/*.test.mjs"
+  }
+}
+

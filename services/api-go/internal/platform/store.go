@@ -1,0 +1,5582 @@
+package platform
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"math"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/crypto/bcrypt"
+)
+
+var (
+	ErrInvalidArgument      = errors.New("invalid argument")
+	ErrNotFound             = errors.New("not found")
+	ErrInsufficientBalance  = errors.New("insufficient balance")
+	ErrOrderAlreadyAssigned = errors.New("order already assigned")
+	ErrInvalidOrderState    = errors.New("invalid order state")
+	ErrPaymentPassword      = errors.New("payment password required or invalid")
+	ErrInvalidCredentials   = errors.New("invalid credentials")
+)
+
+type Store struct {
+	mu                      sync.Mutex
+	nextOrderID             uint64
+	nextTransactionID       uint64
+	nextAddressID           uint64
+	nextMerchantID          uint64
+	nextMerchantStaffID     uint64
+	nextMerchantMaterialID  uint64
+	nextDispatchEventID     uint64
+	nextOutboxEventID       uint64
+	nextAfterSalesID        uint64
+	nextAfterSalesEventID   uint64
+	nextRiderID             uint64
+	nextProductID           uint64
+	nextVoucherID           uint64
+	homeModules             []HomeModule
+	homeCards               []HomeCard
+	users                   map[string]*AppUser
+	wechatBindings          map[string]string
+	merchantInvites         map[string]*MerchantOnboardingInvite
+	merchants               map[string]*MerchantAccount
+	merchantQualifications  map[string][]*MerchantQualification
+	merchantStaff           map[string][]*MerchantStaff
+	merchantMaterials       map[string][]*MerchantSupplementalMaterial
+	riders                  map[string]*RiderAccount
+	deposits                map[string]*DepositAccount
+	stationTaskConfigs      map[string]*StationTaskConfig
+	stationServiceAreas     map[string]*StationServiceArea
+	shops                   map[string]*Shop
+	products                map[string]*MerchantProduct
+	groupbuyDeals           map[string]*MerchantProduct
+	addresses               map[string][]*UserAddress
+	cartItems               map[string][]*CartItem
+	orders                  map[string]*Order
+	wallets                 map[string]*WalletAccount
+	paymentPasswordHash     map[string]string
+	merchantPasswordHash    map[string]string
+	riderPasswordHash       map[string]string
+	paymentTransactions     map[string]*PaymentTransaction
+	paymentByTradeNo        map[string]*PaymentTransaction
+	paymentByProviderID     map[string]*PaymentTransaction
+	walletIdempotency       map[string]*WalletTransaction
+	refundSettings          RefundSettings
+	refundTransactions      map[string]*RefundTransaction
+	refundByIdempotency     map[string]string
+	afterSalesRequests      map[string]*AfterSalesRequest
+	afterSalesEvents        map[string]*AfterSalesEvent
+	afterSalesUploadTickets map[string]*AfterSalesEvidenceUploadTicket
+	afterSalesEvidence      map[string]*AfterSalesEvidence
+	groupbuyVouchers        map[string]*GroupbuyVoucher
+	vouchersByOrderID       map[string][]string
+	vouchersByCode          map[string]*GroupbuyVoucher
+	dispatchEvents          map[string]*DispatchEvent
+	dispatchRejectedRiders  map[string]map[string]bool
+	freeCancelUsedByDate    map[string]string
+	outboxEvents            map[string]*OutboxEvent
+	outboxByIdempotency     map[string]string
+	objectStorage           ObjectStorageConfig
+}
+
+func NewStore(homeModules []HomeModule) *Store {
+	return &Store{
+		nextMerchantID:          1,
+		nextRiderID:             2,
+		nextProductID:           2,
+		homeModules:             cloneHomeModules(homeModules),
+		homeCards:               DefaultHomeCards(),
+		users:                   map[string]*AppUser{},
+		wechatBindings:          map[string]string{},
+		merchantInvites:         map[string]*MerchantOnboardingInvite{},
+		merchants:               seedMerchants(),
+		merchantQualifications:  seedMerchantQualifications(),
+		merchantStaff:           seedMerchantStaff(),
+		merchantMaterials:       seedMerchantMaterials(),
+		riders:                  seedRiders(),
+		deposits:                seedDeposits(),
+		stationTaskConfigs:      seedStationTaskConfigs(),
+		stationServiceAreas:     seedStationServiceAreas(),
+		shops:                   seedShops(),
+		products:                seedProducts(),
+		groupbuyDeals:           seedGroupbuyDeals(),
+		addresses:               map[string][]*UserAddress{},
+		cartItems:               map[string][]*CartItem{},
+		orders:                  map[string]*Order{},
+		wallets:                 map[string]*WalletAccount{},
+		paymentPasswordHash:     map[string]string{},
+		merchantPasswordHash:    map[string]string{},
+		riderPasswordHash:       map[string]string{},
+		paymentTransactions:     map[string]*PaymentTransaction{},
+		paymentByTradeNo:        map[string]*PaymentTransaction{},
+		paymentByProviderID:     map[string]*PaymentTransaction{},
+		walletIdempotency:       map[string]*WalletTransaction{},
+		refundSettings:          RefundSettings{DefaultStrategy: RefundStrategyBalanceFirst},
+		refundTransactions:      map[string]*RefundTransaction{},
+		refundByIdempotency:     map[string]string{},
+		afterSalesRequests:      map[string]*AfterSalesRequest{},
+		afterSalesEvents:        map[string]*AfterSalesEvent{},
+		afterSalesUploadTickets: map[string]*AfterSalesEvidenceUploadTicket{},
+		afterSalesEvidence:      map[string]*AfterSalesEvidence{},
+		groupbuyVouchers:        map[string]*GroupbuyVoucher{},
+		vouchersByOrderID:       map[string][]string{},
+		vouchersByCode:          map[string]*GroupbuyVoucher{},
+		dispatchEvents:          map[string]*DispatchEvent{},
+		dispatchRejectedRiders:  map[string]map[string]bool{},
+		freeCancelUsedByDate:    map[string]string{},
+		outboxEvents:            map[string]*OutboxEvent{},
+		outboxByIdempotency:     map[string]string{},
+		objectStorage:           DefaultObjectStorageConfig(),
+	}
+}
+
+func (s *Store) LoginWechatMini(req WechatMiniLoginRequest) (*WechatMiniLoginResult, error) {
+	code := strings.TrimSpace(req.Code)
+	providerOpenID := strings.TrimSpace(req.ProviderOpenID)
+	if providerOpenID == "" && code == "" {
+		return nil, ErrInvalidArgument
+	}
+	if providerOpenID == "" {
+		providerOpenID = "wx_" + shortHash(code)
+	}
+	providerUnionID := strings.TrimSpace(req.ProviderUnionID)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	userID := s.wechatBindings[providerOpenID]
+	isNewUser := false
+	if userID == "" {
+		isNewUser = true
+		userID = "user_" + shortHash(providerOpenID)
+		s.wechatBindings[providerOpenID] = userID
+		s.users[userID] = &AppUser{
+			ID:        userID,
+			Nickname:  strings.TrimSpace(req.Nickname),
+			AvatarURL: strings.TrimSpace(req.AvatarURL),
+			Status:    "active",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+	}
+	user := s.users[userID]
+	if user == nil {
+		user = &AppUser{ID: userID, Status: "active", CreatedAt: now, UpdatedAt: now}
+		s.users[userID] = user
+	}
+	if nickname := strings.TrimSpace(req.Nickname); nickname != "" {
+		user.Nickname = nickname
+		user.UpdatedAt = now
+	}
+	if avatarURL := strings.TrimSpace(req.AvatarURL); avatarURL != "" {
+		user.AvatarURL = avatarURL
+		user.UpdatedAt = now
+	}
+	return &WechatMiniLoginResult{
+		User:            *cloneAppUser(user),
+		Provider:        "wechat_mini",
+		ProviderOpenID:  providerOpenID,
+		ProviderUnionID: providerUnionID,
+		IsNewUser:       isNewUser,
+	}, nil
+}
+
+func (s *Store) CreateMerchantInvite(req CreateMerchantInviteRequest) (*MerchantOnboardingInvite, error) {
+	adminID := strings.TrimSpace(req.AdminID)
+	inviteType := strings.TrimSpace(req.Type)
+	if adminID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if inviteType == "" {
+		inviteType = OnboardingInviteMerchant
+	}
+	if inviteType != OnboardingInviteMerchant {
+		return nil, ErrInvalidArgument
+	}
+	expiresAt := req.ExpiresAt
+	if expiresAt.IsZero() {
+		expiresAt = time.Now().UTC().Add(7 * 24 * time.Hour)
+	}
+	if !expiresAt.After(time.Now().UTC()) {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	token := "mi_" + shortHash(fmt.Sprintf("%s:%s:%d", adminID, inviteType, len(s.merchantInvites)+1))
+	invite := &MerchantOnboardingInvite{
+		Token:                token,
+		Type:                 inviteType,
+		Status:               OnboardingInviteActive,
+		CreatedByAdminID:     adminID,
+		CreatedBySubjectType: "admin",
+		CreatedBySubjectID:   adminID,
+		ExpiresAt:            expiresAt.UTC(),
+	}
+	s.merchantInvites[token] = invite
+	return cloneMerchantInvite(invite), nil
+}
+
+func (s *Store) AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error) {
+	token := strings.TrimSpace(req.Token)
+	displayName := strings.TrimSpace(req.DisplayName)
+	accountType := strings.TrimSpace(req.AccountType)
+	if accountType == "" {
+		accountType = MerchantAccountStandard
+	}
+	passwordHash, err := hashLoginPassword(req.Password)
+	if token == "" || displayName == "" || !isMerchantAccountType(accountType) || err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	invite := s.merchantInvites[token]
+	if invite == nil {
+		return nil, ErrNotFound
+	}
+	if invite.Status != OnboardingInviteActive || !invite.ExpiresAt.After(time.Now().UTC()) {
+		return nil, ErrInvalidArgument
+	}
+	s.nextMerchantID++
+	merchantID := fmt.Sprintf("merchant_%d", s.nextMerchantID)
+	account := &MerchantAccount{
+		ID:            merchantID,
+		Type:          accountType,
+		DisplayName:   displayName,
+		Status:        "pending_qualification",
+		DepositStatus: DepositStatusUnpaid,
+	}
+	s.merchants[merchantID] = account
+	s.merchantPasswordHash[merchantID] = passwordHash
+	invite.Status = OnboardingInviteUsed
+	return s.merchantProfileLocked(merchantID), nil
+}
+
+func (s *Store) LoginMerchant(req MerchantLoginRequest) (*MerchantProfile, error) {
+	accountID := strings.TrimSpace(req.AccountID)
+	password := strings.TrimSpace(req.Password)
+	if accountID == "" || password == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	account := cloneMerchantAccount(s.merchants[accountID])
+	passwordHash := s.merchantPasswordHash[accountID]
+	var profile *MerchantProfile
+	if account != nil && account.Status != "" && passwordHash != "" {
+		profile = s.merchantProfileLocked(accountID)
+	}
+	s.mu.Unlock()
+
+	if account == nil || account.Status == "" || passwordHash == "" {
+		return nil, ErrInvalidCredentials
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)); err != nil {
+		return nil, ErrInvalidCredentials
+	}
+	return profile, nil
+}
+
+func (s *Store) CreateRiderInvite(req CreateRiderInviteRequest) (*MerchantOnboardingInvite, error) {
+	createdByID := strings.TrimSpace(req.CreatedByID)
+	createdByRole := strings.TrimSpace(req.CreatedByRole)
+	inviteType := strings.TrimSpace(req.Type)
+	stationID := strings.TrimSpace(req.StationID)
+	if createdByID == "" || createdByRole == "" || stationID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if inviteType != RiderAccountRider && inviteType != RiderAccountStationManager {
+		return nil, ErrInvalidArgument
+	}
+	if createdByRole == RiderAccountStationManager && inviteType != RiderAccountRider {
+		return nil, ErrInvalidArgument
+	}
+	expiresAt := req.ExpiresAt
+	if expiresAt.IsZero() {
+		expiresAt = time.Now().UTC().Add(7 * 24 * time.Hour)
+	}
+	if !expiresAt.After(time.Now().UTC()) {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if createdByRole == RiderAccountStationManager {
+		manager := s.riders[createdByID]
+		if manager == nil || manager.Type != RiderAccountStationManager || manager.Status != "active" || manager.StationID != stationID {
+			return nil, ErrInvalidArgument
+		}
+	}
+	token := "ri_" + shortHash(fmt.Sprintf("%s:%s:%s:%d", createdByID, inviteType, stationID, len(s.merchantInvites)+1))
+	invite := &MerchantOnboardingInvite{
+		Token:                token,
+		Type:                 inviteType,
+		Status:               OnboardingInviteActive,
+		CreatedByAdminID:     createdByID,
+		CreatedBySubjectType: createdByRole,
+		CreatedBySubjectID:   createdByID,
+		StationID:            stationID,
+		ExpiresAt:            expiresAt.UTC(),
+	}
+	s.merchantInvites[token] = invite
+	return cloneMerchantInvite(invite), nil
+}
+
+func (s *Store) AcceptRiderInvite(req AcceptRiderInviteRequest) (*RiderAccount, error) {
+	token := strings.TrimSpace(req.Token)
+	passwordHash, err := hashLoginPassword(req.Password)
+	if token == "" || err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	invite := s.merchantInvites[token]
+	if invite == nil {
+		return nil, ErrNotFound
+	}
+	if invite.Type != RiderAccountRider && invite.Type != RiderAccountStationManager {
+		return nil, ErrInvalidArgument
+	}
+	if invite.Status != OnboardingInviteActive || !invite.ExpiresAt.After(time.Now().UTC()) || strings.TrimSpace(invite.StationID) == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.nextRiderID++
+	prefix := "rider"
+	if invite.Type == RiderAccountStationManager {
+		prefix = "station_manager"
+	}
+	accountID := fmt.Sprintf("%s_%d", prefix, s.nextRiderID)
+	account := &RiderAccount{
+		ID:            accountID,
+		StationID:     invite.StationID,
+		Type:          invite.Type,
+		Status:        "active",
+		Online:        false,
+		DepositStatus: DepositStatusUnpaid,
+		Capacity:      1,
+	}
+	if invite.Type == RiderAccountStationManager {
+		account.Capacity = 0
+	}
+	s.riders[accountID] = account
+	s.riderPasswordHash[accountID] = passwordHash
+	if invite.Type == RiderAccountRider {
+		s.getOrCreateDepositLocked("rider", accountID)
+	}
+	invite.Status = OnboardingInviteUsed
+	return cloneRiderAccount(account), nil
+}
+
+func (s *Store) LoginRider(req RiderLoginRequest) (*RiderAccount, error) {
+	accountID := strings.TrimSpace(req.AccountID)
+	password := strings.TrimSpace(req.Password)
+	if accountID == "" || password == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	account := cloneRiderAccount(s.riders[accountID])
+	passwordHash := s.riderPasswordHash[accountID]
+	s.mu.Unlock()
+
+	if account == nil || account.Status != "active" || passwordHash == "" {
+		return nil, ErrInvalidCredentials
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)); err != nil {
+		return nil, ErrInvalidCredentials
+	}
+	return account, nil
+}
+
+func (s *Store) SaveMerchantQualification(req UploadMerchantQualificationRequest) (*MerchantProfile, error) {
+	merchantID := strings.TrimSpace(req.MerchantID)
+	qualificationType := strings.TrimSpace(req.Type)
+	fileURL := strings.TrimSpace(req.FileURL)
+	if merchantID == "" || fileURL == "" || !isMerchantQualificationType(qualificationType) || !req.ExpiresAt.After(time.Now().UTC()) {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.merchants[merchantID] == nil {
+		return nil, ErrNotFound
+	}
+	qualification := &MerchantQualification{
+		ID:        "mq_" + shortHash(fmt.Sprintf("%s:%s:%s", merchantID, qualificationType, fileURL)),
+		Type:      qualificationType,
+		FileURL:   fileURL,
+		ExpiresAt: req.ExpiresAt.UTC(),
+		Status:    "approved",
+	}
+	existing := s.merchantQualifications[merchantID]
+	replaced := false
+	for index, item := range existing {
+		if item.Type == qualificationType {
+			existing[index] = qualification
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		existing = append(existing, qualification)
+	}
+	s.merchantQualifications[merchantID] = existing
+	return s.merchantProfileLocked(merchantID), nil
+}
+
+func (s *Store) MerchantProfile(merchantID string) (*MerchantProfile, error) {
+	merchantID = strings.TrimSpace(merchantID)
+	if merchantID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	profile := s.merchantProfileLocked(merchantID)
+	if profile == nil {
+		return nil, ErrNotFound
+	}
+	return profile, nil
+}
+
+func (s *Store) MerchantStaff(merchantID string) ([]MerchantStaff, error) {
+	merchantID = strings.TrimSpace(merchantID)
+	if merchantID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.merchants[merchantID] == nil {
+		return nil, ErrNotFound
+	}
+	return s.merchantStaffLocked(merchantID), nil
+}
+
+func (s *Store) SaveMerchantStaff(req UpsertMerchantStaffRequest) (*MerchantStaff, error) {
+	merchantID := strings.TrimSpace(req.MerchantID)
+	staffID := strings.TrimSpace(req.StaffID)
+	shopID := strings.TrimSpace(req.ShopID)
+	name := strings.TrimSpace(req.Name)
+	phone := strings.TrimSpace(req.Phone)
+	role := strings.TrimSpace(req.Role)
+	status := strings.TrimSpace(req.Status)
+	healthCertificateURL := strings.TrimSpace(req.HealthCertificateURL)
+	if role == "" {
+		role = "staff"
+	}
+	if status == "" {
+		status = MerchantStaffActive
+	}
+	if merchantID == "" || shopID == "" || name == "" || phone == "" || healthCertificateURL == "" || !req.HealthCertificateExpiresAt.After(time.Now().UTC()) {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.merchantOwnsShopLocked(merchantID, shopID) {
+		return nil, ErrNotFound
+	}
+	existing := s.merchantStaff[merchantID]
+	var staff *MerchantStaff
+	if staffID != "" {
+		for _, item := range existing {
+			if item != nil && item.ID == staffID {
+				staff = item
+				break
+			}
+		}
+		if staff == nil {
+			return nil, ErrNotFound
+		}
+	} else {
+		s.nextMerchantStaffID++
+		staff = &MerchantStaff{ID: fmt.Sprintf("staff_%d", s.nextMerchantStaffID), MerchantID: merchantID}
+		existing = append(existing, staff)
+	}
+	staff.ShopID = shopID
+	staff.Name = name
+	staff.Phone = phone
+	staff.Role = role
+	staff.Status = status
+	staff.HealthCertificateURL = healthCertificateURL
+	staff.HealthCertificateExpiresAt = req.HealthCertificateExpiresAt.UTC()
+	s.merchantStaff[merchantID] = existing
+	return cloneMerchantStaff(staff), nil
+}
+
+func (s *Store) MerchantSupplementalMaterials(merchantID string) ([]MerchantSupplementalMaterial, error) {
+	merchantID = strings.TrimSpace(merchantID)
+	if merchantID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.merchants[merchantID] == nil {
+		return nil, ErrNotFound
+	}
+	return s.merchantMaterialsLocked(merchantID), nil
+}
+
+func (s *Store) SaveMerchantSupplementalMaterial(req UploadMerchantSupplementalMaterialRequest) (*MerchantSupplementalMaterial, error) {
+	merchantID := strings.TrimSpace(req.MerchantID)
+	materialID := strings.TrimSpace(req.MaterialID)
+	shopID := strings.TrimSpace(req.ShopID)
+	materialType := strings.TrimSpace(req.Type)
+	fileURL := strings.TrimSpace(req.FileURL)
+	description := strings.TrimSpace(req.Description)
+	if merchantID == "" || shopID == "" || materialType == "" || fileURL == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !req.ExpiresAt.IsZero() && !req.ExpiresAt.After(time.Now().UTC()) {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.merchantOwnsShopLocked(merchantID, shopID) {
+		return nil, ErrNotFound
+	}
+	existing := s.merchantMaterials[merchantID]
+	var material *MerchantSupplementalMaterial
+	if materialID != "" {
+		for _, item := range existing {
+			if item != nil && item.ID == materialID {
+				material = item
+				break
+			}
+		}
+		if material == nil {
+			return nil, ErrNotFound
+		}
+	} else {
+		s.nextMerchantMaterialID++
+		material = &MerchantSupplementalMaterial{
+			ID:         fmt.Sprintf("material_%d", s.nextMerchantMaterialID),
+			MerchantID: merchantID,
+			UploadedAt: time.Now().UTC(),
+		}
+		existing = append(existing, material)
+	}
+	material.ShopID = shopID
+	material.Type = materialType
+	material.FileURL = fileURL
+	material.Description = description
+	material.Status = "submitted"
+	material.ExpiresAt = req.ExpiresAt.UTC()
+	s.merchantMaterials[merchantID] = existing
+	return cloneMerchantSupplementalMaterial(material), nil
+}
+
+func (s *Store) HomeModules() []HomeModule {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	modules := cloneHomeModules(s.homeModules)
+	sort.SliceStable(modules, func(i, j int) bool {
+		if modules[i].SortOrder == modules[j].SortOrder {
+			return modules[i].Key < modules[j].Key
+		}
+		return modules[i].SortOrder < modules[j].SortOrder
+	})
+	return modules
+}
+
+func (s *Store) HomeCards() []HomeCard {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cards := cloneHomeCards(s.homeCards)
+	sort.SliceStable(cards, func(i, j int) bool {
+		if cards[i].SortOrder == cards[j].SortOrder {
+			return cards[i].ID < cards[j].ID
+		}
+		return cards[i].SortOrder < cards[j].SortOrder
+	})
+	return cards
+}
+
+func (s *Store) Shops() []Shop {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	shops := make([]Shop, 0, len(s.shops))
+	for _, shop := range s.shops {
+		cloned := cloneShop(shop)
+		if !s.shopCanAcceptOrdersLocked(cloned.ID) {
+			cloned.Status = ShopStatusQualificationExpired
+		}
+		shops = append(shops, *cloned)
+	}
+	sort.SliceStable(shops, func(i, j int) bool {
+		return shops[i].ID < shops[j].ID
+	})
+	return shops
+}
+
+func (s *Store) ShopProducts(shopID string) ([]MerchantProduct, error) {
+	shopID = strings.TrimSpace(shopID)
+	if shopID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.shops[shopID] == nil {
+		return nil, ErrNotFound
+	}
+	products := make([]MerchantProduct, 0)
+	for _, product := range s.products {
+		if product.ShopID == shopID && product.Status == ProductStatusActive {
+			products = append(products, *cloneMerchantProduct(product))
+		}
+	}
+	sort.SliceStable(products, func(i, j int) bool {
+		return products[i].ID < products[j].ID
+	})
+	return products, nil
+}
+
+func (s *Store) MerchantProducts(merchantID string, shopID string) ([]MerchantProduct, error) {
+	merchantID = strings.TrimSpace(merchantID)
+	shopID = strings.TrimSpace(shopID)
+	if merchantID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if shopID != "" && !s.merchantOwnsShopLocked(merchantID, shopID) {
+		return nil, ErrNotFound
+	}
+	products := make([]MerchantProduct, 0)
+	for _, product := range s.products {
+		if product == nil {
+			continue
+		}
+		if shopID != "" && product.ShopID != shopID {
+			continue
+		}
+		if s.merchantOwnsShopLocked(merchantID, product.ShopID) {
+			products = append(products, *cloneMerchantProduct(product))
+		}
+	}
+	sort.SliceStable(products, func(i, j int) bool {
+		return products[i].ID < products[j].ID
+	})
+	return products, nil
+}
+
+func (s *Store) UpsertMerchantProduct(req UpsertMerchantProductRequest) (*MerchantProduct, error) {
+	merchantID := strings.TrimSpace(req.MerchantID)
+	productID := strings.TrimSpace(req.ProductID)
+	shopID := strings.TrimSpace(req.ShopID)
+	name := strings.TrimSpace(req.Name)
+	status := normalizeProductStatus(req.Status)
+	if merchantID == "" || name == "" || req.PriceFen <= 0 || req.StockCount < 0 || status == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing := s.products[productID]
+	if existing != nil {
+		if shopID == "" {
+			shopID = existing.ShopID
+		}
+		if existing.ShopID != shopID {
+			return nil, ErrInvalidArgument
+		}
+	}
+	if !s.merchantOwnsShopLocked(merchantID, shopID) {
+		return nil, ErrNotFound
+	}
+	if existing == nil {
+		s.nextProductID++
+		productID = fmt.Sprintf("prod_custom_%d", s.nextProductID)
+		existing = &MerchantProduct{ID: productID, ShopID: shopID}
+		s.products[productID] = existing
+	}
+	existing.Name = name
+	existing.ImageURL = strings.TrimSpace(req.ImageURL)
+	existing.Description = strings.TrimSpace(req.Description)
+	existing.IngredientList = normalizeIngredientList(req.IngredientList)
+	existing.PriceFen = req.PriceFen
+	existing.StockCount = req.StockCount
+	existing.Status = status
+	return cloneMerchantProduct(existing), nil
+}
+
+func (s *Store) SetMerchantProductStatus(req SetMerchantProductStatusRequest) (*MerchantProduct, error) {
+	merchantID := strings.TrimSpace(req.MerchantID)
+	productID := strings.TrimSpace(req.ProductID)
+	status := normalizeProductStatus(req.Status)
+	if merchantID == "" || productID == "" || status == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	product := s.products[productID]
+	if product == nil {
+		return nil, ErrNotFound
+	}
+	if !s.merchantOwnsShopLocked(merchantID, product.ShopID) {
+		return nil, ErrNotFound
+	}
+	product.Status = status
+	return cloneMerchantProduct(product), nil
+}
+
+func (s *Store) ShopGroupbuyDeals(shopID string) ([]MerchantProduct, error) {
+	shopID = strings.TrimSpace(shopID)
+	if shopID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.shops[shopID] == nil {
+		return nil, ErrNotFound
+	}
+	deals := make([]MerchantProduct, 0)
+	for _, deal := range s.groupbuyDeals {
+		if deal.ShopID == shopID && deal.Status == ProductStatusActive {
+			deals = append(deals, *cloneMerchantProduct(deal))
+		}
+	}
+	sort.SliceStable(deals, func(i, j int) bool {
+		return deals[i].ID < deals[j].ID
+	})
+	return deals, nil
+}
+
+func (s *Store) CreateGroupbuyOrder(req CreateGroupbuyOrderRequest) (*Order, error) {
+	userID := strings.TrimSpace(req.UserID)
+	shopID := strings.TrimSpace(req.ShopID)
+	dealID := strings.TrimSpace(req.DealID)
+	quantity := req.Quantity
+	if quantity == 0 {
+		quantity = 1
+	}
+	if userID == "" || shopID == "" || dealID == "" || quantity <= 0 || quantity > 20 {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deal := s.groupbuyDeals[dealID]
+	if deal == nil || deal.ShopID != shopID || deal.Status != ProductStatusActive {
+		return nil, ErrNotFound
+	}
+	if !s.shopCanAcceptOrdersLocked(shopID) {
+		return nil, ErrInvalidOrderState
+	}
+	if deal.StockCount < quantity {
+		return nil, ErrInvalidArgument
+	}
+	deal.StockCount -= quantity
+
+	s.nextOrderID++
+	now := time.Now().UTC()
+	amountFen := deal.PriceFen * int64(quantity)
+	order := &Order{
+		ID:            fmt.Sprintf("ord_%d", s.nextOrderID),
+		UserID:        userID,
+		ShopID:        shopID,
+		Type:          OrderTypeGroupbuy,
+		Status:        StatusPendingPayment,
+		AmountFen:     amountFen,
+		ItemsTotalFen: amountFen,
+		Items: []OrderItem{{
+			ProductID:    deal.ID,
+			ProductName:  deal.Name,
+			UnitPriceFen: deal.PriceFen,
+			Quantity:     quantity,
+		}},
+		CreatedAt: now,
+		UpdatedAt: now,
+		Events: []OrderEvent{{
+			Type:      "groupbuy.order_created",
+			ActorID:   userID,
+			Message:   "团购订单已创建，待支付后发券",
+			CreatedAt: now,
+		}},
+	}
+	s.orders[order.ID] = order
+	return cloneOrder(order), nil
+}
+
+func (s *Store) UserGroupbuyVouchers(userID string) ([]GroupbuyVoucher, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	vouchers := make([]GroupbuyVoucher, 0)
+	for _, voucher := range s.groupbuyVouchers {
+		if voucher.UserID == userID {
+			vouchers = append(vouchers, *cloneGroupbuyVoucher(voucher))
+		}
+	}
+	sort.SliceStable(vouchers, func(i, j int) bool {
+		return vouchers[i].CreatedAt.After(vouchers[j].CreatedAt)
+	})
+	return vouchers, nil
+}
+
+func (s *Store) RedeemGroupbuyVoucher(req RedeemGroupbuyVoucherRequest) (*GroupbuyVoucher, *Order, error) {
+	merchantID := strings.TrimSpace(req.MerchantID)
+	code := groupbuyVoucherCodeFromScan(req.VoucherCode, req.QRPayload)
+	method := strings.TrimSpace(req.Method)
+	if method == "" {
+		method = GroupbuyRedemptionMethodQR
+	}
+	if merchantID == "" || code == "" || method != GroupbuyRedemptionMethodQR {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	voucher := s.vouchersByCode[code]
+	if voucher == nil {
+		return nil, nil, ErrNotFound
+	}
+	if !s.merchantOwnsShopLocked(merchantID, voucher.ShopID) {
+		return nil, nil, ErrNotFound
+	}
+	if voucher.Status != GroupbuyVoucherStatusIssued {
+		return nil, nil, ErrInvalidOrderState
+	}
+	order := s.orders[voucher.OrderID]
+	if order == nil {
+		return nil, nil, ErrNotFound
+	}
+	now := time.Now().UTC()
+	voucher.Status = GroupbuyVoucherRedeemed
+	voucher.RedemptionMethod = GroupbuyRedemptionMethodQR
+	voucher.RedeemedByMerchantID = merchantID
+	voucher.RedeemedAt = now
+	order.Status = StatusCompleted
+	order.UpdatedAt = now
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "groupbuy.voucher_redeemed",
+		ActorID:   merchantID,
+		Message:   "团购券已到店扫码核销",
+		CreatedAt: now,
+	})
+	return cloneGroupbuyVoucher(voucher), cloneOrder(order), nil
+}
+
+func (s *Store) SaveAddress(address UserAddress) (*UserAddress, error) {
+	address.UserID = strings.TrimSpace(address.UserID)
+	address.ContactName = strings.TrimSpace(address.ContactName)
+	address.ContactPhone = strings.TrimSpace(address.ContactPhone)
+	address.City = strings.TrimSpace(address.City)
+	address.Detail = strings.TrimSpace(address.Detail)
+	address.Tag = strings.TrimSpace(address.Tag)
+	if address.Tag == "" {
+		address.Tag = "other"
+	}
+	if !UserAddressReady(address) {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.TrimSpace(address.ID) == "" {
+		s.nextAddressID++
+		address.ID = fmt.Sprintf("addr_%d", s.nextAddressID)
+	}
+	if address.IsDefault {
+		for _, existing := range s.addresses[address.UserID] {
+			existing.IsDefault = false
+		}
+	}
+	cloned := address
+	addresses := s.addresses[address.UserID]
+	replaced := false
+	for index, existing := range addresses {
+		if existing.ID == cloned.ID {
+			addresses[index] = &cloned
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		addresses = append(addresses, &cloned)
+	}
+	s.addresses[address.UserID] = addresses
+	return cloneUserAddress(&cloned), nil
+}
+
+func (s *Store) UserAddresses(userID string) []UserAddress {
+	userID = strings.TrimSpace(userID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	output := make([]UserAddress, 0, len(s.addresses[userID]))
+	for _, address := range s.addresses[userID] {
+		output = append(output, *cloneUserAddress(address))
+	}
+	sort.SliceStable(output, func(i, j int) bool {
+		return output[i].ID < output[j].ID
+	})
+	return output
+}
+
+func (s *Store) UpsertCartItem(req UpsertCartItemRequest) (*CartSummary, error) {
+	userID := strings.TrimSpace(req.UserID)
+	shopID := strings.TrimSpace(req.ShopID)
+	productID := strings.TrimSpace(req.ProductID)
+	if userID == "" || shopID == "" || productID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	product := s.products[productID]
+	if product == nil || product.ShopID != shopID || product.Status != ProductStatusActive {
+		return nil, ErrNotFound
+	}
+	if !s.shopCanAcceptOrdersLocked(shopID) {
+		return nil, ErrInvalidOrderState
+	}
+	if req.Quantity > product.StockCount {
+		return nil, ErrInvalidArgument
+	}
+	selected := true
+	if req.Selected != nil {
+		selected = *req.Selected
+	}
+	key := cartKey(userID, shopID)
+	items := s.cartItems[key]
+	next := make([]*CartItem, 0, len(items)+1)
+	for _, item := range items {
+		if item.ProductID != productID {
+			next = append(next, cloneCartItem(item))
+		}
+	}
+	if req.Quantity > 0 {
+		next = append(next, &CartItem{
+			UserID:       userID,
+			ShopID:       shopID,
+			ProductID:    product.ID,
+			ProductName:  product.Name,
+			UnitPriceFen: product.PriceFen,
+			Quantity:     req.Quantity,
+			Selected:     selected,
+		})
+	}
+	s.cartItems[key] = next
+	return s.cartSummaryLocked(userID, shopID), nil
+}
+
+func (s *Store) CartSummary(userID string, shopID string) (*CartSummary, error) {
+	userID = strings.TrimSpace(userID)
+	shopID = strings.TrimSpace(shopID)
+	if userID == "" || shopID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cartSummaryLocked(userID, shopID), nil
+}
+
+func (s *Store) CreateOrder(req CreateOrderRequest) (*Order, error) {
+	userID := strings.TrimSpace(req.UserID)
+	orderType := strings.TrimSpace(req.Type)
+	if userID == "" || !IsOrderType(orderType) || req.AmountFen <= 0 {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.nextOrderID++
+	now := time.Now().UTC()
+	order := &Order{
+		ID:        fmt.Sprintf("ord_%d", s.nextOrderID),
+		UserID:    userID,
+		Type:      orderType,
+		Status:    StatusPendingPayment,
+		AmountFen: req.AmountFen,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Events: []OrderEvent{{
+			Type:      "order.created",
+			ActorID:   userID,
+			Message:   "订单已创建",
+			CreatedAt: now,
+		}},
+	}
+	s.orders[order.ID] = order
+	return cloneOrder(order), nil
+}
+
+func (s *Store) UserOrders(userID string) ([]Order, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	orders := make([]Order, 0)
+	for _, order := range s.orders {
+		if order.UserID == userID {
+			orders = append(orders, *cloneOrder(order))
+		}
+	}
+	sort.SliceStable(orders, func(i, j int) bool {
+		return orders[i].CreatedAt.After(orders[j].CreatedAt)
+	})
+	return orders, nil
+}
+
+func (s *Store) OrderByID(orderID string) (*Order, error) {
+	orderID = strings.TrimSpace(orderID)
+	if orderID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	return cloneOrder(order), nil
+}
+
+func (s *Store) CompensateOrderState(req CompensateOrderStateRequest) (*CompensateOrderStateResult, error) {
+	orderID := strings.TrimSpace(req.OrderID)
+	if orderID == "" {
+		return nil, ErrInvalidArgument
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	actorID := strings.TrimSpace(req.ActorID)
+	if actorID == "" {
+		actorID = "system"
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	expectation := s.expectedOrderStateLocked(order)
+	if expectation.Status == "" {
+		expectation.Status = order.Status
+	}
+	result := &CompensateOrderStateResult{
+		PreviousStatus:  order.Status,
+		ExpectedStatus:  expectation.Status,
+		PreviousRiderID: order.RiderID,
+		ExpectedRiderID: expectation.RiderID,
+		Evidence:        append([]string{}, expectation.Evidence...),
+	}
+	if order.Status == StatusCancelled || order.Status == StatusRefundPending || order.Status == StatusRefunded {
+		result.ExpectedStatus = order.Status
+		result.ExpectedRiderID = order.RiderID
+		result.Evidence = append(result.Evidence, "terminal_status_protected:"+order.Status)
+		result.Order = cloneOrder(order)
+		return result, nil
+	}
+
+	statusChanged := expectation.Status != "" && expectation.Status != order.Status
+	riderChanged := (expectation.RiderID != "" && expectation.RiderID != order.RiderID && stateKeepsRider(expectation.Status)) ||
+		(!stateKeepsRider(expectation.Status) && order.RiderID != "")
+	paymentMethodChanged := expectation.PaymentMethod != "" && strings.TrimSpace(order.PaymentMethod) == ""
+	if !statusChanged && !riderChanged && !paymentMethodChanged {
+		result.Order = cloneOrder(order)
+		return result, nil
+	}
+
+	if statusChanged {
+		order.Status = expectation.Status
+	}
+	if riderChanged {
+		order.RiderID = expectation.RiderID
+	}
+	if paymentMethodChanged {
+		order.PaymentMethod = expectation.PaymentMethod
+	}
+	order.UpdatedAt = now
+	result.Changed = true
+	result.CompensationType = "order_state_replay"
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "order.state.compensated",
+		ActorID:   actorID,
+		Message:   fmt.Sprintf("订单状态机补偿：从 %s 修复为 %s", result.PreviousStatus, expectation.Status),
+		CreatedAt: now,
+	})
+	result.Order = cloneOrder(order)
+	return result, nil
+}
+
+func (s *Store) MerchantOrders(merchantID string) ([]Order, error) {
+	merchantID = strings.TrimSpace(merchantID)
+	if merchantID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	orders := make([]Order, 0)
+	for _, order := range s.orders {
+		if order.ShopID == "" {
+			continue
+		}
+		shop := s.shops[order.ShopID]
+		if shop != nil && shop.MerchantID == merchantID {
+			orders = append(orders, *cloneOrder(order))
+		}
+	}
+	sort.SliceStable(orders, func(i, j int) bool {
+		return orders[i].CreatedAt.After(orders[j].CreatedAt)
+	})
+	return orders, nil
+}
+
+func (s *Store) MerchantAcceptOrder(orderID string, merchantID string) (*Order, error) {
+	orderID = strings.TrimSpace(orderID)
+	merchantID = strings.TrimSpace(merchantID)
+	if orderID == "" || merchantID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	if !s.orderBelongsToMerchantLocked(order, merchantID) || order.Status != StatusMerchantPending || !s.shopCanAcceptOrdersLocked(order.ShopID) {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	order.Status = StatusPreparing
+	order.UpdatedAt = now
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "merchant.accepted",
+		ActorID:   merchantID,
+		Message:   "商户已接单，开始备餐",
+		CreatedAt: now,
+	})
+	return cloneOrder(order), nil
+}
+
+func (s *Store) MerchantMarkOrderReady(orderID string, merchantID string) (*Order, error) {
+	orderID = strings.TrimSpace(orderID)
+	merchantID = strings.TrimSpace(merchantID)
+	if orderID == "" || merchantID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	if !s.orderBelongsToMerchantLocked(order, merchantID) || order.Status != StatusPreparing {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	order.Status = StatusDispatching
+	order.UpdatedAt = now
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "merchant.ready_for_pickup",
+		ActorID:   merchantID,
+		Message:   "商户已出餐，订单进入骑手调度",
+		CreatedAt: now,
+	})
+	return cloneOrder(order), nil
+}
+
+func (s *Store) CheckoutCart(req CheckoutCartRequest) (*Order, *CartSummary, error) {
+	userID := strings.TrimSpace(req.UserID)
+	shopID := strings.TrimSpace(req.ShopID)
+	addressID := strings.TrimSpace(req.AddressID)
+	if userID == "" || shopID == "" || addressID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.shops[shopID] == nil {
+		return nil, nil, ErrNotFound
+	}
+	if !s.shopCanAcceptOrdersLocked(shopID) {
+		return nil, nil, ErrInvalidOrderState
+	}
+	address := s.findAddressLocked(userID, addressID)
+	if address == nil || !UserAddressReady(*address) {
+		return nil, nil, ErrInvalidArgument
+	}
+	summary := s.cartSummaryLocked(userID, shopID)
+	if len(summary.Items) == 0 || summary.PayableFen <= 0 {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.nextOrderID++
+	now := time.Now().UTC()
+	orderItems := make([]OrderItem, 0, len(summary.Items))
+	for _, item := range summary.Items {
+		orderItems = append(orderItems, OrderItem{
+			ProductID:    item.ProductID,
+			ProductName:  item.ProductName,
+			UnitPriceFen: item.UnitPriceFen,
+			Quantity:     item.Quantity,
+		})
+	}
+	order := &Order{
+		ID:              fmt.Sprintf("ord_%d", s.nextOrderID),
+		UserID:          userID,
+		ShopID:          shopID,
+		AddressID:       addressID,
+		Type:            OrderTypeTakeout,
+		Status:          StatusPendingPayment,
+		AmountFen:       summary.PayableFen,
+		ItemsTotalFen:   summary.ItemsTotalFen,
+		DeliveryFeeFen:  summary.DeliveryFeeFen,
+		PackagingFeeFen: summary.PackagingFeeFen,
+		DiscountFen:     summary.DiscountFen,
+		Items:           orderItems,
+		Options:         normalizeOrderOptions(req.Options),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		Events: []OrderEvent{{
+			Type:      "order.checkout_created",
+			ActorID:   userID,
+			Message:   "购物车结算创建订单",
+			CreatedAt: now,
+		}},
+	}
+	s.orders[order.ID] = order
+	delete(s.cartItems, cartKey(userID, shopID))
+	return cloneOrder(order), cloneCartSummary(summary), nil
+}
+
+func (s *Store) CreditWallet(req CreditWalletRequest) (*WalletTransaction, *WalletAccount, error) {
+	userID := strings.TrimSpace(req.UserID)
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	if userID == "" || req.AmountFen <= 0 || idempotencyKey == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existing := s.walletIdempotency[idempotencyKey]; existing != nil {
+		return cloneWalletTransaction(existing), cloneWalletAccount(s.wallets[userID]), nil
+	}
+
+	account := s.getOrCreateWalletLocked(userID)
+	account.Balance += req.AmountFen
+	account.Version++
+
+	transaction := s.createWalletTransactionLocked(userID, "", "credit", req.AmountFen, "external_recharge", idempotencyKey)
+	s.walletIdempotency[idempotencyKey] = transaction
+	return cloneWalletTransaction(transaction), cloneWalletAccount(account), nil
+}
+
+func (s *Store) SetWalletPaymentPassword(req SetWalletPaymentPasswordRequest) (*WalletPaymentPasswordState, error) {
+	userID := strings.TrimSpace(req.UserID)
+	password := strings.TrimSpace(req.Password)
+	if userID == "" || !isSixDigitPaymentPassword(password) {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.paymentPasswordHash[userID] = hashPaymentPassword(password)
+	return &WalletPaymentPasswordState{UserID: userID, Status: WalletPaymentPasswordSet}, nil
+}
+
+func (s *Store) CreateWechatPrepay(req WechatPrepayRequest) (*WechatPrepayResponse, *PaymentTransaction, error) {
+	userID := strings.TrimSpace(req.UserID)
+	orderID := strings.TrimSpace(req.OrderID)
+	if userID == "" || orderID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, nil, ErrNotFound
+	}
+	if order.UserID != userID || order.Status != StatusPendingPayment {
+		return nil, nil, ErrInvalidOrderState
+	}
+	idempotencyKey := "wechat_prepay:" + orderID
+	for _, existing := range s.paymentTransactions {
+		if existing.IdempotencyKey == idempotencyKey {
+			return wechatPrepayResponseForTransaction(existing), clonePaymentTransaction(existing), nil
+		}
+	}
+	s.nextTransactionID++
+	now := time.Now().UTC()
+	outTradeNo := fmt.Sprintf("wx_%s_%d", orderID, s.nextTransactionID)
+	transaction := &PaymentTransaction{
+		ID:             fmt.Sprintf("ptx_%d", s.nextTransactionID),
+		OrderID:        orderID,
+		UserID:         userID,
+		Method:         PaymentWechat,
+		AmountFen:      order.AmountFen,
+		Status:         "prepay_created",
+		OutTradeNo:     outTradeNo,
+		IdempotencyKey: idempotencyKey,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.paymentTransactions[transaction.ID] = transaction
+	s.paymentByTradeNo[outTradeNo] = transaction
+	return wechatPrepayResponseForTransaction(transaction), clonePaymentTransaction(transaction), nil
+}
+
+func (s *Store) ConfirmWechatPayment(req WechatPaymentCallbackRequest) (*PaymentTransaction, *Order, error) {
+	outTradeNo := strings.TrimSpace(req.OutTradeNo)
+	transactionID := strings.TrimSpace(req.TransactionID)
+	if outTradeNo == "" || transactionID == "" || req.AmountFen <= 0 {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing := s.paymentByProviderID[transactionID]; existing != nil {
+		return clonePaymentTransaction(existing), cloneOrder(s.orders[existing.OrderID]), nil
+	}
+	transaction := s.paymentByTradeNo[outTradeNo]
+	if transaction == nil {
+		return nil, nil, ErrNotFound
+	}
+	if transaction.AmountFen != req.AmountFen {
+		return nil, nil, ErrInvalidArgument
+	}
+	order := s.orders[transaction.OrderID]
+	if order == nil {
+		return nil, nil, ErrNotFound
+	}
+	now := time.Now().UTC()
+	transaction.Status = "success"
+	transaction.TransactionID = transactionID
+	transaction.UpdatedAt = now
+	s.paymentByProviderID[transactionID] = transaction
+	if order.Status == StatusPendingPayment {
+		order.Status = statusAfterPayment(order)
+		order.PaymentMethod = PaymentWechat
+		order.UpdatedAt = now
+		s.issueGroupbuyVouchersLocked(order, now)
+		s.appendOrderEventLocked(order, OrderEvent{
+			Type:      "order.payment.success",
+			ActorID:   "wechat_pay",
+			Message:   paymentSuccessMessage(order),
+			CreatedAt: now,
+		})
+	}
+	return clonePaymentTransaction(transaction), cloneOrder(order), nil
+}
+
+func (s *Store) PayOrderWithBalance(req BalancePayRequest) (*WalletTransaction, *Order, *WalletAccount, error) {
+	userID := strings.TrimSpace(req.UserID)
+	orderID := strings.TrimSpace(req.OrderID)
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	if userID == "" || orderID == "" || idempotencyKey == "" {
+		return nil, nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existing := s.walletIdempotency[idempotencyKey]; existing != nil {
+		return cloneWalletTransaction(existing), cloneOrder(s.orders[orderID]), cloneWalletAccount(s.wallets[userID]), nil
+	}
+	if !s.verifyPaymentPasswordLocked(userID, req.PaymentPassword) {
+		return nil, nil, nil, ErrPaymentPassword
+	}
+
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, nil, nil, ErrNotFound
+	}
+	if order.UserID != userID || order.Status != StatusPendingPayment {
+		return nil, nil, nil, ErrInvalidOrderState
+	}
+
+	account := s.getOrCreateWalletLocked(userID)
+	if account.Balance < order.AmountFen {
+		return nil, nil, nil, ErrInsufficientBalance
+	}
+
+	account.Balance -= order.AmountFen
+	account.Version++
+	now := time.Now().UTC()
+	order.Status = statusAfterPayment(order)
+	order.PaymentMethod = PaymentBalance
+	order.UpdatedAt = now
+	s.issueGroupbuyVouchersLocked(order, now)
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "order.payment.success",
+		ActorID:   userID,
+		Message:   paymentSuccessMessage(order),
+		CreatedAt: now,
+	})
+
+	transaction := s.createWalletTransactionLocked(userID, orderID, "payment", -order.AmountFen, PaymentBalance, idempotencyKey)
+	s.walletIdempotency[idempotencyKey] = transaction
+	return cloneWalletTransaction(transaction), cloneOrder(order), cloneWalletAccount(account), nil
+}
+
+func (s *Store) RefundSettings() (*RefundSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	settings := s.refundSettings
+	settings.DefaultStrategy = NormalizeRefundStrategy(settings.DefaultStrategy)
+	return &settings, nil
+}
+
+func (s *Store) SaveRefundSettings(req SaveRefundSettingsRequest) (*RefundSettings, error) {
+	settings := RefundSettings{DefaultStrategy: NormalizeRefundStrategy(req.DefaultStrategy)}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refundSettings = settings
+	return &settings, nil
+}
+
+func (s *Store) RefundOrder(req RefundOrderRequest) (*RefundTransaction, *Order, *WalletAccount, error) {
+	req.OrderID = strings.TrimSpace(req.OrderID)
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Reason = strings.TrimSpace(req.Reason)
+	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	if req.OrderID == "" || req.Reason == "" || req.IdempotencyKey == "" {
+		return nil, nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.refundOrderLocked(req)
+}
+
+func (s *Store) refundOrderLocked(req RefundOrderRequest) (*RefundTransaction, *Order, *WalletAccount, error) {
+	orderID := strings.TrimSpace(req.OrderID)
+	userID := strings.TrimSpace(req.UserID)
+	reason := strings.TrimSpace(req.Reason)
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	if orderID == "" || reason == "" || idempotencyKey == "" {
+		return nil, nil, nil, ErrInvalidArgument
+	}
+	if existingID := s.refundByIdempotency[idempotencyKey]; existingID != "" {
+		if existing := s.refundTransactions[existingID]; existing != nil {
+			var account *WalletAccount
+			if existing.Destination == RefundDestinationBalance {
+				account = s.wallets[existing.UserID]
+			}
+			return cloneRefundTransaction(existing), cloneOrder(s.orders[existing.OrderID]), cloneWalletAccount(account), nil
+		}
+		delete(s.refundByIdempotency, idempotencyKey)
+	}
+	if existingWalletTransaction := s.walletIdempotency[idempotencyKey]; existingWalletTransaction != nil {
+		return nil, nil, nil, ErrInvalidOrderState
+	}
+
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, nil, nil, ErrNotFound
+	}
+	if userID != "" && order.UserID != userID {
+		return nil, nil, nil, ErrInvalidOrderState
+	}
+	switch order.Status {
+	case StatusPendingPayment, StatusCancelled, StatusRefundPending, StatusRefunded:
+		return nil, nil, nil, ErrInvalidOrderState
+	}
+
+	refundedBefore := s.refundedAmountForOrderLocked(order.ID)
+	remainingFen := order.AmountFen - refundedBefore
+	amountFen := req.AmountFen
+	if amountFen <= 0 {
+		amountFen = remainingFen
+	}
+	if amountFen <= 0 {
+		return nil, nil, nil, ErrInvalidArgument
+	}
+	if remainingFen <= 0 || amountFen > remainingFen {
+		return nil, nil, nil, ErrInvalidArgument
+	}
+
+	now := time.Now().UTC()
+	actorID := strings.TrimSpace(req.ActorID)
+	if actorID == "" {
+		actorID = "admin"
+	}
+	destination := RefundDestinationForStrategy(s.refundSettings.DefaultStrategy, strings.TrimSpace(req.Destination))
+	refund := &RefundTransaction{
+		ID:             "rfd_" + shortHash(idempotencyKey),
+		OrderID:        order.ID,
+		UserID:         order.UserID,
+		AmountFen:      amountFen,
+		Destination:    destination,
+		Reason:         reason,
+		IdempotencyKey: idempotencyKey,
+		CreatedAt:      now,
+	}
+
+	var account *WalletAccount
+	switch destination {
+	case RefundDestinationOriginalRoute:
+		refund.Status = RefundStatusPendingOriginal
+		order.Status = refundOrderStatusAfter(order.Status, refundedBefore+amountFen, order.AmountFen, destination)
+		order.UpdatedAt = now
+		s.appendOrderEventLocked(order, OrderEvent{
+			Type:      "order.refund.requested",
+			ActorID:   actorID,
+			Message:   "订单退款已提交原路返回处理",
+			AmountFen: amountFen,
+			CreatedAt: now,
+		})
+	default:
+		refund.Destination = RefundDestinationBalance
+		refund.Status = RefundStatusSuccess
+		account = s.getOrCreateWalletLocked(order.UserID)
+		account.Balance += amountFen
+		account.Version++
+		walletTransaction := s.createWalletTransactionLocked(order.UserID, order.ID, "refund", amountFen, RefundDestinationBalance, idempotencyKey)
+		s.walletIdempotency[idempotencyKey] = walletTransaction
+		order.Status = refundOrderStatusAfter(order.Status, refundedBefore+amountFen, order.AmountFen, destination)
+		order.UpdatedAt = now
+		s.appendOrderEventLocked(order, OrderEvent{
+			Type:      "order.refund.success",
+			ActorID:   actorID,
+			Message:   "订单退款已退回平台余额",
+			AmountFen: amountFen,
+			CreatedAt: now,
+		})
+	}
+
+	s.refundTransactions[refund.ID] = refund
+	s.refundByIdempotency[idempotencyKey] = refund.ID
+	return cloneRefundTransaction(refund), cloneOrder(order), cloneWalletAccount(account), nil
+}
+
+func (s *Store) CreateAfterSales(req CreateAfterSalesRequest) (*AfterSalesRequest, error) {
+	userID := strings.TrimSpace(req.UserID)
+	orderID := strings.TrimSpace(req.OrderID)
+	reason := strings.TrimSpace(req.Reason)
+	requestType := normalizeAfterSalesType(req.Type)
+	if userID == "" || orderID == "" || reason == "" || requestType == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	if order.UserID != userID {
+		return nil, ErrInvalidOrderState
+	}
+	amountFen := req.RequestedAmountFen
+	if amountFen <= 0 {
+		amountFen = s.refundableRemainingFenLocked(order.ID)
+	}
+	if requestType == AfterSalesRefundOnly && amountFen < order.AmountFen {
+		requestType = AfterSalesPartialRefund
+	}
+	request := AfterSalesRequest{
+		OrderID:            order.ID,
+		UserID:             userID,
+		Type:               requestType,
+		Reason:             reason,
+		RequestedAmountFen: amountFen,
+		EvidenceURLs:       sanitizedStringSlice(req.EvidenceURLs),
+	}
+	if !CanCreateAfterSales(*order, request) {
+		return nil, ErrInvalidOrderState
+	}
+	remainingFen := s.refundableRemainingFenLocked(order.ID)
+	if remainingFen <= 0 || amountFen > remainingFen {
+		return nil, ErrInvalidArgument
+	}
+	for _, existing := range s.afterSalesRequests {
+		if existing == nil || existing.OrderID != order.ID {
+			continue
+		}
+		switch existing.Status {
+		case AfterSalesRejected, AfterSalesRefunded:
+			continue
+		default:
+			return nil, ErrInvalidOrderState
+		}
+	}
+
+	s.nextAfterSalesID++
+	now := time.Now().UTC()
+	request.ID = fmt.Sprintf("asr_%d", s.nextAfterSalesID)
+	request.Status = AfterSalesPendingMerchant
+	request.CreatedAt = now
+	request.UpdatedAt = now
+	s.afterSalesRequests[request.ID] = &request
+	s.appendAfterSalesEventLocked(&request, AfterSalesActionCreated, userID, "user", "用户已提交售后申请", true, request.EvidenceURLs, now)
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "order.after_sales.created",
+		ActorID:   userID,
+		Message:   "用户已提交售后申请",
+		CreatedAt: now,
+	})
+	return s.afterSalesRequestViewLocked(&request), nil
+}
+
+func (s *Store) AfterSalesEvents(requestID string, actorID string, actorRole string) ([]AfterSalesEvent, error) {
+	requestID = strings.TrimSpace(requestID)
+	actorID = strings.TrimSpace(actorID)
+	actorRole = strings.TrimSpace(actorRole)
+	if requestID == "" || actorID == "" || actorRole == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	request := s.afterSalesRequests[requestID]
+	if request == nil {
+		return nil, ErrNotFound
+	}
+	order := s.orders[request.OrderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	if !s.canAccessAfterSalesLocked(order, request, actorID, actorRole) {
+		return nil, ErrInvalidOrderState
+	}
+	events := make([]AfterSalesEvent, 0)
+	for _, event := range s.afterSalesEvents {
+		if event == nil || event.RequestID != request.ID {
+			continue
+		}
+		if actorRole != "admin" && !event.VisibleToUser {
+			continue
+		}
+		events = append(events, *cloneAfterSalesEvent(event))
+	}
+	sortAfterSalesEvents(events)
+	return events, nil
+}
+
+func (s *Store) AddAfterSalesEvent(req AddAfterSalesEventRequest) (*AfterSalesEvent, *AfterSalesRequest, error) {
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.ActorRole = strings.TrimSpace(req.ActorRole)
+	req.Action = normalizeAfterSalesAction(req.Action)
+	req.Message = strings.TrimSpace(req.Message)
+	if req.RequestID == "" || req.ActorID == "" || req.ActorRole == "" || req.Action == "" || req.Message == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	request := s.afterSalesRequests[req.RequestID]
+	if request == nil {
+		return nil, nil, ErrNotFound
+	}
+	order := s.orders[request.OrderID]
+	if order == nil {
+		return nil, nil, ErrNotFound
+	}
+	if !s.canAddAfterSalesEventLocked(order, request, req.ActorID, req.ActorRole, req.Action) {
+		return nil, nil, ErrInvalidOrderState
+	}
+
+	now := time.Now().UTC()
+	visible := true
+	if req.VisibleToUser != nil {
+		visible = *req.VisibleToUser
+	}
+	if req.ActorRole != "admin" {
+		visible = true
+	}
+	if req.Action == AfterSalesActionInternalNote {
+		visible = false
+	}
+	event := s.appendAfterSalesEventLocked(request, req.Action, req.ActorID, req.ActorRole, req.Message, visible, req.Attachments, now)
+	orderEventType := "order.after_sales.event_added"
+	orderEventMessage := "售后处理记录已更新"
+	if afterSalesActionEscalates(req.Action) && request.Status != AfterSalesRefunded && request.Status != AfterSalesRejected {
+		request.Status = AfterSalesAdminReview
+		request.ReviewReason = req.Message
+		request.ReviewerID = req.ActorID
+		request.ReviewerRole = req.ActorRole
+		request.ReviewedAt = now
+		request.UpdatedAt = now
+		orderEventType = "order.after_sales.escalated"
+		orderEventMessage = "售后申请已转平台审核"
+	} else {
+		request.UpdatedAt = now
+	}
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      orderEventType,
+		ActorID:   req.ActorID,
+		Message:   orderEventMessage,
+		CreatedAt: now,
+	})
+	return cloneAfterSalesEvent(event), s.afterSalesRequestViewLocked(request), nil
+}
+
+func (s *Store) CreateAfterSalesEvidenceUpload(req CreateAfterSalesEvidenceUploadRequest) (*ObjectUploadTicket, error) {
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.ActorRole = strings.TrimSpace(req.ActorRole)
+	req.FileName = sanitizeObjectFileName(req.FileName)
+	req.ContentType = normalizeEvidenceContentType(req.ContentType)
+	if req.RequestID == "" || req.ActorID == "" || req.ActorRole == "" || req.FileName == "" || req.ContentType == "" || req.SizeBytes <= 0 || req.SizeBytes > AfterSalesEvidenceMaxBytes {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	request := s.afterSalesRequests[req.RequestID]
+	if request == nil {
+		return nil, ErrNotFound
+	}
+	order := s.orders[request.OrderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	if !s.canAccessAfterSalesLocked(order, request, req.ActorID, req.ActorRole) {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	storage := s.objectStorageConfigLocked()
+	scanStatus := AfterSalesUploadScanNotRequired
+	if storage.RequireScanApprovalForConfirm {
+		scanStatus = AfterSalesUploadScanPending
+	}
+	expiresAt := now.Add(storage.TicketTTL)
+	objectKey := fmt.Sprintf("after-sales/%s/%s/%s", request.ID, shortHash(fmt.Sprintf("%s:%s:%d", req.ActorID, req.FileName, now.UnixNano())), req.FileName)
+	ticket, err := storage.createObjectUploadTicket(objectUploadTicketInput{
+		ObjectKey:    objectKey,
+		ContentType:  req.ContentType,
+		SizeBytes:    req.SizeBytes,
+		MaxSizeBytes: AfterSalesEvidenceMaxBytes,
+		ExpiresAt:    expiresAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ticketID := "aset_" + shortHash(ticket.ObjectKey)
+	ticket.TicketID = ticketID
+	if s.afterSalesUploadTickets == nil {
+		s.afterSalesUploadTickets = map[string]*AfterSalesEvidenceUploadTicket{}
+	}
+	s.afterSalesUploadTickets[ticketID] = &AfterSalesEvidenceUploadTicket{
+		ID:             ticketID,
+		RequestID:      request.ID,
+		OrderID:        request.OrderID,
+		Provider:       ticket.Provider,
+		Bucket:         ticket.Bucket,
+		ObjectKey:      ticket.ObjectKey,
+		PublicURL:      ticket.PublicURL,
+		FileName:       req.FileName,
+		ContentType:    req.ContentType,
+		SizeBytes:      req.SizeBytes,
+		MaxSizeBytes:   ticket.MaxSizeBytes,
+		UploadedByID:   req.ActorID,
+		UploadedByRole: req.ActorRole,
+		Status:         AfterSalesUploadTicketIssued,
+		ScanStatus:     scanStatus,
+		CreatedAt:      now,
+		ExpiresAt:      ticket.ExpiresAt,
+	}
+	return ticket, nil
+}
+
+func (s *Store) ConfirmObjectStorageUpload(req ObjectStorageUploadCallbackRequest) (*AfterSalesEvidenceUploadTicket, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ObjectKey = strings.TrimSpace(req.ObjectKey)
+	req.ContentType = normalizeEvidenceContentType(req.ContentType)
+	req.ContentSHA = strings.TrimSpace(req.ContentSHA)
+	req.Signature = strings.TrimSpace(req.Signature)
+	if req.TicketID == "" || req.ObjectKey == "" || req.ContentType == "" || req.SizeBytes <= 0 || req.SizeBytes > AfterSalesEvidenceMaxBytes {
+		return nil, ErrInvalidArgument
+	}
+	if req.UploadedAt.IsZero() {
+		req.UploadedAt = time.Now().UTC()
+	} else {
+		req.UploadedAt = req.UploadedAt.UTC()
+	}
+
+	storage := s.objectStorageSnapshot()
+	if err := storage.verifyObjectUploadCallback(objectUploadCallbackSignatureInput{
+		TicketID:    req.TicketID,
+		ObjectKey:   req.ObjectKey,
+		ContentType: req.ContentType,
+		SizeBytes:   req.SizeBytes,
+		ContentSHA:  req.ContentSHA,
+		UploadedAt:  req.UploadedAt,
+	}, req.Signature); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.afterSalesUploadTickets[req.TicketID]
+	if !afterSalesUploadTicketMatchesObjectCallback(ticket, req) {
+		return nil, ErrInvalidArgument
+	}
+	if ticket.Status == AfterSalesUploadTicketConfirmed {
+		return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+	}
+	if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+		return nil, ErrInvalidOrderState
+	}
+	if time.Now().UTC().After(ticket.ExpiresAt) {
+		return nil, ErrInvalidOrderState
+	}
+	ticket.Status = AfterSalesUploadTicketUploaded
+	ticket.ContentSHA = req.ContentSHA
+	ticket.UploadedAt = req.UploadedAt
+	if storage.RequireScanApprovalForConfirm {
+		ticket.ScanStatus = AfterSalesUploadScanPending
+	} else {
+		ticket.ScanStatus = AfterSalesUploadScanNotRequired
+	}
+	return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+}
+
+func (s *Store) RecordObjectStorageScanResult(req ObjectStorageScanResultRequest) (*AfterSalesEvidenceUploadTicket, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ObjectKey = strings.TrimSpace(req.ObjectKey)
+	req.ScanStatus = normalizeAfterSalesUploadScanStatus(req.ScanStatus)
+	req.ScanResult = strings.TrimSpace(req.ScanResult)
+	req.Scanner = strings.TrimSpace(req.Scanner)
+	req.Signature = strings.TrimSpace(req.Signature)
+	if req.TicketID == "" || req.ObjectKey == "" || (req.ScanStatus != AfterSalesUploadScanPassed && req.ScanStatus != AfterSalesUploadScanRejected) {
+		return nil, ErrInvalidArgument
+	}
+	if req.ScanCheckedAt.IsZero() {
+		req.ScanCheckedAt = time.Now().UTC()
+	} else {
+		req.ScanCheckedAt = req.ScanCheckedAt.UTC()
+	}
+
+	storage := s.objectStorageSnapshot()
+	if err := storage.verifyObjectScanResult(objectScanResultSignatureInput{
+		TicketID:      req.TicketID,
+		ObjectKey:     req.ObjectKey,
+		ScanStatus:    req.ScanStatus,
+		ScanResult:    req.ScanResult,
+		Scanner:       req.Scanner,
+		ScanCheckedAt: req.ScanCheckedAt,
+	}, req.Signature); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.afterSalesUploadTickets[req.TicketID]
+	if ticket == nil || ticket.ObjectKey != req.ObjectKey {
+		return nil, ErrInvalidArgument
+	}
+	if ticket.Status == AfterSalesUploadTicketConfirmed {
+		if ticket.ScanStatus == req.ScanStatus && ticket.ScanResult == req.ScanResult {
+			return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+		}
+		return nil, ErrInvalidOrderState
+	}
+	if ticket.Status != AfterSalesUploadTicketUploaded {
+		return nil, ErrInvalidOrderState
+	}
+	ticket.ScanStatus = req.ScanStatus
+	ticket.ScanResult = req.ScanResult
+	ticket.ScanCheckedAt = req.ScanCheckedAt
+	return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+}
+
+func (s *Store) ObjectStorageCleanupCandidates(req ObjectStorageCleanupCandidatesRequest) ([]ObjectStorageCleanupCandidate, error) {
+	limit, grace, now, err := normalizeObjectStorageCleanupWindow(req)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	candidates := make([]ObjectStorageCleanupCandidate, 0)
+	for _, ticket := range s.afterSalesUploadTickets {
+		candidate, ok := objectStorageCleanupCandidateFromTicket(ticket, now, grace)
+		if ok {
+			candidates = append(candidates, candidate)
+		}
+	}
+	sortObjectStorageCleanupCandidates(candidates)
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates, nil
+}
+
+func (s *Store) ObjectStorageCleanupStats(req ObjectStorageCleanupCandidatesRequest) (*ObjectStorageCleanupStats, error) {
+	_, grace, now, err := normalizeObjectStorageCleanupWindow(req)
+	if err != nil {
+		return nil, err
+	}
+	stats := &ObjectStorageCleanupStats{}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ticket := range s.afterSalesUploadTickets {
+		if ticket == nil {
+			continue
+		}
+		stats.CleanupAttempts += ticket.CleanupAttempts
+		if ticket.Status == AfterSalesUploadTicketDeleted {
+			stats.Deleted++
+			if !ticket.DeletedAt.IsZero() && ticket.DeletedAt.After(stats.LastDeletedAt) {
+				stats.LastDeletedAt = ticket.DeletedAt
+			}
+			continue
+		}
+		if ticket.Status != AfterSalesUploadTicketConfirmed && ticket.LastCleanupError != "" {
+			stats.Failed++
+			if !ticket.LastCleanupFailedAt.IsZero() && ticket.LastCleanupFailedAt.After(stats.LastCleanupFailedAt) {
+				stats.LastCleanupFailedAt = ticket.LastCleanupFailedAt
+			}
+		}
+		candidate, ok := objectStorageCleanupCandidateFromTicket(ticket, now, grace)
+		if !ok {
+			continue
+		}
+		stats.Pending++
+		switch candidate.Reason {
+		case AfterSalesObjectCleanupExpired:
+			stats.ExpiredUnconfirmed++
+		case AfterSalesObjectCleanupRejected:
+			stats.ScanRejected++
+		}
+	}
+	return stats, nil
+}
+
+func (s *Store) CompleteObjectStorageCleanup(req ObjectStorageCleanupCompleteRequest) (*AfterSalesEvidenceUploadTicket, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ObjectKey = strings.TrimSpace(req.ObjectKey)
+	req.Reason = normalizeObjectStorageCleanupReason(req.Reason)
+	if req.TicketID == "" || req.ObjectKey == "" || req.Reason == "" {
+		return nil, ErrInvalidArgument
+	}
+	if req.DeletedAt.IsZero() {
+		req.DeletedAt = time.Now().UTC()
+	} else {
+		req.DeletedAt = req.DeletedAt.UTC()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.afterSalesUploadTickets[req.TicketID]
+	if ticket == nil || ticket.ObjectKey != req.ObjectKey {
+		return nil, ErrInvalidArgument
+	}
+	if ticket.Status == AfterSalesUploadTicketConfirmed {
+		return nil, ErrInvalidOrderState
+	}
+	if ticket.Status == AfterSalesUploadTicketDeleted {
+		if ticket.CleanupReason == req.Reason || ticket.CleanupReason == "" {
+			return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+		}
+		return nil, ErrInvalidOrderState
+	}
+	ticket.Status = AfterSalesUploadTicketDeleted
+	ticket.CleanupReason = req.Reason
+	ticket.DeletedAt = req.DeletedAt
+	ticket.LastCleanupError = ""
+	ticket.LastCleanupFailedAt = time.Time{}
+	return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+}
+
+func (s *Store) RecordObjectStorageCleanupFailure(req ObjectStorageCleanupFailureRequest) (*AfterSalesEvidenceUploadTicket, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ObjectKey = strings.TrimSpace(req.ObjectKey)
+	req.Reason = normalizeObjectStorageCleanupReason(req.Reason)
+	req.Error = sanitizeObjectStorageCleanupError(req.Error)
+	if req.TicketID == "" || req.ObjectKey == "" || req.Reason == "" || req.Error == "" {
+		return nil, ErrInvalidArgument
+	}
+	if req.FailedAt.IsZero() {
+		req.FailedAt = time.Now().UTC()
+	} else {
+		req.FailedAt = req.FailedAt.UTC()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.afterSalesUploadTickets[req.TicketID]
+	if ticket == nil || ticket.ObjectKey != req.ObjectKey {
+		return nil, ErrInvalidArgument
+	}
+	if ticket.Status == AfterSalesUploadTicketConfirmed {
+		return nil, ErrInvalidOrderState
+	}
+	if ticket.Status == AfterSalesUploadTicketDeleted {
+		return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+	}
+	ticket.CleanupAttempts++
+	ticket.CleanupReason = req.Reason
+	ticket.LastCleanupError = req.Error
+	ticket.LastCleanupFailedAt = req.FailedAt
+	return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+}
+
+func (s *Store) ConfirmAfterSalesEvidenceUpload(req ConfirmAfterSalesEvidenceUploadRequest) (*AfterSalesEvidence, *AfterSalesEvent, *AfterSalesRequest, error) {
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.ActorRole = strings.TrimSpace(req.ActorRole)
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ObjectKey = strings.TrimSpace(req.ObjectKey)
+	req.FileName = sanitizeObjectFileName(req.FileName)
+	req.ContentType = normalizeEvidenceContentType(req.ContentType)
+	req.ContentSHA = strings.TrimSpace(req.ContentSHA)
+	req.Message = strings.TrimSpace(req.Message)
+	if req.RequestID == "" || req.ActorID == "" || req.ActorRole == "" || req.ObjectKey == "" || req.ContentType == "" || req.SizeBytes <= 0 || req.SizeBytes > AfterSalesEvidenceMaxBytes {
+		return nil, nil, nil, ErrInvalidArgument
+	}
+	if !validAfterSalesEvidenceObjectKey(req.RequestID, req.ObjectKey) {
+		return nil, nil, nil, ErrInvalidArgument
+	}
+	if req.FileName == "" {
+		req.FileName = sanitizeObjectFileName(objectKeyFileName(req.ObjectKey))
+	}
+	if req.FileName == "" {
+		return nil, nil, nil, ErrInvalidArgument
+	}
+
+	ticket, existing, requestView, storage, err := s.prepareAfterSalesEvidenceUploadConfirmation(req)
+	if err != nil || existing != nil {
+		return existing, nil, requestView, err
+	}
+	if err := storage.verifyUploadedObject(objectHeadCheckInput{
+		ObjectKey:   ticket.ObjectKey,
+		ContentType: ticket.ContentType,
+		SizeBytes:   ticket.SizeBytes,
+	}); err != nil {
+		return nil, nil, nil, err
+	}
+	return s.commitAfterSalesEvidenceUploadConfirmation(req)
+}
+
+func (s *Store) prepareAfterSalesEvidenceUploadConfirmation(req ConfirmAfterSalesEvidenceUploadRequest) (*AfterSalesEvidenceUploadTicket, *AfterSalesEvidence, *AfterSalesRequest, ObjectStorageConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	request := s.afterSalesRequests[req.RequestID]
+	if request == nil {
+		return nil, nil, nil, ObjectStorageConfig{}, ErrNotFound
+	}
+	order := s.orders[request.OrderID]
+	if order == nil {
+		return nil, nil, nil, ObjectStorageConfig{}, ErrNotFound
+	}
+	if !s.canAccessAfterSalesLocked(order, request, req.ActorID, req.ActorRole) {
+		return nil, nil, nil, ObjectStorageConfig{}, ErrInvalidOrderState
+	}
+	evidenceID := "ase_" + shortHash(req.ObjectKey)
+	if existing := s.afterSalesEvidence[evidenceID]; existing != nil {
+		if existing.RequestID != request.ID {
+			return nil, nil, nil, ObjectStorageConfig{}, ErrInvalidArgument
+		}
+		return nil, cloneAfterSalesEvidence(existing), s.afterSalesRequestViewLocked(request), ObjectStorageConfig{}, nil
+	}
+
+	now := time.Now().UTC()
+	ticket := s.afterSalesUploadTicketForConfirmLocked(req)
+	if ticket == nil {
+		return nil, nil, nil, ObjectStorageConfig{}, ErrInvalidArgument
+	}
+	storage := s.objectStorageConfigLocked()
+	if err := afterSalesUploadTicketConfirmReady(ticket, storage, now); err != nil {
+		return nil, nil, nil, ObjectStorageConfig{}, err
+	}
+	return cloneAfterSalesEvidenceUploadTicket(ticket), nil, nil, storage, nil
+}
+
+func (s *Store) commitAfterSalesEvidenceUploadConfirmation(req ConfirmAfterSalesEvidenceUploadRequest) (*AfterSalesEvidence, *AfterSalesEvent, *AfterSalesRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	request := s.afterSalesRequests[req.RequestID]
+	if request == nil {
+		return nil, nil, nil, ErrNotFound
+	}
+	order := s.orders[request.OrderID]
+	if order == nil {
+		return nil, nil, nil, ErrNotFound
+	}
+	if !s.canAccessAfterSalesLocked(order, request, req.ActorID, req.ActorRole) {
+		return nil, nil, nil, ErrInvalidOrderState
+	}
+	evidenceID := "ase_" + shortHash(req.ObjectKey)
+	if existing := s.afterSalesEvidence[evidenceID]; existing != nil {
+		if existing.RequestID != request.ID {
+			return nil, nil, nil, ErrInvalidArgument
+		}
+		return cloneAfterSalesEvidence(existing), nil, s.afterSalesRequestViewLocked(request), nil
+	}
+
+	now := time.Now().UTC()
+	ticket := s.afterSalesUploadTicketForConfirmLocked(req)
+	if ticket == nil {
+		return nil, nil, nil, ErrInvalidArgument
+	}
+	if err := afterSalesUploadTicketConfirmReady(ticket, s.objectStorageConfigLocked(), now); err != nil {
+		return nil, nil, nil, err
+	}
+	publicURL := ticket.PublicURL
+	evidence := &AfterSalesEvidence{
+		ID:             evidenceID,
+		RequestID:      request.ID,
+		OrderID:        request.OrderID,
+		ObjectKey:      req.ObjectKey,
+		PublicURL:      publicURL,
+		FileName:       req.FileName,
+		ContentType:    req.ContentType,
+		SizeBytes:      req.SizeBytes,
+		ContentSHA:     req.ContentSHA,
+		UploadedByID:   req.ActorID,
+		UploadedByRole: req.ActorRole,
+		Status:         AfterSalesEvidenceUploaded,
+		CreatedAt:      now,
+		ConfirmedAt:    now,
+	}
+	ticket.Status = AfterSalesUploadTicketConfirmed
+	ticket.ConfirmedAt = now
+	if s.afterSalesEvidence == nil {
+		s.afterSalesEvidence = map[string]*AfterSalesEvidence{}
+	}
+	s.afterSalesEvidence[evidence.ID] = evidence
+	request.EvidenceURLs = sanitizedStringSlice(append(request.EvidenceURLs, publicURL))
+	request.UpdatedAt = now
+	message := req.Message
+	if message == "" {
+		message = "售后证据已上传"
+	}
+	event := s.appendAfterSalesEventLocked(request, AfterSalesActionEvidenceUploaded, req.ActorID, req.ActorRole, message, true, []string{publicURL}, now)
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "order.after_sales.evidence_uploaded",
+		ActorID:   req.ActorID,
+		Message:   "售后证据已上传",
+		CreatedAt: now,
+	})
+	return cloneAfterSalesEvidence(evidence), cloneAfterSalesEvent(event), s.afterSalesRequestViewLocked(request), nil
+}
+
+func (s *Store) AfterSalesEvidence(requestID string, actorID string, actorRole string) ([]AfterSalesEvidence, error) {
+	requestID = strings.TrimSpace(requestID)
+	actorID = strings.TrimSpace(actorID)
+	actorRole = strings.TrimSpace(actorRole)
+	if requestID == "" || actorID == "" || actorRole == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	request := s.afterSalesRequests[requestID]
+	if request == nil {
+		return nil, ErrNotFound
+	}
+	order := s.orders[request.OrderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	if !s.canAccessAfterSalesLocked(order, request, actorID, actorRole) {
+		return nil, ErrInvalidOrderState
+	}
+	evidence := make([]AfterSalesEvidence, 0)
+	for _, item := range s.afterSalesEvidence {
+		if item == nil || item.RequestID != requestID {
+			continue
+		}
+		evidence = append(evidence, *cloneAfterSalesEvidence(item))
+	}
+	sortAfterSalesEvidence(evidence)
+	return evidence, nil
+}
+
+func (s *Store) UserAfterSalesRequests(userID string) ([]AfterSalesRequest, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	requests := make([]AfterSalesRequest, 0)
+	for _, request := range s.afterSalesRequests {
+		if request == nil || request.UserID != userID {
+			continue
+		}
+		requests = append(requests, *s.afterSalesRequestViewLocked(request))
+	}
+	sortAfterSalesRequests(requests)
+	return requests, nil
+}
+
+func (s *Store) MerchantAfterSalesRequests(merchantID string) ([]AfterSalesRequest, error) {
+	merchantID = strings.TrimSpace(merchantID)
+	if merchantID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	requests := make([]AfterSalesRequest, 0)
+	for _, request := range s.afterSalesRequests {
+		if request == nil {
+			continue
+		}
+		if !s.orderBelongsToMerchantLocked(s.orders[request.OrderID], merchantID) {
+			continue
+		}
+		requests = append(requests, *s.afterSalesRequestViewLocked(request))
+	}
+	sortAfterSalesRequests(requests)
+	return requests, nil
+}
+
+func (s *Store) AdminAfterSalesRequests() ([]AfterSalesRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	requests := make([]AfterSalesRequest, 0, len(s.afterSalesRequests))
+	for _, request := range s.afterSalesRequests {
+		if request == nil {
+			continue
+		}
+		requests = append(requests, *s.afterSalesRequestViewLocked(request))
+	}
+	sortAfterSalesRequests(requests)
+	return requests, nil
+}
+
+func (s *Store) ReviewAfterSales(req ReviewAfterSalesRequest) (*AfterSalesRequest, *RefundTransaction, *Order, *WalletAccount, error) {
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.Decision = strings.TrimSpace(req.Decision)
+	req.Reason = strings.TrimSpace(req.Reason)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.ActorRole = strings.TrimSpace(req.ActorRole)
+	req.RefundIdempotencyKey = strings.TrimSpace(req.RefundIdempotencyKey)
+	if req.RequestID == "" || req.Decision == "" || req.ActorID == "" || req.ActorRole == "" {
+		return nil, nil, nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	request := s.afterSalesRequests[req.RequestID]
+	if request == nil {
+		return nil, nil, nil, nil, ErrNotFound
+	}
+	order := s.orders[request.OrderID]
+	if order == nil {
+		return nil, nil, nil, nil, ErrNotFound
+	}
+	if !s.canReviewAfterSalesLocked(order, request, req.ActorID, req.ActorRole, req.Decision) {
+		return nil, nil, nil, nil, ErrInvalidOrderState
+	}
+
+	now := time.Now().UTC()
+	switch req.Decision {
+	case AfterSalesDecisionReject:
+		if req.Reason == "" {
+			return nil, nil, nil, nil, ErrInvalidArgument
+		}
+		request.Status = AfterSalesRejected
+		request.ReviewReason = req.Reason
+		request.ReviewerID = req.ActorID
+		request.ReviewerRole = req.ActorRole
+		request.ReviewedAt = now
+		request.UpdatedAt = now
+		s.appendAfterSalesEventLocked(request, AfterSalesActionReviewRejected, req.ActorID, req.ActorRole, req.Reason, true, nil, now)
+		s.appendOrderEventLocked(order, OrderEvent{
+			Type:      "order.after_sales.rejected",
+			ActorID:   req.ActorID,
+			Message:   "售后申请已驳回",
+			CreatedAt: now,
+		})
+		return s.afterSalesRequestViewLocked(request), nil, cloneOrder(order), nil, nil
+	case AfterSalesDecisionEscalate:
+		request.Status = AfterSalesAdminReview
+		request.ReviewReason = req.Reason
+		request.ReviewerID = req.ActorID
+		request.ReviewerRole = req.ActorRole
+		request.ReviewedAt = now
+		request.UpdatedAt = now
+		message := req.Reason
+		if message == "" {
+			message = "售后申请已转平台审核"
+		}
+		s.appendAfterSalesEventLocked(request, AfterSalesActionEscalated, req.ActorID, req.ActorRole, message, true, nil, now)
+		s.appendOrderEventLocked(order, OrderEvent{
+			Type:      "order.after_sales.escalated",
+			ActorID:   req.ActorID,
+			Message:   "售后申请已转平台审核",
+			CreatedAt: now,
+		})
+		return s.afterSalesRequestViewLocked(request), nil, cloneOrder(order), nil, nil
+	case AfterSalesDecisionApprove:
+		idempotencyKey := req.RefundIdempotencyKey
+		if idempotencyKey == "" {
+			idempotencyKey = "after_sales:" + request.ID
+		}
+		reason := req.Reason
+		if reason == "" {
+			reason = request.Reason
+		}
+		refund, refundedOrder, account, err := s.refundOrderLocked(RefundOrderRequest{
+			OrderID:        request.OrderID,
+			UserID:         request.UserID,
+			AmountFen:      request.RequestedAmountFen,
+			Destination:    req.RefundDestination,
+			Reason:         reason,
+			IdempotencyKey: idempotencyKey,
+			ActorID:        req.ActorID,
+			ActorRole:      req.ActorRole,
+		})
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		request.Status = AfterSalesApproved
+		if refund.Status == RefundStatusSuccess {
+			request.Status = AfterSalesRefunded
+		}
+		request.ReviewReason = reason
+		request.ReviewerID = req.ActorID
+		request.ReviewerRole = req.ActorRole
+		request.RefundID = refund.ID
+		request.ReviewedAt = now
+		request.UpdatedAt = now
+		s.appendAfterSalesEventLocked(request, AfterSalesActionReviewApproved, req.ActorID, req.ActorRole, reason, true, nil, now)
+		s.appendOrderEventLocked(order, OrderEvent{
+			Type:      "order.after_sales.approved",
+			ActorID:   req.ActorID,
+			Message:   "售后申请已通过",
+			CreatedAt: now,
+		})
+		refundedOrder = cloneOrder(order)
+		return s.afterSalesRequestViewLocked(request), refund, refundedOrder, account, nil
+	default:
+		return nil, nil, nil, nil, ErrInvalidArgument
+	}
+}
+
+func (s *Store) DepositAccount(subjectType string, subjectID string) (*DepositAccount, error) {
+	subjectType = strings.TrimSpace(subjectType)
+	subjectID = strings.TrimSpace(subjectID)
+	if subjectType == "" || subjectID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.depositSubjectExistsLocked(subjectType, subjectID) {
+		return nil, ErrNotFound
+	}
+	return cloneDepositAccount(s.getOrCreateDepositLocked(subjectType, subjectID)), nil
+}
+
+func (s *Store) PayDeposit(req PayDepositRequest) (*DepositAccount, error) {
+	subjectType := strings.TrimSpace(req.SubjectType)
+	subjectID := strings.TrimSpace(req.SubjectID)
+	if subjectType == "" || subjectID == "" {
+		return nil, ErrInvalidArgument
+	}
+	requiredAmount := requiredDepositAmount(subjectType)
+	if requiredAmount <= 0 || req.AmountFen < requiredAmount {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.depositSubjectExistsLocked(subjectType, subjectID) {
+		return nil, ErrNotFound
+	}
+	deposit := s.getOrCreateDepositLocked(subjectType, subjectID)
+	deposit.AmountFen = req.AmountFen
+	deposit.Status = DepositStatusPaid
+	deposit.UpdatedAt = time.Now().UTC()
+	s.syncDepositStatusLocked(deposit)
+	return cloneDepositAccount(deposit), nil
+}
+
+func (s *Store) ApproveRiderWechatExemption(req RiderWechatExemptionRequest) (*DepositAccount, *RiderAccount, error) {
+	riderID := strings.TrimSpace(req.RiderID)
+	applicationID := strings.TrimSpace(req.ApplicationID)
+	if riderID == "" || applicationID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rider := s.riders[riderID]
+	if rider == nil || rider.Type != RiderAccountRider {
+		return nil, nil, ErrNotFound
+	}
+	deposit := s.getOrCreateDepositLocked("rider", riderID)
+	deposit.AmountFen = 0
+	deposit.Status = DepositStatusWechatExemptApproved
+	deposit.WechatExemptApplicationID = applicationID
+	deposit.UpdatedAt = time.Now().UTC()
+	s.syncDepositStatusLocked(deposit)
+	return cloneDepositAccount(deposit), cloneRiderAccount(rider), nil
+}
+
+func (s *Store) RequestRiderDepositRefund(req RiderDepositRefundRequest) (*DepositAccount, *RiderAccount, error) {
+	riderID := strings.TrimSpace(req.RiderID)
+	if riderID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rider := s.riders[riderID]
+	if rider == nil || rider.Type != RiderAccountRider {
+		return nil, nil, ErrNotFound
+	}
+	deposit := s.getOrCreateDepositLocked("rider", riderID)
+	if deposit.Status != DepositStatusPaid && deposit.Status != DepositStatusDisputeHold {
+		return nil, nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	deposit.Status = DepositStatusRefundPending
+	deposit.ResignationSubmittedAt = req.ResignationSubmittedAt
+	if deposit.ResignationSubmittedAt.IsZero() {
+		deposit.ResignationSubmittedAt = now
+	}
+	deposit.DisputeClosedAt = req.DisputeClosedAt
+	deposit.LastOrderCompletedAt = s.latestRiderCompletedOrderTimeLocked(riderID)
+	deposit.UpdatedAt = now
+	s.syncDepositStatusLocked(deposit)
+	return cloneDepositAccount(deposit), cloneRiderAccount(rider), nil
+}
+
+func (s *Store) SetRiderOnlineStatus(req SetRiderOnlineStatusRequest) (*RiderAccount, error) {
+	riderID := strings.TrimSpace(req.RiderID)
+	if riderID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rider := s.riders[riderID]
+	if rider == nil {
+		return nil, ErrNotFound
+	}
+	rider.Online = req.Online
+	if req.Capacity > 0 {
+		rider.Capacity = req.Capacity
+	}
+	if req.DistanceMeters >= 0 {
+		rider.DistanceMeters = req.DistanceMeters
+	}
+	return cloneRiderAccount(rider), nil
+}
+
+func (s *Store) AutoAssignOrder(req AutoAssignOrderRequest) (*Order, *DispatchDecision, error) {
+	orderID := strings.TrimSpace(req.OrderID)
+	if orderID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, nil, ErrNotFound
+	}
+	if order.Status != StatusDispatching || order.RiderID != "" {
+		return nil, nil, ErrInvalidOrderState
+	}
+	ageSeconds := int(now.UTC().Sub(order.CreatedAt).Seconds())
+	if DispatchModeForOrderAgeSeconds(ageSeconds) != DispatchModeAutoAssign {
+		return nil, nil, ErrInvalidOrderState
+	}
+	decision := s.dispatchDecisionLocked(order, DispatchModeAutoAssign, now.UTC())
+	if decision.CandidateRiderID == "" {
+		decision.Reason = "no_online_rider"
+		s.recordDispatchEventLocked(order, decision, "dispatch.no_candidate", "", "system", decision.Reason, now.UTC())
+		return cloneOrder(order), decision, nil
+	}
+	s.assignOrderToRiderLocked(order, decision.CandidateRiderID, DispatchModeAutoAssign, "system", now.UTC(), decision)
+	return cloneOrder(order), decision, nil
+}
+
+func (s *Store) RejectRiderAssignment(req RejectRiderAssignmentRequest) (*Order, *DispatchDecision, error) {
+	orderID := strings.TrimSpace(req.OrderID)
+	riderID := strings.TrimSpace(req.RiderID)
+	if orderID == "" || riderID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, nil, ErrNotFound
+	}
+	if order.Status != StatusRiderAssigned || order.RiderID != riderID {
+		return nil, nil, ErrInvalidOrderState
+	}
+	if s.dispatchRejectedRiders[orderID] == nil {
+		s.dispatchRejectedRiders[orderID] = map[string]bool{}
+	}
+	s.dispatchRejectedRiders[orderID][riderID] = true
+	order.Status = StatusDispatching
+	order.RiderID = ""
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	if !order.UpdatedAt.IsZero() && !now.After(order.UpdatedAt.UTC()) {
+		now = order.UpdatedAt.UTC().Add(time.Nanosecond)
+	}
+	canDeclineWithoutPenalty, completedOrderCount, fixedOrderCount := s.riderCanDeclineWithoutPenaltyLocked(riderID, now)
+	message := "骑手拒绝派单，系统顺延下一位在线骑手"
+	if canDeclineWithoutPenalty {
+		message = "骑手完成固定单量后免责拒绝派单，系统顺延下一位在线骑手"
+	}
+	order.UpdatedAt = now
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "dispatch.rejected",
+		ActorID:   riderID,
+		Message:   message,
+		CreatedAt: now,
+	})
+	decision := s.dispatchDecisionLocked(order, DispatchModeAutoAssign, now)
+	decision.CanDeclineWithoutPenalty = canDeclineWithoutPenalty
+	decision.DailyCompletedOrderCount = completedOrderCount
+	decision.DailyFixedOrderCount = fixedOrderCount
+	if canDeclineWithoutPenalty {
+		decision.Reason = "after_fixed_order_count"
+	}
+	s.recordDispatchEventLocked(order, decision, "dispatch.rejected", riderID, riderID, decision.Reason, now)
+	if decision.CandidateRiderID == "" {
+		decision.Reason = "no_online_rider"
+		s.recordDispatchEventLocked(order, decision, "dispatch.no_candidate", "", "system", decision.Reason, now)
+		return cloneOrder(order), decision, nil
+	}
+	s.assignOrderToRiderLocked(order, decision.CandidateRiderID, DispatchModeAutoAssign, "system", now, decision)
+	return cloneOrder(order), decision, nil
+}
+
+func (s *Store) TimeoutReassignOrder(req TimeoutReassignOrderRequest) (*Order, *DispatchDecision, error) {
+	orderID := strings.TrimSpace(req.OrderID)
+	if orderID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	if req.TimeoutSeconds < 0 {
+		return nil, nil, ErrInvalidArgument
+	}
+	timeoutSeconds := req.TimeoutSeconds
+	if timeoutSeconds == 0 {
+		timeoutSeconds = DispatchAssignmentTimeoutSeconds
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stationID, allStations, err := s.stationScopeLocked(req.StationManagerID)
+	if err != nil {
+		return nil, nil, err
+	}
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, nil, ErrNotFound
+	}
+	if !allStations && s.orderStationIDLocked(order) != stationID {
+		return nil, nil, ErrNotFound
+	}
+	riderID := strings.TrimSpace(req.RiderID)
+	if riderID == "" {
+		riderID = strings.TrimSpace(order.RiderID)
+	}
+	if order.Status != StatusRiderAssigned || strings.TrimSpace(order.RiderID) == "" || order.RiderID != riderID {
+		return nil, nil, ErrInvalidOrderState
+	}
+	if !allStations {
+		if rider := s.riders[riderID]; rider != nil && rider.StationID != stationID {
+			return nil, nil, ErrNotFound
+		}
+	}
+	if order.UpdatedAt.IsZero() || now.Sub(order.UpdatedAt.UTC()) < time.Duration(timeoutSeconds)*time.Second {
+		return nil, nil, ErrInvalidOrderState
+	}
+
+	if s.dispatchRejectedRiders[orderID] == nil {
+		s.dispatchRejectedRiders[orderID] = map[string]bool{}
+	}
+	s.dispatchRejectedRiders[orderID][riderID] = true
+	order.Status = StatusDispatching
+	order.RiderID = ""
+	order.UpdatedAt = now
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "dispatch.timeout",
+		ActorID:   "system",
+		Message:   "骑手确认超时，系统自动转派下一位在线骑手",
+		CreatedAt: now,
+	})
+
+	decision := s.dispatchDecisionLocked(order, DispatchModeAutoAssign, now)
+	decision.Reason = "assignment_timeout"
+	s.recordDispatchEventLocked(order, decision, "dispatch.timeout", riderID, "system", decision.Reason, now)
+	if decision.CandidateRiderID == "" {
+		decision.Reason = "no_online_rider"
+		s.recordDispatchEventLocked(order, decision, "dispatch.no_candidate", "", "system", decision.Reason, now)
+		return cloneOrder(order), decision, nil
+	}
+	s.assignOrderToRiderLocked(order, decision.CandidateRiderID, DispatchModeAutoAssign, "system", now, decision)
+	return cloneOrder(order), decision, nil
+}
+
+func (s *Store) StationRiders(stationManagerID string) ([]RiderAccount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stationID, allStations, err := s.stationScopeLocked(stationManagerID)
+	if err != nil {
+		return nil, err
+	}
+
+	riders := make([]RiderAccount, 0)
+	for _, rider := range s.riders {
+		if rider == nil || rider.Type != RiderAccountRider {
+			continue
+		}
+		if !allStations && rider.StationID != stationID {
+			continue
+		}
+		riders = append(riders, *cloneRiderAccount(rider))
+	}
+	sort.SliceStable(riders, func(i, j int) bool {
+		if riders[i].DispatchPriority != riders[j].DispatchPriority {
+			return riders[i].DispatchPriority > riders[j].DispatchPriority
+		}
+		if riders[i].StationID != riders[j].StationID {
+			return riders[i].StationID < riders[j].StationID
+		}
+		return riders[i].ID < riders[j].ID
+	})
+	return riders, nil
+}
+
+func (s *Store) StationOrders(stationManagerID string) ([]Order, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stationID, allStations, err := s.stationScopeLocked(stationManagerID)
+	if err != nil {
+		return nil, err
+	}
+
+	orders := make([]Order, 0)
+	for _, order := range s.orders {
+		if order == nil || !isStationVisibleDispatchStatus(order.Status) {
+			continue
+		}
+		if !allStations && s.orderStationIDLocked(order) != stationID {
+			continue
+		}
+		if !allStations && order.RiderID != "" {
+			if rider := s.riders[order.RiderID]; rider != nil && rider.StationID != stationID {
+				continue
+			}
+		}
+		orders = append(orders, *cloneOrder(order))
+	}
+	sort.SliceStable(orders, func(i, j int) bool {
+		return orders[i].CreatedAt.After(orders[j].CreatedAt)
+	})
+	return orders, nil
+}
+
+func (s *Store) ManualAssignOrder(req ManualAssignOrderRequest) (*Order, *DispatchDecision, error) {
+	orderID := strings.TrimSpace(req.OrderID)
+	riderID := strings.TrimSpace(req.RiderID)
+	if orderID == "" || riderID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stationID, allStations, err := s.stationScopeLocked(req.StationManagerID)
+	if err != nil {
+		return nil, nil, err
+	}
+	rider := s.riders[riderID]
+	if rider == nil || rider.Type != RiderAccountRider {
+		return nil, nil, ErrNotFound
+	}
+	if !allStations && rider.StationID != stationID {
+		return nil, nil, ErrNotFound
+	}
+	if !riderCanAcceptDispatchLocked(rider) {
+		return nil, nil, ErrInvalidOrderState
+	}
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, nil, ErrNotFound
+	}
+	orderStationID := s.orderStationIDLocked(order)
+	if !allStations && orderStationID != stationID {
+		return nil, nil, ErrNotFound
+	}
+	if order.Status != StatusDispatching && order.Status != StatusRiderAssigned {
+		return nil, nil, ErrInvalidOrderState
+	}
+
+	now := time.Now().UTC()
+	canDeclineWithoutPenalty, completedOrderCount, fixedOrderCount := s.riderCanDeclineWithoutPenaltyLocked(riderID, now)
+	decision := &DispatchDecision{
+		OrderID:                      order.ID,
+		Mode:                         DispatchModeManualAssign,
+		StationID:                    orderStationID,
+		CandidateRiderID:             riderID,
+		RejectedRiderIDs:             rejectedRiderIDs(s.dispatchRejectedRiders[order.ID]),
+		CanDeclineWithoutPenalty:     canDeclineWithoutPenalty,
+		DailyCompletedOrderCount:     completedOrderCount,
+		DailyFixedOrderCount:         fixedOrderCount,
+		IdempotencyKey:               s.nextDispatchIdempotencyKeyLocked(order.ID),
+		RemainingOnlineCandidateSize: s.onlineCandidateCountLocked(order),
+	}
+	s.assignOrderToRiderLocked(order, riderID, DispatchModeManualAssign, strings.TrimSpace(req.StationManagerID), now, decision)
+	return cloneOrder(order), decision, nil
+}
+
+func (s *Store) StationTaskConfig(stationManagerID string) (*StationTaskConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stationID, err := s.stationIDForTaskConfigLocked(stationManagerID)
+	if err != nil {
+		return nil, err
+	}
+	return cloneStationTaskConfig(s.stationTaskConfigLocked(stationID, "")), nil
+}
+
+func (s *Store) SaveStationTaskConfig(req SaveStationTaskConfigRequest) (*StationTaskConfig, error) {
+	if req.DailyTaskDurationMinutes < 0 || req.DailyTaskDurationMinutes > 24*60 || req.DailyFixedOrderCount < 0 || req.DailyFixedOrderCount > 500 {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stationID, err := s.stationIDForTaskConfigLocked(req.StationManagerID)
+	if err != nil {
+		return nil, err
+	}
+	config := s.stationTaskConfigLocked(stationID, req.StationManagerID)
+	config.DailyTaskDurationMinutes = req.DailyTaskDurationMinutes
+	config.DailyFixedOrderCount = req.DailyFixedOrderCount
+	config.ConfiguredByStationManagerID = strings.TrimSpace(req.StationManagerID)
+	return cloneStationTaskConfig(config), nil
+}
+
+func (s *Store) StationRiderPerformance(stationManagerID string) ([]RiderPerformance, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stationID, allStations, err := s.stationScopeLocked(stationManagerID)
+	if err != nil {
+		return nil, err
+	}
+
+	performances := make([]RiderPerformance, 0)
+	for _, rider := range s.riders {
+		if rider == nil || rider.Type != RiderAccountRider {
+			continue
+		}
+		if !allStations && rider.StationID != stationID {
+			continue
+		}
+		acceptedCount, completedCount := s.riderOrderCountsLocked(rider.ID)
+		averageDailyOrders := rider.AverageDailyOrders
+		if completedCount > 0 {
+			averageDailyOrders += float64(completedCount)
+		}
+		completionRate := rider.CompletionRate
+		if acceptedCount > 0 && completedCount > 0 {
+			completionRate = float64(completedCount) / float64(acceptedCount)
+		}
+		performances = append(performances, RiderPerformance{
+			RiderID:              rider.ID,
+			StationID:            rider.StationID,
+			AverageAcceptSeconds: rider.AverageAcceptSeconds,
+			AverageDailyOrders:   averageDailyOrders,
+			CompletionRate:       completionRate,
+		})
+	}
+
+	teamAverageAcceptSeconds := averagePositiveAcceptSeconds(performances)
+	teamAverageDailyOrders := averagePositiveDailyOrders(performances)
+	for index := range performances {
+		performance := &performances[index]
+		performance.Score, performance.Level, performance.DispatchPriority = evaluateRiderPerformanceLevel(*performance, teamAverageAcceptSeconds, teamAverageDailyOrders)
+		if rider := s.riders[performance.RiderID]; rider != nil {
+			rider.DispatchPriority = performance.DispatchPriority
+		}
+		performance.AverageDailyOrders = roundFloat(performance.AverageDailyOrders, 2)
+		performance.CompletionRate = roundFloat(performance.CompletionRate, 4)
+	}
+	sort.SliceStable(performances, func(i, j int) bool {
+		if performances[i].DispatchPriority != performances[j].DispatchPriority {
+			return performances[i].DispatchPriority > performances[j].DispatchPriority
+		}
+		if performances[i].AverageAcceptSeconds != performances[j].AverageAcceptSeconds {
+			return performances[i].AverageAcceptSeconds < performances[j].AverageAcceptSeconds
+		}
+		return performances[i].RiderID < performances[j].RiderID
+	})
+	return performances, nil
+}
+
+func (s *Store) GrabOrder(orderID string, riderID string) (*Order, error) {
+	orderID = strings.TrimSpace(orderID)
+	riderID = strings.TrimSpace(riderID)
+	if orderID == "" || riderID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	if order.Status != StatusDispatching || order.RiderID != "" {
+		return nil, ErrOrderAlreadyAssigned
+	}
+	rider := s.riders[riderID]
+	if !riderCanAcceptDispatchLocked(rider) || !riderMatchesOrderStationLocked(rider, s.orderStationIDLocked(order)) {
+		return nil, ErrInvalidOrderState
+	}
+
+	now := time.Now().UTC()
+	order.Status = StatusRiderAssigned
+	order.RiderID = riderID
+	order.UpdatedAt = now
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "dispatch.grabbed",
+		ActorID:   riderID,
+		Message:   "骑手抢单成功",
+		CreatedAt: now,
+	})
+	decision := &DispatchDecision{
+		OrderID:                      order.ID,
+		Mode:                         DispatchModeGrabHall,
+		StationID:                    s.orderStationIDLocked(order),
+		CandidateRiderID:             riderID,
+		RejectedRiderIDs:             rejectedRiderIDs(s.dispatchRejectedRiders[order.ID]),
+		IdempotencyKey:               s.nextDispatchIdempotencyKeyLocked(order.ID),
+		RemainingOnlineCandidateSize: s.onlineCandidateCountLocked(order),
+	}
+	s.recordDispatchEventLocked(order, decision, "dispatch.grabbed", riderID, riderID, "", now)
+	return cloneOrder(order), nil
+}
+
+func (s *Store) DispatchEvents(orderID string, stationManagerID string) ([]DispatchEvent, error) {
+	orderID = strings.TrimSpace(orderID)
+	if orderID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	stationID, allStations, err := s.stationScopeLocked(stationManagerID)
+	if err != nil {
+		return nil, err
+	}
+	if !allStations && s.orderStationIDLocked(order) != stationID {
+		return nil, ErrNotFound
+	}
+	events := make([]DispatchEvent, 0)
+	for _, event := range s.dispatchEvents {
+		if event == nil || event.OrderID != orderID {
+			continue
+		}
+		events = append(events, *cloneDispatchEvent(event))
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		if events[i].CreatedAt.Equal(events[j].CreatedAt) {
+			return events[i].ID < events[j].ID
+		}
+		return events[i].CreatedAt.Before(events[j].CreatedAt)
+	})
+	return events, nil
+}
+
+func (s *Store) OutboxEvents(req OutboxEventsRequest) ([]OutboxEvent, error) {
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = OutboxStatusPending
+	}
+	if !IsOutboxStatus(status) {
+		return nil, ErrInvalidArgument
+	}
+	topic := strings.TrimSpace(req.Topic)
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	events := make([]OutboxEvent, 0)
+	for _, event := range s.outboxEvents {
+		if event == nil {
+			continue
+		}
+		if status == OutboxStatusPending {
+			if event.Status != OutboxStatusPending && event.Status != OutboxStatusFailed {
+				continue
+			}
+		} else if event.Status != status {
+			continue
+		}
+		if topic != "" && event.Topic != topic {
+			continue
+		}
+		if (event.Status == OutboxStatusPending || event.Status == OutboxStatusFailed) && outboxLeaseActive(event, now) {
+			continue
+		}
+		if (event.Status == OutboxStatusPending || event.Status == OutboxStatusFailed) && event.AvailableAt.After(now) {
+			continue
+		}
+		events = append(events, *cloneOutboxEvent(event))
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		if !events[i].AvailableAt.Equal(events[j].AvailableAt) {
+			return events[i].AvailableAt.Before(events[j].AvailableAt)
+		}
+		if !events[i].CreatedAt.Equal(events[j].CreatedAt) {
+			return events[i].CreatedAt.Before(events[j].CreatedAt)
+		}
+		return events[i].ID < events[j].ID
+	})
+	if len(events) > limit {
+		events = events[:limit]
+	}
+	return events, nil
+}
+
+func outboxLeaseActive(event *OutboxEvent, now time.Time) bool {
+	if event == nil || strings.TrimSpace(event.LeaseOwner) == "" || event.LeaseExpiresAt.IsZero() {
+		return false
+	}
+	return event.LeaseExpiresAt.UTC().After(now.UTC())
+}
+
+func (s *Store) OutboxStats(req OutboxStatsRequest) (*OutboxStats, error) {
+	topic := strings.TrimSpace(req.Topic)
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	events := make([]OutboxEvent, 0, len(s.outboxEvents))
+	for _, event := range s.outboxEvents {
+		if event == nil {
+			continue
+		}
+		if topic != "" && event.Topic != topic {
+			continue
+		}
+		events = append(events, *cloneOutboxEvent(event))
+	}
+	return buildOutboxStats(events, topic, now, req.LeaseExpiringWithinSeconds), nil
+}
+
+func (s *Store) MarkOutboxEventPublished(req MarkOutboxEventPublishedRequest) (*OutboxEvent, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return nil, ErrInvalidArgument
+	}
+	publishedAt := req.PublishedAt
+	if publishedAt.IsZero() {
+		publishedAt = time.Now().UTC()
+	}
+	publishedAt = publishedAt.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	event := s.outboxEvents[eventID]
+	if event == nil {
+		return nil, ErrNotFound
+	}
+	event.Status = OutboxStatusPublished
+	event.LastError = ""
+	event.LeaseOwner = ""
+	event.LeaseExpiresAt = time.Time{}
+	event.PublishedAt = publishedAt
+	event.UpdatedAt = publishedAt
+	return cloneOutboxEvent(event), nil
+}
+
+func (s *Store) MarkOutboxEventFailed(req MarkOutboxEventFailedRequest) (*OutboxEvent, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return nil, ErrInvalidArgument
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	retryAfterSeconds := req.RetryAfterSeconds
+	if retryAfterSeconds <= 0 {
+		retryAfterSeconds = 60
+	}
+	maxAttempts := req.MaxAttempts
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	event := s.outboxEvents[eventID]
+	if event == nil {
+		return nil, ErrNotFound
+	}
+	event.Attempts++
+	event.Status = OutboxStatusFailed
+	event.LastError = strings.TrimSpace(req.Error)
+	event.LeaseOwner = ""
+	event.LeaseExpiresAt = time.Time{}
+	if maxAttempts > 0 && event.Attempts >= maxAttempts {
+		event.Status = OutboxStatusDeadLetter
+		event.AvailableAt = now
+	} else {
+		event.AvailableAt = now.Add(time.Duration(retryAfterSeconds) * time.Second)
+	}
+	event.UpdatedAt = now
+	return cloneOutboxEvent(event), nil
+}
+
+func (s *Store) ClaimOutboxEvents(req ClaimOutboxEventsRequest) (*ClaimOutboxEventsResult, error) {
+	topic := strings.TrimSpace(req.Topic)
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	leaseOwner := strings.TrimSpace(req.LeaseOwner)
+	if leaseOwner == "" {
+		leaseOwner = "outbox-relay"
+	}
+	leaseSeconds := req.LeaseSeconds
+	if leaseSeconds <= 0 {
+		leaseSeconds = 60
+	}
+	if leaseSeconds > 3600 {
+		leaseSeconds = 3600
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	leaseExpiresAt := now.Add(time.Duration(leaseSeconds) * time.Second)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	candidates := make([]*OutboxEvent, 0)
+	for _, event := range s.outboxEvents {
+		if event == nil {
+			continue
+		}
+		if topic != "" && event.Topic != topic {
+			continue
+		}
+		if event.Status != OutboxStatusPending && event.Status != OutboxStatusFailed {
+			continue
+		}
+		if outboxLeaseActive(event, now) {
+			continue
+		}
+		availableAt := event.AvailableAt
+		if availableAt.IsZero() {
+			availableAt = event.CreatedAt
+		}
+		if availableAt.UTC().After(now) {
+			continue
+		}
+		candidates = append(candidates, event)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		leftAvailableAt := candidates[i].AvailableAt
+		if leftAvailableAt.IsZero() {
+			leftAvailableAt = candidates[i].CreatedAt
+		}
+		rightAvailableAt := candidates[j].AvailableAt
+		if rightAvailableAt.IsZero() {
+			rightAvailableAt = candidates[j].CreatedAt
+		}
+		if !leftAvailableAt.Equal(rightAvailableAt) {
+			return leftAvailableAt.Before(rightAvailableAt)
+		}
+		if !candidates[i].CreatedAt.Equal(candidates[j].CreatedAt) {
+			return candidates[i].CreatedAt.Before(candidates[j].CreatedAt)
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	result := &ClaimOutboxEventsResult{
+		Topic:          topic,
+		Limit:          limit,
+		LeaseOwner:     leaseOwner,
+		LeaseExpiresAt: leaseExpiresAt,
+		Events:         []OutboxEvent{},
+	}
+	for _, event := range candidates {
+		event.LeaseOwner = leaseOwner
+		event.LeaseExpiresAt = leaseExpiresAt
+		event.UpdatedAt = now
+		result.Events = append(result.Events, *cloneOutboxEvent(event))
+	}
+	result.Claimed = len(result.Events)
+	return result, nil
+}
+
+func (s *Store) RenewOutboxEventLease(req RenewOutboxEventLeaseRequest) (*OutboxEvent, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	leaseOwner := strings.TrimSpace(req.LeaseOwner)
+	if eventID == "" || leaseOwner == "" {
+		return nil, ErrInvalidArgument
+	}
+	leaseSeconds := req.LeaseSeconds
+	if leaseSeconds <= 0 {
+		leaseSeconds = 60
+	}
+	if leaseSeconds > 3600 {
+		leaseSeconds = 3600
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	event := s.outboxEvents[eventID]
+	if event == nil {
+		return nil, ErrNotFound
+	}
+	if event.Status != OutboxStatusPending && event.Status != OutboxStatusFailed {
+		return nil, ErrInvalidOrderState
+	}
+	if !outboxLeaseActive(event, now) || event.LeaseOwner != leaseOwner {
+		return nil, ErrInvalidOrderState
+	}
+	event.LeaseExpiresAt = now.Add(time.Duration(leaseSeconds) * time.Second)
+	event.UpdatedAt = now
+	return cloneOutboxEvent(event), nil
+}
+
+func (s *Store) ReplayOutboxEvent(req ReplayOutboxEventRequest) (*OutboxEvent, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return nil, ErrInvalidArgument
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	event := s.outboxEvents[eventID]
+	if event == nil {
+		return nil, ErrNotFound
+	}
+	if event.Status == OutboxStatusPublished {
+		return nil, ErrInvalidOrderState
+	}
+	if event.Status != OutboxStatusPending && event.Status != OutboxStatusFailed && event.Status != OutboxStatusDeadLetter {
+		return nil, ErrInvalidArgument
+	}
+	event.Status = OutboxStatusPending
+	event.LastError = ""
+	event.LeaseOwner = ""
+	event.LeaseExpiresAt = time.Time{}
+	event.AvailableAt = now
+	event.UpdatedAt = now
+	return cloneOutboxEvent(event), nil
+}
+
+func (s *Store) ReplayOutboxEvents(req ReplayOutboxEventsRequest) (*ReplayOutboxEventsResult, error) {
+	topic := strings.TrimSpace(req.Topic)
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	candidates := make([]*OutboxEvent, 0)
+	for _, event := range s.outboxEvents {
+		if event == nil {
+			continue
+		}
+		if topic != "" && event.Topic != topic {
+			continue
+		}
+		if event.Status != OutboxStatusPending && event.Status != OutboxStatusFailed {
+			continue
+		}
+		if outboxLeaseActive(event, now) {
+			continue
+		}
+		availableAt := event.AvailableAt
+		if availableAt.IsZero() {
+			availableAt = event.CreatedAt
+		}
+		if !availableAt.UTC().After(now) {
+			continue
+		}
+		candidates = append(candidates, event)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		leftAvailableAt := candidates[i].AvailableAt
+		if leftAvailableAt.IsZero() {
+			leftAvailableAt = candidates[i].CreatedAt
+		}
+		rightAvailableAt := candidates[j].AvailableAt
+		if rightAvailableAt.IsZero() {
+			rightAvailableAt = candidates[j].CreatedAt
+		}
+		if !leftAvailableAt.Equal(rightAvailableAt) {
+			return leftAvailableAt.Before(rightAvailableAt)
+		}
+		if !candidates[i].CreatedAt.Equal(candidates[j].CreatedAt) {
+			return candidates[i].CreatedAt.Before(candidates[j].CreatedAt)
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	result := &ReplayOutboxEventsResult{
+		Topic:  topic,
+		Limit:  limit,
+		Events: []OutboxEvent{},
+	}
+	for _, event := range candidates {
+		event.Status = OutboxStatusPending
+		event.LastError = ""
+		event.LeaseOwner = ""
+		event.LeaseExpiresAt = time.Time{}
+		event.AvailableAt = now
+		event.UpdatedAt = now
+		result.Events = append(result.Events, *cloneOutboxEvent(event))
+	}
+	result.Replayed = len(result.Events)
+	return result, nil
+}
+
+func (s *Store) appendOrderEventLocked(order *Order, event OrderEvent) {
+	if order == nil {
+		return
+	}
+	event.Type = strings.TrimSpace(event.Type)
+	event.ActorID = strings.TrimSpace(event.ActorID)
+	event.Message = strings.TrimSpace(event.Message)
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	} else {
+		event.CreatedAt = event.CreatedAt.UTC()
+	}
+	order.Events = append(order.Events, event)
+
+	topic := orderEventOutboxTopic(event.Type)
+	if topic == "" {
+		return
+	}
+	s.enqueueOutboxEventLocked(
+		topic,
+		"order",
+		order.ID,
+		event.Type,
+		fmt.Sprintf("order_event:%s:%s:%s", order.ID, event.Type, event.CreatedAt.Format(time.RFC3339Nano)),
+		orderEventOutboxPayload(order, event),
+		event.CreatedAt,
+	)
+}
+
+func (s *Store) enqueueOutboxEventLocked(topic, aggregateType, aggregateID, eventType, idempotencyKey string, payload map[string]any, now time.Time) *OutboxEvent {
+	topic = strings.TrimSpace(topic)
+	aggregateType = strings.TrimSpace(aggregateType)
+	aggregateID = strings.TrimSpace(aggregateID)
+	eventType = strings.TrimSpace(eventType)
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if topic == "" || aggregateType == "" || aggregateID == "" || eventType == "" || idempotencyKey == "" {
+		return nil
+	}
+	if existingID := s.outboxByIdempotency[idempotencyKey]; existingID != "" {
+		return s.outboxEvents[existingID]
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	s.nextOutboxEventID++
+	event := &OutboxEvent{
+		ID:             fmt.Sprintf("obe_%d", s.nextOutboxEventID),
+		Topic:          topic,
+		AggregateType:  aggregateType,
+		AggregateID:    aggregateID,
+		EventType:      eventType,
+		IdempotencyKey: idempotencyKey,
+		Payload:        cloneMapAny(payload),
+		Status:         OutboxStatusPending,
+		AvailableAt:    now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.outboxEvents[event.ID] = event
+	s.outboxByIdempotency[idempotencyKey] = event.ID
+	return event
+}
+
+func orderEventOutboxTopic(eventType string) string {
+	switch strings.TrimSpace(eventType) {
+	case "order.payment.success":
+		return "order.paid"
+	case "order.refund.success":
+		return "order.refunded"
+	case "order.refund.requested":
+		return "payment.refund.requested"
+	case "order.after_sales.created", "order.after_sales.approved", "order.after_sales.rejected", "order.after_sales.escalated", "order.after_sales.event_added", "order.after_sales.evidence_uploaded":
+		return "order.after_sales"
+	case "merchant.accepted", "merchant.ready_for_pickup", "delivery.picked_up", "groupbuy.voucher_redeemed", "order.state.compensated":
+		return "order.status_changed"
+	case "delivery.completed":
+		return "order.completed"
+	default:
+		return ""
+	}
+}
+
+func orderEventOutboxPayload(order *Order, event OrderEvent) map[string]any {
+	payload := map[string]any{
+		"order_id":         order.ID,
+		"user_id":          order.UserID,
+		"shop_id":          order.ShopID,
+		"order_type":       order.Type,
+		"status":           order.Status,
+		"payment_method":   order.PaymentMethod,
+		"rider_id":         order.RiderID,
+		"amount_fen":       order.AmountFen,
+		"event_type":       event.Type,
+		"actor_id":         event.ActorID,
+		"message":          event.Message,
+		"created_at":       event.CreatedAt.UTC(),
+		"order_updated_at": order.UpdatedAt.UTC(),
+	}
+	if event.AmountFen > 0 && (event.Type == "order.refund.success" || event.Type == "order.refund.requested") {
+		payload["amount_fen"] = event.AmountFen
+		payload["order_amount_fen"] = order.AmountFen
+	}
+	if order.AddressID != "" {
+		payload["address_id"] = order.AddressID
+	}
+	return payload
+}
+
+type orderStateExpectation struct {
+	Status          string
+	RiderID         string
+	PaymentMethod   string
+	Evidence        []string
+	OccurredAt      time.Time
+	AllowRegression bool
+}
+
+func (s *Store) expectedOrderStateLocked(order *Order) orderStateExpectation {
+	if order == nil {
+		return orderStateExpectation{}
+	}
+	expectation := orderStateExpectation{Status: order.Status, RiderID: order.RiderID}
+	if paid, method, evidence, occurredAt := s.orderPaymentEvidenceLocked(order.ID); paid {
+		expectation.Status = statusAfterPayment(order)
+		expectation.PaymentMethod = method
+		expectation.Evidence = append(expectation.Evidence, evidence...)
+		expectation.OccurredAt = latestTime(expectation.OccurredAt, occurredAt)
+	}
+	for _, voucher := range s.groupbuyVouchers {
+		if voucher == nil || voucher.OrderID != order.ID {
+			continue
+		}
+		switch voucher.Status {
+		case GroupbuyVoucherRedeemed:
+			expectation.Status = StatusCompleted
+			expectation.OccurredAt = latestTime(expectation.OccurredAt, voucher.RedeemedAt)
+			expectation.Evidence = append(expectation.Evidence, "voucher.redeemed:"+voucher.ID)
+		case GroupbuyVoucherStatusIssued:
+			if orderStatusRank(expectation.Status) < orderStatusRank(StatusVoucherIssued) {
+				expectation.Status = StatusVoucherIssued
+			}
+			expectation.OccurredAt = latestTime(expectation.OccurredAt, voucher.CreatedAt)
+			expectation.Evidence = append(expectation.Evidence, "voucher.issued:"+voucher.ID)
+		}
+	}
+	for _, event := range order.Events {
+		switch event.Type {
+		case "order.payment.success":
+			if orderStatusRank(expectation.Status) < orderStatusRank(statusAfterPayment(order)) {
+				expectation.Status = statusAfterPayment(order)
+			}
+			expectation.OccurredAt = latestTime(expectation.OccurredAt, event.CreatedAt)
+			expectation.Evidence = append(expectation.Evidence, "order_event:"+event.Type)
+		case "merchant.accepted":
+			if orderStatusRank(expectation.Status) < orderStatusRank(StatusPreparing) {
+				expectation.Status = StatusPreparing
+			}
+			expectation.OccurredAt = latestTime(expectation.OccurredAt, event.CreatedAt)
+			expectation.Evidence = append(expectation.Evidence, "order_event:"+event.Type)
+		case "merchant.ready_for_pickup":
+			if orderStatusRank(expectation.Status) < orderStatusRank(StatusDispatching) {
+				expectation.Status = StatusDispatching
+			}
+			expectation.OccurredAt = latestTime(expectation.OccurredAt, event.CreatedAt)
+			expectation.Evidence = append(expectation.Evidence, "order_event:"+event.Type)
+		case "dispatch.rejected", "dispatch.timeout":
+			expectation.Status = StatusDispatching
+			expectation.RiderID = ""
+			expectation.OccurredAt = latestTime(expectation.OccurredAt, event.CreatedAt)
+			expectation.AllowRegression = true
+			expectation.Evidence = append(expectation.Evidence, "order_event:"+event.Type)
+		case "dispatch.grabbed":
+			expectation.Status = StatusRiderAssigned
+			expectation.RiderID = strings.TrimSpace(event.ActorID)
+			expectation.OccurredAt = latestTime(expectation.OccurredAt, event.CreatedAt)
+			expectation.Evidence = append(expectation.Evidence, "order_event:"+event.Type)
+		case "delivery.picked_up":
+			expectation.Status = StatusPickedUp
+			if riderID := strings.TrimSpace(event.ActorID); riderID != "" {
+				expectation.RiderID = riderID
+			}
+			expectation.OccurredAt = latestTime(expectation.OccurredAt, event.CreatedAt)
+			expectation.Evidence = append(expectation.Evidence, "order_event:"+event.Type)
+		case "delivery.completed", "groupbuy.voucher_redeemed":
+			expectation.Status = StatusCompleted
+			if riderID := strings.TrimSpace(event.ActorID); riderID != "" && event.Type == "delivery.completed" {
+				expectation.RiderID = riderID
+			}
+			expectation.OccurredAt = latestTime(expectation.OccurredAt, event.CreatedAt)
+			expectation.Evidence = append(expectation.Evidence, "order_event:"+event.Type)
+		}
+	}
+	if dispatchExpectation := s.latestDispatchStateExpectationLocked(order.ID); dispatchExpectation.Status != "" {
+		dispatchIsCurrent := expectation.OccurredAt.IsZero() || !dispatchExpectation.OccurredAt.Before(expectation.OccurredAt)
+		dispatchCanRegress := dispatchExpectation.AllowRegression && expectation.Status != StatusCompleted
+		if dispatchIsCurrent && (orderStatusRank(dispatchExpectation.Status) >= orderStatusRank(expectation.Status) || dispatchCanRegress) {
+			expectation.Status = dispatchExpectation.Status
+			expectation.RiderID = dispatchExpectation.RiderID
+			expectation.OccurredAt = latestTime(expectation.OccurredAt, dispatchExpectation.OccurredAt)
+			expectation.AllowRegression = dispatchExpectation.AllowRegression
+		}
+		expectation.Evidence = append(expectation.Evidence, dispatchExpectation.Evidence...)
+	}
+	if order.Status == StatusCompleted && orderStatusRank(order.Status) > orderStatusRank(expectation.Status) {
+		expectation.Status = order.Status
+		if order.RiderID != "" {
+			expectation.RiderID = order.RiderID
+		}
+		expectation.Evidence = append(expectation.Evidence, "terminal_status_protected:"+order.Status)
+	} else if orderStatusRank(order.Status) > orderStatusRank(expectation.Status) && !expectation.AllowRegression {
+		expectation.Status = order.Status
+		if stateKeepsRider(order.Status) && order.RiderID != "" {
+			expectation.RiderID = order.RiderID
+		}
+		expectation.Evidence = append(expectation.Evidence, "current_state_ahead:"+order.Status)
+	}
+	if !stateKeepsRider(expectation.Status) {
+		expectation.RiderID = ""
+	}
+	if expectation.Status == StatusRiderAssigned && expectation.RiderID == "" && order.RiderID != "" {
+		expectation.RiderID = order.RiderID
+	}
+	return expectation
+}
+
+func (s *Store) orderPaymentEvidenceLocked(orderID string) (bool, string, []string, time.Time) {
+	evidence := []string{}
+	paymentMethod := ""
+	occurredAt := time.Time{}
+	for _, transaction := range s.paymentTransactions {
+		if transaction == nil || transaction.OrderID != orderID || transaction.Status != "success" {
+			continue
+		}
+		if paymentMethod == "" {
+			paymentMethod = transaction.Method
+		}
+		occurredAt = latestTime(occurredAt, transaction.UpdatedAt)
+		occurredAt = latestTime(occurredAt, transaction.CreatedAt)
+		evidence = append(evidence, "payment_transaction:"+transaction.ID)
+	}
+	for _, transaction := range s.walletIdempotency {
+		if transaction == nil || transaction.OrderID != orderID || transaction.Type != "payment" || transaction.Status != "success" {
+			continue
+		}
+		if paymentMethod == "" {
+			paymentMethod = transaction.PaymentMethod
+		}
+		occurredAt = latestTime(occurredAt, transaction.CreatedAt)
+		evidence = append(evidence, "wallet_transaction:"+transaction.ID)
+	}
+	return len(evidence) > 0, paymentMethod, evidence, occurredAt
+}
+
+func (s *Store) latestDispatchStateExpectationLocked(orderID string) orderStateExpectation {
+	var latest *DispatchEvent
+	for _, event := range s.dispatchEvents {
+		if event == nil || event.OrderID != orderID {
+			continue
+		}
+		if !isOrderStateDispatchEvent(event.Type) {
+			continue
+		}
+		if latest == nil || event.CreatedAt.After(latest.CreatedAt) || (event.CreatedAt.Equal(latest.CreatedAt) && event.ID > latest.ID) {
+			latest = event
+		}
+	}
+	if latest == nil {
+		return orderStateExpectation{}
+	}
+	expectation := orderStateExpectation{
+		Evidence:   []string{"dispatch_event:" + latest.Type},
+		OccurredAt: latest.CreatedAt,
+	}
+	switch latest.Type {
+	case "dispatch.grabbed", "dispatch.auto_assign", "dispatch.manual_assign":
+		if riderID := strings.TrimSpace(latest.RiderID); riderID != "" {
+			expectation.Status = StatusRiderAssigned
+			expectation.RiderID = riderID
+		}
+	case "dispatch.rejected", "dispatch.timeout", "dispatch.no_candidate":
+		expectation.Status = StatusDispatching
+		expectation.AllowRegression = true
+	}
+	return expectation
+}
+
+func isOrderStateDispatchEvent(eventType string) bool {
+	switch eventType {
+	case "dispatch.grabbed", "dispatch.auto_assign", "dispatch.manual_assign", "dispatch.rejected", "dispatch.timeout", "dispatch.no_candidate":
+		return true
+	default:
+		return false
+	}
+}
+
+func stateKeepsRider(status string) bool {
+	switch status {
+	case StatusRiderAssigned, StatusPickedUp, StatusDelivering, StatusCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+func orderStatusRank(status string) int {
+	switch status {
+	case StatusPendingPayment:
+		return 10
+	case StatusMerchantPending:
+		return 20
+	case StatusPreparing, StatusVoucherIssued:
+		return 30
+	case StatusDispatching:
+		return 40
+	case StatusRiderAssigned:
+		return 50
+	case StatusPickedUp, StatusDelivering:
+		return 60
+	case StatusCompleted:
+		return 70
+	case StatusCancelled, StatusRefundPending, StatusRefunded:
+		return 80
+	default:
+		return 0
+	}
+}
+
+func latestTime(left time.Time, right time.Time) time.Time {
+	if left.IsZero() {
+		return right.UTC()
+	}
+	if right.IsZero() {
+		return left.UTC()
+	}
+	if right.After(left) {
+		return right.UTC()
+	}
+	return left.UTC()
+}
+
+func (s *Store) RiderMarkOrderPickedUp(orderID string, riderID string) (*Order, error) {
+	orderID = strings.TrimSpace(orderID)
+	riderID = strings.TrimSpace(riderID)
+	if orderID == "" || riderID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	if order.Status != StatusRiderAssigned || order.RiderID != riderID {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	order.Status = StatusPickedUp
+	order.UpdatedAt = now
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "delivery.picked_up",
+		ActorID:   riderID,
+		Message:   "骑手已取货",
+		CreatedAt: now,
+	})
+	return cloneOrder(order), nil
+}
+
+func (s *Store) RiderMarkOrderDelivered(orderID string, riderID string) (*Order, error) {
+	orderID = strings.TrimSpace(orderID)
+	riderID = strings.TrimSpace(riderID)
+	if orderID == "" || riderID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	if (order.Status != StatusPickedUp && order.Status != StatusDelivering) || order.RiderID != riderID {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	order.Status = StatusCompleted
+	order.UpdatedAt = now
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "delivery.completed",
+		ActorID:   riderID,
+		Message:   "骑手已送达，订单完成",
+		CreatedAt: now,
+	})
+	return cloneOrder(order), nil
+}
+
+func (s *Store) ConsumeFreeDispatchCancel(riderID string, at time.Time) (bool, string, error) {
+	riderID = strings.TrimSpace(riderID)
+	if riderID == "" {
+		return false, "", ErrInvalidArgument
+	}
+	day := at.UTC().Format("2006-01-02")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.freeCancelUsedByDate[riderID] == day {
+		return false, day, nil
+	}
+	s.freeCancelUsedByDate[riderID] = day
+	return true, day, nil
+}
+
+func (s *Store) getOrCreateWalletLocked(userID string) *WalletAccount {
+	account := s.wallets[userID]
+	if account == nil {
+		account = &WalletAccount{UserID: userID, RiskState: "normal"}
+		s.wallets[userID] = account
+	}
+	return account
+}
+
+func (s *Store) getOrCreateDepositLocked(subjectType string, subjectID string) *DepositAccount {
+	key := depositKey(subjectType, subjectID)
+	deposit := s.deposits[key]
+	if deposit == nil {
+		deposit = &DepositAccount{
+			SubjectType: subjectType,
+			SubjectID:   subjectID,
+			AmountFen:   requiredDepositAmount(subjectType),
+			Status:      DepositStatusUnpaid,
+			UpdatedAt:   time.Now().UTC(),
+		}
+		s.deposits[key] = deposit
+	}
+	return deposit
+}
+
+func (s *Store) depositSubjectExistsLocked(subjectType string, subjectID string) bool {
+	switch subjectType {
+	case "rider":
+		rider := s.riders[subjectID]
+		return rider != nil && rider.Type == RiderAccountRider
+	case "merchant":
+		return s.merchants[subjectID] != nil
+	default:
+		return false
+	}
+}
+
+func (s *Store) syncDepositStatusLocked(deposit *DepositAccount) {
+	if deposit == nil {
+		return
+	}
+	switch deposit.SubjectType {
+	case "rider":
+		if rider := s.riders[deposit.SubjectID]; rider != nil {
+			rider.DepositStatus = deposit.Status
+		}
+	case "merchant":
+		if merchant := s.merchants[deposit.SubjectID]; merchant != nil {
+			merchant.DepositStatus = deposit.Status
+		}
+	}
+}
+
+func (s *Store) latestRiderCompletedOrderTimeLocked(riderID string) time.Time {
+	var latest time.Time
+	for _, order := range s.orders {
+		if order == nil || order.RiderID != riderID || order.Status != StatusCompleted {
+			continue
+		}
+		completedAt := order.UpdatedAt
+		if completedAt.IsZero() {
+			completedAt = order.CreatedAt
+		}
+		if completedAt.After(latest) {
+			latest = completedAt
+		}
+	}
+	return latest
+}
+
+func depositKey(subjectType string, subjectID string) string {
+	return strings.TrimSpace(subjectType) + ":" + strings.TrimSpace(subjectID)
+}
+
+func requiredDepositAmount(subjectType string) int64 {
+	switch strings.TrimSpace(subjectType) {
+	case "rider":
+		return RiderDepositAmountFen
+	case "merchant":
+		return MerchantDepositAmountFen
+	default:
+		return 0
+	}
+}
+
+func (s *Store) verifyPaymentPasswordLocked(userID string, password string) bool {
+	expected := s.paymentPasswordHash[userID]
+	return expected != "" && expected == hashPaymentPassword(strings.TrimSpace(password))
+}
+
+func (s *Store) orderBelongsToMerchantLocked(order *Order, merchantID string) bool {
+	if order == nil || order.ShopID == "" || merchantID == "" {
+		return false
+	}
+	shop := s.shops[order.ShopID]
+	return shop != nil && shop.MerchantID == merchantID
+}
+
+func (s *Store) canReviewAfterSalesLocked(order *Order, request *AfterSalesRequest, actorID string, actorRole string, decision string) bool {
+	if order == nil || request == nil || strings.TrimSpace(actorID) == "" {
+		return false
+	}
+	switch request.Status {
+	case AfterSalesPendingMerchant:
+	case AfterSalesAdminReview:
+		if actorRole != "admin" {
+			return false
+		}
+	default:
+		return false
+	}
+	switch actorRole {
+	case "admin":
+		return true
+	case "merchant":
+		if request.Status != AfterSalesPendingMerchant || decision == AfterSalesDecisionEscalate {
+			return s.orderBelongsToMerchantLocked(order, actorID)
+		}
+		return s.orderBelongsToMerchantLocked(order, actorID)
+	default:
+		return false
+	}
+}
+
+func (s *Store) canAccessAfterSalesLocked(order *Order, request *AfterSalesRequest, actorID string, actorRole string) bool {
+	actorID = strings.TrimSpace(actorID)
+	actorRole = strings.TrimSpace(actorRole)
+	if order == nil || request == nil || actorID == "" {
+		return false
+	}
+	switch actorRole {
+	case "admin":
+		return true
+	case "user":
+		return request.UserID == actorID && order.UserID == actorID
+	case "merchant":
+		return s.orderBelongsToMerchantLocked(order, actorID)
+	default:
+		return false
+	}
+}
+
+func (s *Store) canAddAfterSalesEventLocked(order *Order, request *AfterSalesRequest, actorID string, actorRole string, action string) bool {
+	if !s.canAccessAfterSalesLocked(order, request, actorID, actorRole) {
+		return false
+	}
+	switch strings.TrimSpace(actorRole) {
+	case "admin":
+		return true
+	case "user":
+		return action == AfterSalesActionUserSupplement || action == AfterSalesActionCustomerCare
+	case "merchant":
+		return action == AfterSalesActionMerchantReply
+	default:
+		return false
+	}
+}
+
+func (s *Store) merchantOwnsShopLocked(merchantID string, shopID string) bool {
+	shop := s.shops[strings.TrimSpace(shopID)]
+	return shop != nil && shop.MerchantID == strings.TrimSpace(merchantID)
+}
+
+func (s *Store) shopCanAcceptOrdersLocked(shopID string) bool {
+	shop := s.shops[strings.TrimSpace(shopID)]
+	if shop == nil || shop.Status != ShopStatusActive {
+		return false
+	}
+	profile := s.merchantProfileLocked(shop.MerchantID)
+	return profile != nil && profile.CanAcceptOrders
+}
+
+func (s *Store) stationScopeLocked(stationManagerID string) (string, bool, error) {
+	stationManagerID = strings.TrimSpace(stationManagerID)
+	if stationManagerID == "" {
+		return "", true, nil
+	}
+	manager := s.riders[stationManagerID]
+	if manager == nil || manager.Type != RiderAccountStationManager || manager.Status != "active" {
+		return "", false, ErrNotFound
+	}
+	return manager.StationID, false, nil
+}
+
+func isStationVisibleDispatchStatus(status string) bool {
+	switch status {
+	case StatusDispatching, StatusRiderAssigned, StatusPickedUp, StatusDelivering:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Store) stationIDForTaskConfigLocked(stationManagerID string) (string, error) {
+	stationID, allStations, err := s.stationScopeLocked(stationManagerID)
+	if err != nil {
+		return "", err
+	}
+	if allStations || stationID == "" {
+		return "", ErrInvalidArgument
+	}
+	return stationID, nil
+}
+
+func (s *Store) stationTaskConfigLocked(stationID string, stationManagerID string) *StationTaskConfig {
+	config := s.stationTaskConfigs[stationID]
+	if config == nil {
+		config = &StationTaskConfig{
+			StationID:                    stationID,
+			ConfiguredByStationManagerID: strings.TrimSpace(stationManagerID),
+			DailyTaskDurationMinutes:     8 * 60,
+			DailyFixedOrderCount:         30,
+		}
+		s.stationTaskConfigs[stationID] = config
+	}
+	return config
+}
+
+func (s *Store) riderOrderCountsLocked(riderID string) (int, int) {
+	accepted := 0
+	completed := 0
+	for _, order := range s.orders {
+		if order == nil || order.RiderID != riderID {
+			continue
+		}
+		if order.Status == StatusCancelled || order.Status == StatusRefundPending || order.Status == StatusRefunded {
+			continue
+		}
+		accepted++
+		if order.Status == StatusCompleted {
+			completed++
+		}
+	}
+	return accepted, completed
+}
+
+func averagePositiveAcceptSeconds(performances []RiderPerformance) float64 {
+	total := 0.0
+	count := 0
+	for _, performance := range performances {
+		if performance.AverageAcceptSeconds <= 0 {
+			continue
+		}
+		total += performance.AverageAcceptSeconds
+		count++
+	}
+	if count == 0 {
+		return 1
+	}
+	return total / float64(count)
+}
+
+func averagePositiveDailyOrders(performances []RiderPerformance) float64 {
+	total := 0.0
+	count := 0
+	for _, performance := range performances {
+		if performance.AverageDailyOrders <= 0 {
+			continue
+		}
+		total += performance.AverageDailyOrders
+		count++
+	}
+	if count == 0 {
+		return 1
+	}
+	return total / float64(count)
+}
+
+func evaluateRiderPerformanceLevel(performance RiderPerformance, teamAverageAcceptSeconds float64, teamAverageDailyOrders float64) (int, string, int) {
+	acceptScore := 0.0
+	if performance.AverageAcceptSeconds > 0 {
+		acceptScore = (teamAverageAcceptSeconds / performance.AverageAcceptSeconds) * 50
+	}
+	orderScore := 0.0
+	if teamAverageDailyOrders > 0 {
+		orderScore = (performance.AverageDailyOrders / teamAverageDailyOrders) * 35
+	}
+	score := int(math.Round(math.Max(0, acceptScore+orderScore+(performance.CompletionRate*15))))
+	level := RiderLevelC
+	if score >= 120 {
+		level = RiderLevelS
+	} else if score >= 100 {
+		level = RiderLevelA
+	} else if score >= 80 {
+		level = RiderLevelB
+	}
+	return score, level, RiderDispatchPriority(level)
+}
+
+func roundFloat(value float64, precision int) float64 {
+	if precision <= 0 {
+		return math.Round(value)
+	}
+	factor := math.Pow(10, float64(precision))
+	return math.Round(value*factor) / factor
+}
+
+func riderCanAcceptDispatchLocked(rider *RiderAccount) bool {
+	if rider == nil || rider.Type != RiderAccountRider || rider.Status != "active" || !rider.Online || rider.Capacity <= 0 {
+		return false
+	}
+	return rider.DepositStatus == DepositStatusPaid || rider.DepositStatus == DepositStatusWechatExemptApproved
+}
+
+func (s *Store) orderStationIDLocked(order *Order) string {
+	if order == nil {
+		return "station_1"
+	}
+	if shop := s.shops[strings.TrimSpace(order.ShopID)]; shop != nil && strings.TrimSpace(shop.StationID) != "" {
+		return strings.TrimSpace(shop.StationID)
+	}
+	if order.ShopID != "" {
+		for _, area := range s.stationServiceAreas {
+			if area == nil || strings.TrimSpace(area.StationID) == "" {
+				continue
+			}
+			for _, shopID := range area.ShopIDs {
+				if strings.TrimSpace(shopID) == order.ShopID {
+					return strings.TrimSpace(area.StationID)
+				}
+			}
+		}
+	}
+	if rider := s.riders[strings.TrimSpace(order.RiderID)]; rider != nil && strings.TrimSpace(rider.StationID) != "" {
+		return strings.TrimSpace(rider.StationID)
+	}
+	return "station_1"
+}
+
+func riderMatchesOrderStationLocked(rider *RiderAccount, stationID string) bool {
+	if rider == nil {
+		return false
+	}
+	riderStationID := strings.TrimSpace(rider.StationID)
+	if riderStationID == "" {
+		riderStationID = "station_1"
+	}
+	return riderStationID == strings.TrimSpace(stationID)
+}
+
+func (s *Store) nextDispatchIdempotencyKeyLocked(orderID string) string {
+	return fmt.Sprintf("dispatch:%s:%d", strings.TrimSpace(orderID), s.nextDispatchEventID+1)
+}
+
+func (s *Store) recordDispatchEventLocked(order *Order, decision *DispatchDecision, eventType string, riderID string, actorID string, reason string, now time.Time) {
+	if order == nil {
+		return
+	}
+	if decision == nil {
+		decision = &DispatchDecision{
+			OrderID:        order.ID,
+			StationID:      s.orderStationIDLocked(order),
+			IdempotencyKey: s.nextDispatchIdempotencyKeyLocked(order.ID),
+		}
+	}
+	if strings.TrimSpace(decision.OrderID) == "" {
+		decision.OrderID = order.ID
+	}
+	if strings.TrimSpace(decision.StationID) == "" {
+		decision.StationID = s.orderStationIDLocked(order)
+	}
+	if strings.TrimSpace(decision.IdempotencyKey) == "" {
+		decision.IdempotencyKey = s.nextDispatchIdempotencyKeyLocked(order.ID)
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	s.nextDispatchEventID++
+	event := &DispatchEvent{
+		ID:                       fmt.Sprintf("dpe_%d", s.nextDispatchEventID),
+		OrderID:                  order.ID,
+		StationID:                decision.StationID,
+		Mode:                     decision.Mode,
+		Type:                     strings.TrimSpace(eventType),
+		RiderID:                  strings.TrimSpace(riderID),
+		ActorID:                  strings.TrimSpace(actorID),
+		Reason:                   strings.TrimSpace(reason),
+		IdempotencyKey:           decision.IdempotencyKey,
+		OnlineCandidateSize:      decision.RemainingOnlineCandidateSize,
+		RejectedRiderIDs:         append([]string{}, decision.RejectedRiderIDs...),
+		CanDeclineWithoutPenalty: decision.CanDeclineWithoutPenalty,
+		CreatedAt:                now.UTC(),
+	}
+	if event.Type == "" {
+		event.Type = "dispatch.event"
+	}
+	if event.Mode == "" {
+		event.Mode = DispatchModeAutoAssign
+	}
+	s.dispatchEvents[event.ID] = event
+	if topic := dispatchEventOutboxTopic(event.Type); topic != "" {
+		s.enqueueOutboxEventLocked(
+			topic,
+			"dispatch",
+			event.OrderID,
+			event.Type,
+			"dispatch_outbox:"+event.IdempotencyKey+":"+event.Type,
+			dispatchEventOutboxPayload(event),
+			event.CreatedAt,
+		)
+	}
+}
+
+func (s *Store) appendAfterSalesEventLocked(request *AfterSalesRequest, action string, actorID string, actorRole string, message string, visibleToUser bool, attachments []string, at time.Time) *AfterSalesEvent {
+	if request == nil {
+		return nil
+	}
+	action = normalizeAfterSalesAction(action)
+	actorID = strings.TrimSpace(actorID)
+	actorRole = strings.TrimSpace(actorRole)
+	message = strings.TrimSpace(message)
+	if action == "" || actorID == "" || actorRole == "" || message == "" {
+		return nil
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	} else {
+		at = at.UTC()
+	}
+	s.nextAfterSalesEventID++
+	event := &AfterSalesEvent{
+		ID:            fmt.Sprintf("asev_%d", s.nextAfterSalesEventID),
+		RequestID:     request.ID,
+		OrderID:       request.OrderID,
+		ActorID:       actorID,
+		ActorRole:     actorRole,
+		Action:        action,
+		Message:       message,
+		Attachments:   sanitizedStringSlice(attachments),
+		VisibleToUser: visibleToUser,
+		CreatedAt:     at,
+	}
+	if s.afterSalesEvents == nil {
+		s.afterSalesEvents = map[string]*AfterSalesEvent{}
+	}
+	s.afterSalesEvents[event.ID] = event
+	return event
+}
+
+func (s *Store) afterSalesRequestViewLocked(request *AfterSalesRequest) *AfterSalesRequest {
+	output := cloneAfterSalesRequest(request)
+	if output == nil {
+		return nil
+	}
+	order := s.orders[output.OrderID]
+	if order == nil {
+		return output
+	}
+	refundedFen := s.refundedAmountForOrderLocked(order.ID)
+	remainingFen := order.AmountFen - refundedFen
+	if remainingFen < 0 {
+		remainingFen = 0
+	}
+	output.OrderAmountFen = order.AmountFen
+	output.RefundedAmountFen = refundedFen
+	output.RefundableFen = remainingFen
+	return output
+}
+
+func dispatchEventOutboxTopic(eventType string) string {
+	switch strings.TrimSpace(eventType) {
+	case "dispatch.auto_assign", "dispatch.manual_assign", "dispatch.grabbed":
+		return "dispatch.assigned"
+	case "dispatch.timeout":
+		return "dispatch.timeout"
+	case "dispatch.rejected", "dispatch.no_candidate":
+		return "dispatch.status_changed"
+	default:
+		return ""
+	}
+}
+
+func dispatchEventOutboxPayload(event *DispatchEvent) map[string]any {
+	if event == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"dispatch_event_id":           event.ID,
+		"order_id":                    event.OrderID,
+		"station_id":                  event.StationID,
+		"mode":                        event.Mode,
+		"event_type":                  event.Type,
+		"rider_id":                    event.RiderID,
+		"actor_id":                    event.ActorID,
+		"reason":                      event.Reason,
+		"idempotency_key":             event.IdempotencyKey,
+		"online_candidate_size":       event.OnlineCandidateSize,
+		"rejected_rider_ids":          append([]string{}, event.RejectedRiderIDs...),
+		"can_decline_without_penalty": event.CanDeclineWithoutPenalty,
+		"created_at":                  event.CreatedAt.UTC(),
+	}
+}
+
+func (s *Store) onlineCandidateCountLocked(order *Order) int {
+	if order == nil {
+		return 0
+	}
+	stationID := s.orderStationIDLocked(order)
+	rejected := s.dispatchRejectedRiders[order.ID]
+	count := 0
+	for _, rider := range s.riders {
+		if !riderCanAcceptDispatchLocked(rider) {
+			continue
+		}
+		if !riderMatchesOrderStationLocked(rider, stationID) {
+			continue
+		}
+		if rejected != nil && rejected[rider.ID] {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func (s *Store) riderCanDeclineWithoutPenaltyLocked(riderID string, now time.Time) (bool, int, int) {
+	rider := s.riders[strings.TrimSpace(riderID)]
+	if rider == nil || rider.StationID == "" {
+		return false, 0, 0
+	}
+	config := s.stationTaskConfigLocked(rider.StationID, "")
+	completedCount := s.riderCompletedOrderCountOnDateLocked(rider.ID, now.UTC())
+	fixedCount := config.DailyFixedOrderCount
+	return RiderCanDeclineDispatchWithoutPenalty(completedCount, fixedCount), completedCount, fixedCount
+}
+
+func (s *Store) riderCompletedOrderCountOnDateLocked(riderID string, now time.Time) int {
+	day := now.UTC().Format("2006-01-02")
+	count := 0
+	for _, order := range s.orders {
+		if order == nil || order.RiderID != riderID || order.Status != StatusCompleted {
+			continue
+		}
+		completedAt := order.UpdatedAt
+		if completedAt.IsZero() {
+			completedAt = order.CreatedAt
+		}
+		if completedAt.UTC().Format("2006-01-02") == day {
+			count++
+		}
+	}
+	return count
+}
+
+func rejectedRiderIDs(rejected map[string]bool) []string {
+	rejectedIDs := make([]string, 0, len(rejected))
+	for riderID := range rejected {
+		rejectedIDs = append(rejectedIDs, riderID)
+	}
+	sort.Strings(rejectedIDs)
+	return rejectedIDs
+}
+
+func (s *Store) dispatchDecisionLocked(order *Order, mode string, now time.Time) *DispatchDecision {
+	rejected := s.dispatchRejectedRiders[order.ID]
+	stationID := s.orderStationIDLocked(order)
+	candidates := make([]RiderAccount, 0)
+	for _, rider := range s.riders {
+		if !riderCanAcceptDispatchLocked(rider) {
+			continue
+		}
+		if !riderMatchesOrderStationLocked(rider, stationID) {
+			continue
+		}
+		if rejected != nil && rejected[rider.ID] {
+			continue
+		}
+		candidates = append(candidates, *cloneRiderAccount(rider))
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].DispatchPriority != candidates[j].DispatchPriority {
+			return candidates[i].DispatchPriority > candidates[j].DispatchPriority
+		}
+		if candidates[i].AverageAcceptSeconds != candidates[j].AverageAcceptSeconds {
+			return candidates[i].AverageAcceptSeconds < candidates[j].AverageAcceptSeconds
+		}
+		return candidates[i].DistanceMeters < candidates[j].DistanceMeters
+	})
+	candidateID := ""
+	canDeclineWithoutPenalty := false
+	completedOrderCount := 0
+	fixedOrderCount := 0
+	if len(candidates) > 0 {
+		candidateID = candidates[0].ID
+		canDeclineWithoutPenalty, completedOrderCount, fixedOrderCount = s.riderCanDeclineWithoutPenaltyLocked(candidateID, now)
+	}
+	return &DispatchDecision{
+		OrderID:                      order.ID,
+		Mode:                         mode,
+		StationID:                    stationID,
+		CandidateRiderID:             candidateID,
+		RejectedRiderIDs:             rejectedRiderIDs(rejected),
+		CanDeclineWithoutPenalty:     canDeclineWithoutPenalty,
+		DailyCompletedOrderCount:     completedOrderCount,
+		DailyFixedOrderCount:         fixedOrderCount,
+		IdempotencyKey:               s.nextDispatchIdempotencyKeyLocked(order.ID),
+		RemainingOnlineCandidateSize: len(candidates),
+	}
+}
+
+func (s *Store) assignOrderToRiderLocked(order *Order, riderID string, mode string, actorID string, now time.Time, decision *DispatchDecision) {
+	message := "系统已自动派单给在线骑手"
+	if mode == DispatchModeManualAssign {
+		message = "站长已手动派单给骑手"
+	}
+	if strings.TrimSpace(actorID) == "" {
+		actorID = riderID
+	}
+	order.Status = StatusRiderAssigned
+	order.RiderID = riderID
+	order.UpdatedAt = now
+	s.appendOrderEventLocked(order, OrderEvent{
+		Type:      "dispatch." + mode,
+		ActorID:   actorID,
+		Message:   message,
+		CreatedAt: now,
+	})
+	s.recordDispatchEventLocked(order, decision, "dispatch."+mode, riderID, actorID, "", now)
+}
+
+func statusAfterPayment(order *Order) string {
+	if order != nil && order.Type == OrderTypeGroupbuy {
+		return StatusVoucherIssued
+	}
+	if order != nil && order.ShopID != "" && (order.Type == OrderTypeTakeout || order.Type == OrderTypeMedicine) {
+		return StatusMerchantPending
+	}
+	return StatusDispatching
+}
+
+func paymentSuccessMessage(order *Order) string {
+	if statusAfterPayment(order) == StatusMerchantPending {
+		return "支付成功，订单进入商户待接单"
+	}
+	if statusAfterPayment(order) == StatusVoucherIssued {
+		return "支付成功，团购券已发放"
+	}
+	return "支付成功，订单进入待调度"
+}
+
+func (s *Store) issueGroupbuyVouchersLocked(order *Order, now time.Time) {
+	if order == nil || order.Type != OrderTypeGroupbuy || len(order.Items) == 0 || len(s.vouchersByOrderID[order.ID]) > 0 {
+		return
+	}
+	for _, item := range order.Items {
+		deal := s.groupbuyDeals[item.ProductID]
+		if deal == nil || item.Quantity <= 0 {
+			continue
+		}
+		for index := 0; index < item.Quantity; index++ {
+			s.nextVoucherID++
+			code := "GBV" + shortHash(fmt.Sprintf("%s:%s:%d", order.ID, item.ProductID, s.nextVoucherID))
+			voucher := &GroupbuyVoucher{
+				ID:          fmt.Sprintf("gbv_%d", s.nextVoucherID),
+				VoucherCode: code,
+				QRPayload:   "infinitech://groupbuy/voucher/" + code,
+				OrderID:     order.ID,
+				UserID:      order.UserID,
+				ShopID:      order.ShopID,
+				DealID:      item.ProductID,
+				DealName:    deal.Name,
+				Status:      GroupbuyVoucherStatusIssued,
+				CreatedAt:   now,
+				ExpiresAt:   now.Add(365 * 24 * time.Hour),
+			}
+			s.groupbuyVouchers[voucher.ID] = voucher
+			s.vouchersByCode[code] = voucher
+			s.vouchersByOrderID[order.ID] = append(s.vouchersByOrderID[order.ID], voucher.ID)
+		}
+	}
+}
+
+func groupbuyVoucherCodeFromScan(voucherCode string, qrPayload string) string {
+	code := strings.TrimSpace(voucherCode)
+	if code != "" {
+		return code
+	}
+	payload := strings.TrimSpace(qrPayload)
+	if payload == "" {
+		return ""
+	}
+	if strings.Contains(payload, "/") {
+		parts := strings.Split(payload, "/")
+		return strings.TrimSpace(parts[len(parts)-1])
+	}
+	return payload
+}
+
+func normalizeAfterSalesType(value string) string {
+	switch strings.TrimSpace(value) {
+	case "", AfterSalesRefundOnly:
+		return AfterSalesRefundOnly
+	case AfterSalesPartialRefund:
+		return AfterSalesPartialRefund
+	case AfterSalesFoodSafety:
+		return AfterSalesFoodSafety
+	default:
+		return ""
+	}
+}
+
+func normalizeAfterSalesAction(value string) string {
+	switch strings.TrimSpace(value) {
+	case AfterSalesActionCreated:
+		return AfterSalesActionCreated
+	case AfterSalesActionUserSupplement:
+		return AfterSalesActionUserSupplement
+	case AfterSalesActionMerchantReply:
+		return AfterSalesActionMerchantReply
+	case AfterSalesActionCustomerCare:
+		return AfterSalesActionCustomerCare
+	case AfterSalesActionArbitration:
+		return AfterSalesActionArbitration
+	case AfterSalesActionInternalNote:
+		return AfterSalesActionInternalNote
+	case AfterSalesActionEvidenceUploaded:
+		return AfterSalesActionEvidenceUploaded
+	case AfterSalesActionReviewApproved:
+		return AfterSalesActionReviewApproved
+	case AfterSalesActionReviewRejected:
+		return AfterSalesActionReviewRejected
+	case AfterSalesActionEscalated:
+		return AfterSalesActionEscalated
+	default:
+		return ""
+	}
+}
+
+func afterSalesActionEscalates(action string) bool {
+	switch strings.TrimSpace(action) {
+	case AfterSalesActionCustomerCare, AfterSalesActionArbitration:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Store) refundableRemainingFenLocked(orderID string) int64 {
+	order := s.orders[strings.TrimSpace(orderID)]
+	if order == nil || order.AmountFen <= 0 {
+		return 0
+	}
+	remaining := order.AmountFen - s.refundedAmountForOrderLocked(order.ID)
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+func (s *Store) refundedAmountForOrderLocked(orderID string) int64 {
+	orderID = strings.TrimSpace(orderID)
+	var total int64
+	for _, refund := range s.refundTransactions {
+		if refund == nil || refund.OrderID != orderID || !refundStatusCountsAgainstOrderTotal(refund.Status) {
+			continue
+		}
+		total += refund.AmountFen
+	}
+	return total
+}
+
+func refundStatusCountsAgainstOrderTotal(status string) bool {
+	switch strings.TrimSpace(status) {
+	case RefundStatusSuccess, RefundStatusPendingOriginal:
+		return true
+	default:
+		return false
+	}
+}
+
+func refundOrderStatusAfter(currentStatus string, refundedTotalFen int64, orderAmountFen int64, destination string) string {
+	if orderAmountFen <= 0 || refundedTotalFen < orderAmountFen {
+		return currentStatus
+	}
+	if strings.TrimSpace(destination) == RefundDestinationOriginalRoute {
+		return StatusRefundPending
+	}
+	return StatusRefunded
+}
+
+func sanitizedStringSlice(values []string) []string {
+	output := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		output = append(output, value)
+	}
+	return output
+}
+
+func sanitizeObjectFileName(value string) string {
+	value = strings.TrimSpace(filepath.Base(value))
+	if value == "." || value == "/" || value == "\\" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, " ", "_")
+	value = strings.Map(func(char rune) rune {
+		switch {
+		case char >= 'a' && char <= 'z':
+			return char
+		case char >= 'A' && char <= 'Z':
+			return char
+		case char >= '0' && char <= '9':
+			return char
+		case char == '.', char == '-', char == '_':
+			return char
+		default:
+			return -1
+		}
+	}, value)
+	if value == "" || strings.HasPrefix(value, ".") {
+		return ""
+	}
+	switch strings.ToLower(filepath.Ext(value)) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".heic", ".pdf":
+		return value
+	default:
+		return ""
+	}
+}
+
+func validAfterSalesEvidenceObjectKey(requestID string, objectKey string) bool {
+	requestID = strings.TrimSpace(requestID)
+	objectKey = strings.TrimSpace(objectKey)
+	if requestID == "" || objectKey == "" || strings.HasPrefix(objectKey, "/") || strings.Contains(objectKey, "..") {
+		return false
+	}
+	if !strings.HasPrefix(objectKey, "after-sales/"+requestID+"/") {
+		return false
+	}
+	return sanitizeObjectFileName(objectKeyFileName(objectKey)) != ""
+}
+
+func (s *Store) afterSalesUploadTicketForConfirmLocked(req ConfirmAfterSalesEvidenceUploadRequest) *AfterSalesEvidenceUploadTicket {
+	if s.afterSalesUploadTickets == nil {
+		return nil
+	}
+	if req.TicketID != "" {
+		ticket := s.afterSalesUploadTickets[req.TicketID]
+		if afterSalesUploadTicketMatchesConfirm(ticket, req) {
+			return ticket
+		}
+		return nil
+	}
+	for _, ticket := range s.afterSalesUploadTickets {
+		if afterSalesUploadTicketMatchesConfirm(ticket, req) {
+			return ticket
+		}
+	}
+	return nil
+}
+
+func afterSalesUploadTicketMatchesConfirm(ticket *AfterSalesEvidenceUploadTicket, req ConfirmAfterSalesEvidenceUploadRequest) bool {
+	if ticket == nil {
+		return false
+	}
+	return ticket.RequestID == req.RequestID &&
+		ticket.ObjectKey == req.ObjectKey &&
+		ticket.UploadedByID == req.ActorID &&
+		ticket.UploadedByRole == req.ActorRole &&
+		ticket.ContentType == req.ContentType &&
+		ticket.SizeBytes == req.SizeBytes
+}
+
+func afterSalesUploadTicketMatchesObjectCallback(ticket *AfterSalesEvidenceUploadTicket, req ObjectStorageUploadCallbackRequest) bool {
+	if ticket == nil {
+		return false
+	}
+	return ticket.ID == req.TicketID &&
+		ticket.ObjectKey == req.ObjectKey &&
+		ticket.ContentType == req.ContentType &&
+		ticket.SizeBytes == req.SizeBytes
+}
+
+func afterSalesUploadTicketConfirmReady(ticket *AfterSalesEvidenceUploadTicket, storage ObjectStorageConfig, now time.Time) error {
+	if ticket == nil {
+		return ErrInvalidArgument
+	}
+	if now.After(ticket.ExpiresAt) {
+		return ErrInvalidOrderState
+	}
+	if storage.RequireUploadCallbackForConfirm || storage.RequireScanApprovalForConfirm {
+		if ticket.Status != AfterSalesUploadTicketUploaded {
+			return ErrInvalidOrderState
+		}
+	} else if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+		return ErrInvalidOrderState
+	}
+	if ticket.ScanStatus == AfterSalesUploadScanRejected {
+		return ErrInvalidOrderState
+	}
+	if storage.RequireScanApprovalForConfirm && ticket.ScanStatus != AfterSalesUploadScanPassed {
+		return ErrInvalidOrderState
+	}
+	return nil
+}
+
+func objectStorageCleanupCandidateFromTicket(ticket *AfterSalesEvidenceUploadTicket, now time.Time, grace time.Duration) (ObjectStorageCleanupCandidate, bool) {
+	if ticket == nil || ticket.Status == AfterSalesUploadTicketConfirmed || ticket.Status == AfterSalesUploadTicketDeleted || ticket.ObjectKey == "" {
+		return ObjectStorageCleanupCandidate{}, false
+	}
+	reason := ""
+	retainUntil := time.Time{}
+	if ticket.ScanStatus == AfterSalesUploadScanRejected {
+		reason = AfterSalesObjectCleanupRejected
+		retainUntil = ticket.ScanCheckedAt
+		if retainUntil.IsZero() {
+			retainUntil = ticket.ExpiresAt
+		}
+		retainUntil = retainUntil.Add(grace)
+	}
+	expiredAt := ticket.ExpiresAt.Add(grace)
+	if reason == "" && !ticket.ExpiresAt.IsZero() && !now.Before(expiredAt) {
+		reason = AfterSalesObjectCleanupExpired
+		retainUntil = expiredAt
+	}
+	if reason == "" || retainUntil.IsZero() || now.Before(retainUntil) {
+		return ObjectStorageCleanupCandidate{}, false
+	}
+	return ObjectStorageCleanupCandidate{
+		TicketID:            ticket.ID,
+		RequestID:           ticket.RequestID,
+		OrderID:             ticket.OrderID,
+		Provider:            ticket.Provider,
+		Bucket:              ticket.Bucket,
+		ObjectKey:           ticket.ObjectKey,
+		PublicURL:           ticket.PublicURL,
+		Status:              ticket.Status,
+		ScanStatus:          ticket.ScanStatus,
+		Reason:              reason,
+		RetainUntil:         retainUntil.UTC(),
+		CreatedAt:           ticket.CreatedAt,
+		ExpiresAt:           ticket.ExpiresAt,
+		UploadedAt:          ticket.UploadedAt,
+		ScanCheckedAt:       ticket.ScanCheckedAt,
+		CleanupAttempts:     ticket.CleanupAttempts,
+		LastCleanupError:    ticket.LastCleanupError,
+		LastCleanupFailedAt: ticket.LastCleanupFailedAt,
+	}, true
+}
+
+func normalizeObjectStorageCleanupWindow(req ObjectStorageCleanupCandidatesRequest) (int, time.Duration, time.Time, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	grace := time.Duration(req.GraceSeconds) * time.Second
+	if grace < 0 {
+		return 0, 0, time.Time{}, ErrInvalidArgument
+	}
+	if grace == 0 {
+		grace = time.Hour
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	return limit, grace, now, nil
+}
+
+func normalizeObjectStorageCleanupReason(value string) string {
+	switch strings.TrimSpace(value) {
+	case AfterSalesObjectCleanupExpired:
+		return AfterSalesObjectCleanupExpired
+	case AfterSalesObjectCleanupRejected:
+		return AfterSalesObjectCleanupRejected
+	default:
+		return ""
+	}
+}
+
+func sanitizeObjectStorageCleanupError(value string) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if len(runes) > 1000 {
+		return string(runes[:1000])
+	}
+	return value
+}
+
+func objectKeyFileName(objectKey string) string {
+	objectKey = strings.TrimSpace(objectKey)
+	if objectKey == "" {
+		return ""
+	}
+	index := strings.LastIndex(objectKey, "/")
+	if index >= 0 {
+		return objectKey[index+1:]
+	}
+	return objectKey
+}
+
+func normalizeEvidenceContentType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "image/jpeg", "image/jpg":
+		return "image/jpeg"
+	case "image/png":
+		return "image/png"
+	case "image/webp":
+		return "image/webp"
+	case "image/heic":
+		return "image/heic"
+	case "application/pdf":
+		return "application/pdf"
+	default:
+		return ""
+	}
+}
+
+func normalizeAfterSalesUploadTicketStatus(value string) string {
+	switch strings.TrimSpace(value) {
+	case "", AfterSalesUploadTicketIssued:
+		return AfterSalesUploadTicketIssued
+	case AfterSalesUploadTicketUploaded:
+		return AfterSalesUploadTicketUploaded
+	case AfterSalesUploadTicketConfirmed:
+		return AfterSalesUploadTicketConfirmed
+	case AfterSalesUploadTicketDeleted:
+		return AfterSalesUploadTicketDeleted
+	default:
+		return ""
+	}
+}
+
+func normalizeAfterSalesUploadScanStatus(value string) string {
+	switch strings.TrimSpace(value) {
+	case "", AfterSalesUploadScanNotRequired:
+		return AfterSalesUploadScanNotRequired
+	case AfterSalesUploadScanPending:
+		return AfterSalesUploadScanPending
+	case AfterSalesUploadScanPassed:
+		return AfterSalesUploadScanPassed
+	case AfterSalesUploadScanRejected:
+		return AfterSalesUploadScanRejected
+	default:
+		return ""
+	}
+}
+
+func sortAfterSalesRequests(requests []AfterSalesRequest) {
+	sort.SliceStable(requests, func(i, j int) bool {
+		if !requests[i].CreatedAt.Equal(requests[j].CreatedAt) {
+			return requests[i].CreatedAt.After(requests[j].CreatedAt)
+		}
+		return requests[i].ID < requests[j].ID
+	})
+}
+
+func sortAfterSalesEvents(events []AfterSalesEvent) {
+	sort.SliceStable(events, func(i, j int) bool {
+		if !events[i].CreatedAt.Equal(events[j].CreatedAt) {
+			return events[i].CreatedAt.Before(events[j].CreatedAt)
+		}
+		return events[i].ID < events[j].ID
+	})
+}
+
+func sortAfterSalesEvidence(evidence []AfterSalesEvidence) {
+	sort.SliceStable(evidence, func(i, j int) bool {
+		if !evidence[i].CreatedAt.Equal(evidence[j].CreatedAt) {
+			return evidence[i].CreatedAt.Before(evidence[j].CreatedAt)
+		}
+		return evidence[i].ID < evidence[j].ID
+	})
+}
+
+func sortAfterSalesUploadTickets(tickets []AfterSalesEvidenceUploadTicket) {
+	sort.SliceStable(tickets, func(i, j int) bool {
+		if !tickets[i].CreatedAt.Equal(tickets[j].CreatedAt) {
+			return tickets[i].CreatedAt.Before(tickets[j].CreatedAt)
+		}
+		return tickets[i].ID < tickets[j].ID
+	})
+}
+
+func sortObjectStorageCleanupCandidates(candidates []ObjectStorageCleanupCandidate) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if !candidates[i].RetainUntil.Equal(candidates[j].RetainUntil) {
+			return candidates[i].RetainUntil.Before(candidates[j].RetainUntil)
+		}
+		return candidates[i].TicketID < candidates[j].TicketID
+	})
+}
+
+func isSixDigitPaymentPassword(password string) bool {
+	if len(password) != 6 {
+		return false
+	}
+	for _, char := range password {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func hashPaymentPassword(password string) string {
+	sum := sha256.Sum256([]byte("infinitech-wallet:" + password))
+	return hex.EncodeToString(sum[:])
+}
+
+func hashRiderPassword(password string) (string, error) {
+	return hashLoginPassword(password)
+}
+
+func hashLoginPassword(password string) (string, error) {
+	password = strings.TrimSpace(password)
+	if len(password) < 8 || len(password) > 72 {
+		return "", ErrInvalidArgument
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hashed), nil
+}
+
+func normalizeProductStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "":
+		return ProductStatusActive
+	case ProductStatusActive, ProductStatusSoldOut, ProductStatusRemoved:
+		return strings.TrimSpace(status)
+	default:
+		return ""
+	}
+}
+
+func normalizeIngredientList(items []string) []string {
+	normalized := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		normalized = append(normalized, item)
+		if len(normalized) == 20 {
+			break
+		}
+	}
+	return normalized
+}
+
+func (s *Store) merchantProfileLocked(merchantID string) *MerchantProfile {
+	account := s.merchants[merchantID]
+	if account == nil {
+		return nil
+	}
+	qualifications := make([]MerchantQualification, 0, len(s.merchantQualifications[merchantID]))
+	approvedByType := map[string]bool{}
+	now := time.Now().UTC()
+	for _, item := range s.merchantQualifications[merchantID] {
+		if item == nil {
+			continue
+		}
+		qualifications = append(qualifications, *cloneMerchantQualification(item))
+		if item.Status == "approved" && item.ExpiresAt.After(now) {
+			approvedByType[item.Type] = true
+		}
+	}
+	missing := []string{}
+	for _, required := range []string{QualificationBusinessLicense, QualificationHealthCertificate} {
+		if !approvedByType[required] {
+			missing = append(missing, required)
+		}
+	}
+	canAccept := len(missing) == 0 && account.DepositStatus == DepositStatusPaid
+	profile := &MerchantProfile{
+		Account:                    *cloneMerchantAccount(account),
+		Qualifications:             qualifications,
+		MissingQualifications:      missing,
+		CanAcceptOrders:            canAccept,
+		QualificationPopupRequired: len(missing) > 0,
+		Staff:                      s.merchantStaffLocked(merchantID),
+		SupplementalMaterials:      s.merchantMaterialsLocked(merchantID),
+	}
+	if len(missing) > 0 {
+		profile.Account.Status = ShopStatusQualificationExpired
+		profile.QualificationPopupCode = "MERCHANT_QUALIFICATION_EXPIRED"
+	} else if profile.Account.Status == "pending_qualification" {
+		profile.Account.Status = ShopStatusActive
+	}
+	return profile
+}
+
+func (s *Store) merchantStaffLocked(merchantID string) []MerchantStaff {
+	staff := make([]MerchantStaff, 0, len(s.merchantStaff[merchantID]))
+	for _, item := range s.merchantStaff[merchantID] {
+		if item == nil {
+			continue
+		}
+		staff = append(staff, *cloneMerchantStaff(item))
+	}
+	sort.SliceStable(staff, func(i, j int) bool {
+		return staff[i].ID < staff[j].ID
+	})
+	return staff
+}
+
+func (s *Store) merchantMaterialsLocked(merchantID string) []MerchantSupplementalMaterial {
+	materials := make([]MerchantSupplementalMaterial, 0, len(s.merchantMaterials[merchantID]))
+	for _, item := range s.merchantMaterials[merchantID] {
+		if item == nil {
+			continue
+		}
+		materials = append(materials, *cloneMerchantSupplementalMaterial(item))
+	}
+	sort.SliceStable(materials, func(i, j int) bool {
+		return materials[i].ID < materials[j].ID
+	})
+	return materials
+}
+
+func isMerchantAccountType(value string) bool {
+	switch value {
+	case MerchantAccountStandard, MerchantAccountPharmacy, MerchantAccountClinic, MerchantAccountPlatformService:
+		return true
+	default:
+		return false
+	}
+}
+
+func isMerchantQualificationType(value string) bool {
+	switch value {
+	case QualificationBusinessLicense, QualificationHealthCertificate, QualificationSupplementalDocument:
+		return true
+	default:
+		return false
+	}
+}
+
+func wechatPrepayResponseForTransaction(transaction *PaymentTransaction) *WechatPrepayResponse {
+	nonce := shortHash(transaction.OutTradeNo + ":nonce")
+	timeStamp := fmt.Sprintf("%d", transaction.CreatedAt.Unix())
+	prepayID := "prepay_" + transaction.OutTradeNo
+	paySign := shortHash(transaction.OutTradeNo + ":" + prepayID + ":" + timeStamp + ":" + nonce)
+	return &WechatPrepayResponse{
+		AppID:      "wx_app_configured_later",
+		PrepayID:   prepayID,
+		OutTradeNo: transaction.OutTradeNo,
+		TimeStamp:  timeStamp,
+		NonceStr:   nonce,
+		Package:    "prepay_id=" + prepayID,
+		SignType:   "RSA",
+		PaySign:    paySign,
+		AmountFen:  transaction.AmountFen,
+	}
+}
+
+func shortHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+func (s *Store) createWalletTransactionLocked(userID string, orderID string, transactionType string, amountFen int64, method string, idempotencyKey string) *WalletTransaction {
+	s.nextTransactionID++
+	return &WalletTransaction{
+		ID:             fmt.Sprintf("wtx_%d", s.nextTransactionID),
+		UserID:         userID,
+		OrderID:        orderID,
+		Type:           transactionType,
+		AmountFen:      amountFen,
+		PaymentMethod:  method,
+		IdempotencyKey: idempotencyKey,
+		Status:         "success",
+		CreatedAt:      time.Now().UTC(),
+	}
+}
+
+func (s *Store) cartSummaryLocked(userID string, shopID string) *CartSummary {
+	key := cartKey(userID, shopID)
+	source := s.cartItems[key]
+	items := make([]CartItem, 0, len(source))
+	var itemsTotal int64
+	for _, item := range source {
+		if item == nil || !item.Selected || item.Quantity <= 0 || item.UnitPriceFen <= 0 {
+			continue
+		}
+		items = append(items, *cloneCartItem(item))
+		itemsTotal += item.UnitPriceFen * int64(item.Quantity)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].ProductID < items[j].ProductID
+	})
+	deliveryFee := int64(300)
+	packagingFee := int64(100 * len(items))
+	if len(items) == 0 {
+		deliveryFee = 0
+		packagingFee = 0
+	}
+	return &CartSummary{
+		UserID:          userID,
+		ShopID:          shopID,
+		Items:           items,
+		ItemsTotalFen:   itemsTotal,
+		DeliveryFeeFen:  deliveryFee,
+		PackagingFeeFen: packagingFee,
+		DiscountFen:     0,
+		PayableFen:      OrderPayableFen(itemsTotal, deliveryFee, packagingFee, 0),
+	}
+}
+
+func (s *Store) findAddressLocked(userID string, addressID string) *UserAddress {
+	for _, address := range s.addresses[userID] {
+		if address.ID == addressID {
+			return cloneUserAddress(address)
+		}
+	}
+	return nil
+}
+
+func normalizeOrderOptions(options OrderOptions) OrderOptions {
+	options.Remark = strings.TrimSpace(options.Remark)
+	if len(options.Remark) > 120 {
+		options.Remark = options.Remark[:120]
+	}
+	if options.TablewareCount < 0 {
+		options.TablewareCount = 0
+	}
+	if options.TablewareCount > 99 {
+		options.TablewareCount = 99
+	}
+	return options
+}
+
+func cartKey(userID string, shopID string) string {
+	return userID + "::" + shopID
+}
+
+func cloneHomeModules(input []HomeModule) []HomeModule {
+	output := make([]HomeModule, len(input))
+	copy(output, input)
+	return output
+}
+
+func cloneHomeCards(input []HomeCard) []HomeCard {
+	output := make([]HomeCard, len(input))
+	copy(output, input)
+	return output
+}
+
+func cloneAppUser(input *AppUser) *AppUser {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneMerchantInvite(input *MerchantOnboardingInvite) *MerchantOnboardingInvite {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneMerchantAccount(input *MerchantAccount) *MerchantAccount {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneMerchantQualification(input *MerchantQualification) *MerchantQualification {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneMerchantStaff(input *MerchantStaff) *MerchantStaff {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneMerchantSupplementalMaterial(input *MerchantSupplementalMaterial) *MerchantSupplementalMaterial {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneRiderAccount(input *RiderAccount) *RiderAccount {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneDepositAccount(input *DepositAccount) *DepositAccount {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneStationTaskConfig(input *StationTaskConfig) *StationTaskConfig {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneStationServiceArea(input *StationServiceArea) *StationServiceArea {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.ShopIDs = append([]string{}, input.ShopIDs...)
+	return &output
+}
+
+func cloneShop(input *Shop) *Shop {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Capabilities = append([]string{}, input.Capabilities...)
+	output.Qualifications = append([]string{}, input.Qualifications...)
+	return &output
+}
+
+func cloneMerchantProduct(input *MerchantProduct) *MerchantProduct {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.IngredientList = append([]string{}, input.IngredientList...)
+	return &output
+}
+
+func cloneGroupbuyVoucher(input *GroupbuyVoucher) *GroupbuyVoucher {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneUserAddress(input *UserAddress) *UserAddress {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneCartItem(input *CartItem) *CartItem {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneCartSummary(input *CartSummary) *CartSummary {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Items = append([]CartItem{}, input.Items...)
+	return &output
+}
+
+func cloneOrder(input *Order) *Order {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Items = append([]OrderItem{}, input.Items...)
+	output.Events = append([]OrderEvent{}, input.Events...)
+	return &output
+}
+
+func cloneWalletAccount(input *WalletAccount) *WalletAccount {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneWalletTransaction(input *WalletTransaction) *WalletTransaction {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneRefundTransaction(input *RefundTransaction) *RefundTransaction {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneAfterSalesRequest(input *AfterSalesRequest) *AfterSalesRequest {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.EvidenceURLs = append([]string{}, input.EvidenceURLs...)
+	return &output
+}
+
+func cloneAfterSalesEvent(input *AfterSalesEvent) *AfterSalesEvent {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Attachments = append([]string{}, input.Attachments...)
+	return &output
+}
+
+func cloneAfterSalesEvidence(input *AfterSalesEvidence) *AfterSalesEvidence {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneAfterSalesEvidenceUploadTicket(input *AfterSalesEvidenceUploadTicket) *AfterSalesEvidenceUploadTicket {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func clonePaymentTransaction(input *PaymentTransaction) *PaymentTransaction {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneDispatchEvent(input *DispatchEvent) *DispatchEvent {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.RejectedRiderIDs = append([]string{}, input.RejectedRiderIDs...)
+	return &output
+}
+
+func cloneOutboxEvent(input *OutboxEvent) *OutboxEvent {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Payload = cloneMapAny(input.Payload)
+	return &output
+}
+
+func cloneMapAny(input map[string]any) map[string]any {
+	if input == nil {
+		return map[string]any{}
+	}
+	output := make(map[string]any, len(input))
+	for key, value := range input {
+		output[key] = cloneAny(value)
+	}
+	return output
+}
+
+func cloneAny(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneMapAny(typed)
+	case []any:
+		output := make([]any, len(typed))
+		for index, item := range typed {
+			output[index] = cloneAny(item)
+		}
+		return output
+	case []string:
+		return append([]string{}, typed...)
+	default:
+		return value
+	}
+}
+
+func seedShops() map[string]*Shop {
+	return map[string]*Shop{
+		"shop_1": {
+			ID:             "shop_1",
+			MerchantID:     "merchant_1",
+			StationID:      "station_1",
+			Name:           "蓝海餐厅",
+			Category:       "restaurant",
+			AccountType:    MerchantAccountStandard,
+			Status:         ShopStatusActive,
+			Capabilities:   []string{ShopCapabilityTakeout, ShopCapabilityGroupbuy},
+			Qualifications: []string{QualificationBusinessLicense, QualificationHealthCertificate},
+			CoverURL:       "/assets/mock/blue-sea-cover.jpg",
+			LogoURL:        "/assets/brand/logo.svg",
+			Announcement:   "主打简餐和团购套餐，当前为 2.0 闭环样例店铺。",
+		},
+	}
+}
+
+func seedMerchants() map[string]*MerchantAccount {
+	return map[string]*MerchantAccount{
+		"merchant_1": {
+			ID:            "merchant_1",
+			Type:          MerchantAccountStandard,
+			DisplayName:   "蓝海餐厅",
+			Status:        ShopStatusActive,
+			DepositStatus: DepositStatusPaid,
+		},
+	}
+}
+
+func seedMerchantQualifications() map[string][]*MerchantQualification {
+	expiresAt := time.Now().UTC().Add(365 * 24 * time.Hour)
+	return map[string][]*MerchantQualification{
+		"merchant_1": {
+			{
+				ID:        "mq_merchant_1_license",
+				Type:      QualificationBusinessLicense,
+				FileURL:   "/assets/mock/business-license.jpg",
+				ExpiresAt: expiresAt,
+				Status:    "approved",
+			},
+			{
+				ID:        "mq_merchant_1_health",
+				Type:      QualificationHealthCertificate,
+				FileURL:   "/assets/mock/health-certificate.jpg",
+				ExpiresAt: expiresAt,
+				Status:    "approved",
+			},
+		},
+	}
+}
+
+func seedMerchantStaff() map[string][]*MerchantStaff {
+	expiresAt := time.Now().UTC().Add(365 * 24 * time.Hour)
+	return map[string][]*MerchantStaff{
+		"merchant_1": {
+			{
+				ID:                         "staff_merchant_1_owner",
+				MerchantID:                 "merchant_1",
+				ShopID:                     "shop_1",
+				Name:                       "蓝海店长",
+				Phone:                      "13800000001",
+				Role:                       "manager",
+				Status:                     MerchantStaffActive,
+				HealthCertificateURL:       "/assets/mock/staff-health.jpg",
+				HealthCertificateExpiresAt: expiresAt,
+			},
+		},
+	}
+}
+
+func seedMerchantMaterials() map[string][]*MerchantSupplementalMaterial {
+	now := time.Now().UTC()
+	return map[string][]*MerchantSupplementalMaterial{
+		"merchant_1": {
+			{
+				ID:          "material_merchant_1_storefront",
+				MerchantID:  "merchant_1",
+				ShopID:      "shop_1",
+				Type:        "storefront_photo",
+				FileURL:     "/assets/mock/storefront.jpg",
+				Description: "门头照",
+				Status:      "approved",
+				UploadedAt:  now,
+			},
+		},
+	}
+}
+
+func seedRiders() map[string]*RiderAccount {
+	return map[string]*RiderAccount{
+		"station_manager_1": {
+			ID:        "station_manager_1",
+			StationID: "station_1",
+			Type:      RiderAccountStationManager,
+			Status:    "active",
+			Online:    true,
+		},
+		"rider_1": {
+			ID:                   "rider_1",
+			StationID:            "station_1",
+			Type:                 RiderAccountRider,
+			Status:               "active",
+			Online:               true,
+			DepositStatus:        DepositStatusPaid,
+			Capacity:             3,
+			DispatchPriority:     RiderDispatchPriority(RiderLevelA),
+			AverageAcceptSeconds: 18,
+			AverageDailyOrders:   36,
+			CompletionRate:       0.98,
+			DistanceMeters:       800,
+		},
+		"rider_2": {
+			ID:                   "rider_2",
+			StationID:            "station_1",
+			Type:                 RiderAccountRider,
+			Status:               "active",
+			Online:               true,
+			DepositStatus:        DepositStatusPaid,
+			Capacity:             2,
+			DispatchPriority:     RiderDispatchPriority(RiderLevelB),
+			AverageAcceptSeconds: 12,
+			AverageDailyOrders:   24,
+			CompletionRate:       0.95,
+			DistanceMeters:       300,
+		},
+	}
+}
+
+func seedDeposits() map[string]*DepositAccount {
+	now := time.Now().UTC()
+	return map[string]*DepositAccount{
+		depositKey("merchant", "merchant_1"): {
+			SubjectType: "merchant",
+			SubjectID:   "merchant_1",
+			AmountFen:   MerchantDepositAmountFen,
+			Status:      DepositStatusPaid,
+			UpdatedAt:   now,
+		},
+		depositKey("rider", "rider_1"): {
+			SubjectType: "rider",
+			SubjectID:   "rider_1",
+			AmountFen:   RiderDepositAmountFen,
+			Status:      DepositStatusPaid,
+			UpdatedAt:   now,
+		},
+		depositKey("rider", "rider_2"): {
+			SubjectType: "rider",
+			SubjectID:   "rider_2",
+			AmountFen:   RiderDepositAmountFen,
+			Status:      DepositStatusPaid,
+			UpdatedAt:   now,
+		},
+	}
+}
+
+func seedStationTaskConfigs() map[string]*StationTaskConfig {
+	return map[string]*StationTaskConfig{
+		"station_1": {
+			StationID:                    "station_1",
+			ConfiguredByStationManagerID: "station_manager_1",
+			DailyTaskDurationMinutes:     8 * 60,
+			DailyFixedOrderCount:         30,
+		},
+	}
+}
+
+func seedStationServiceAreas() map[string]*StationServiceArea {
+	return map[string]*StationServiceArea{
+		"station_1": {
+			StationID: "station_1",
+			ShopIDs:   []string{"shop_1"},
+		},
+	}
+}
+
+func seedProducts() map[string]*MerchantProduct {
+	return map[string]*MerchantProduct{
+		"prod_beef_rice": {
+			ID:             "prod_beef_rice",
+			ShopID:         "shop_1",
+			Name:           "招牌牛肉饭",
+			ImageURL:       "/assets/mock/beef-rice.jpg",
+			Description:    "牛肉、米饭、时蔬，适合作为外卖闭环样例。",
+			IngredientList: []string{"牛肉", "米饭", "青菜"},
+			PriceFen:       2599,
+			StockCount:     50,
+			Status:         ProductStatusActive,
+		},
+		"prod_soup": {
+			ID:             "prod_soup",
+			ShopID:         "shop_1",
+			Name:           "每日例汤",
+			ImageURL:       "/assets/mock/soup.jpg",
+			Description:    "随餐热汤。",
+			IngredientList: []string{"汤底", "蔬菜"},
+			PriceFen:       599,
+			StockCount:     80,
+			Status:         ProductStatusActive,
+		},
+	}
+}
+
+func seedGroupbuyDeals() map[string]*MerchantProduct {
+	return map[string]*MerchantProduct{
+		"deal_two_person_set": {
+			ID:             "deal_two_person_set",
+			ShopID:         "shop_1",
+			Name:           "双人工作餐团购券",
+			ImageURL:       "/assets/mock/groupbuy-set.jpg",
+			Description:    "到店扫码核销，含两份主食和两份例汤。",
+			IngredientList: []string{"主食", "例汤", "到店核销"},
+			PriceFen:       3999,
+			StockCount:     100,
+			Status:         ProductStatusActive,
+		},
+	}
+}

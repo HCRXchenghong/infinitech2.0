@@ -1,0 +1,21 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/shop/list/index",
+    "pages/shop/detail/index",
+    "pages/cart/index",
+    "pages/order/confirm/index",
+    "pages/order/list/index",
+    "pages/order/detail/index",
+    "pages/wallet/payment-password/index",
+    "pages/address/list/index",
+    "pages/circle/index",
+    "pages/meal-match/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "Infinitech",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f3f4f6"
+  }
+}

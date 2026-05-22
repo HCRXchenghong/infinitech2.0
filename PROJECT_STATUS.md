@@ -1,0 +1,486 @@
+# Infinitech 2.0 当前状态总览
+
+更新时间：2026-05-22  
+目标仓库：`https://github.com/HCRXchenghong/infinitech2.0`  
+当前结论：项目已经完成架构基线、monorepo 骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化与 outbox/对象存储等多条商业化底座链路；但还没有完成真实生产支付、真实 IM/RTC、完整管理端、真实高可用基础设施、10 万在线压测和容灾演练，所以不能宣称已经商业级可上线，只能说正在按商业级标准推进。
+
+## 1. 架构现状
+
+架构名称：自建/混合云 Kubernetes 上的模块化核心 API + 事件驱动 Worker + 多端 BFF + 实时网关架构。
+
+当前架构原则已经写入 `PLATFORM_MASTER_PLAN.md`：
+
+- `api-go` 是模块化核心 API，订单、支付、钱包、抢单、派单等关键链路优先保持强一致事务边界。
+- BFF 面向微信小程序、商户 uni-app、骑手 uni-app、管理端做聚合与端侧差异适配。
+- Worker 负责 outbox relay、调度、支付、通知、集成、结算、对象扫描、对象生命周期清理等异步任务。
+- `realtime-gateway` 独立承载 WebSocket-only 实时能力，但目前还没有完成完整 IM 落库、离线补偿和 RTC 信令闭环。
+- 数据侧以 PostgreSQL 为主库，Redis/Kafka/MinIO/Vault/Prometheus/Grafana/Loki/Tempo/OpenTelemetry 已进入规划和部分部署骨架。
+- 10 万在线只是目标架构口径，未完成压测与容灾报告前不得宣称已支撑 10 万同时在线。
+
+## 2. 仓库结构
+
+当前 monorepo 已建立：
+
+- `apps/user-wechat-miniprogram`：用户端原生微信小程序。
+- `apps/merchant-uni`：商户端 uni-app。
+- `apps/rider-uni`：骑手端 uni-app。
+- `apps/admin-web`：桌面管理端 Web，目前是骨架。
+- `apps/admin-uni`：移动管理端 uni-app，目前是骨架。
+- `services/api-go`：核心业务 API。
+- `services/bff`：多端 BFF。
+- `services/realtime-gateway`：实时网关骨架。
+- `services/dispatch-worker`：调度 worker 规则骨架。
+- `services/payment-worker`：支付 worker 事件规范化骨架。
+- `services/notification-worker`：通知 worker 骨架。
+- `services/integration-worker`：第三方 OAuth/API worker 骨架。
+- `services/settlement-worker`：结算 worker 骨架。
+- `services/outbox-relay-worker`：outbox relay worker，可运行化首版。
+- `services/object-scan-worker`：对象扫描 worker，ClamAV 下载扫描首版。
+- `services/object-lifecycle-worker`：对象生命周期清理 worker。
+- `packages/contracts`：枚举、接口响应规范。
+- `packages/domain-core`：核心领域纯规则。
+- `packages/client-sdk`：请求与鉴权工具。
+- `packages/design-tokens`：品牌颜色、logo、tokens。
+- `packages/admin-core`：管理端资源与操作模块定义。
+- `infra/db/migrations`：PostgreSQL 迁移。
+- `infra/docker`：本地开发依赖 compose。
+- `infra/k8s/base`：Kubernetes 部署骨架。
+- `infra/loadtest`：10 万在线压测计划骨架。
+- `infra/observability`：观测说明。
+- `docs`：旧版复用、架构、容量容灾、商业化验收和产品对标文档。
+
+## 3. 已完成的产品与工程能力
+
+### 3.1 文档和治理
+
+- 已完成平台总计划：`PLATFORM_MASTER_PLAN.md`。
+- 已完成旧版复用审计：`docs/LEGACY_REUSE_AUDIT.md`。
+- 已完成美团/旧版能力对标矩阵：`docs/product/meituan-legacy-parity-matrix.md`。
+- 已完成商业级验收清单：`docs/product/commercial-readiness-checklist.md`。
+- 已完成容量与容灾规划：`docs/operations/capacity-and-dr.md`。
+- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260522-076`。
+
+### 3.2 品牌和 UI 基线
+
+- 已复制旧版 logo 到 `assets/brand/` 和用户小程序品牌资产目录。
+- 已固定主色 `#009bf5`，并通过 `packages/design-tokens` 输出 tokens。
+- 用户端页面视觉按旧版浅蓝风格推进。
+- 已生成用户小程序预览图：`docs/product/user-miniprogram-preview.png`。
+
+### 3.3 用户端原生微信小程序
+
+已完成首批页面与 API 接入点：
+
+- 首页。
+- 圈子/小微墙入口。
+- 找饭搭页面和前置信息要求。
+- 商家列表。
+- 店铺详情。
+- 团购套餐购买入口。
+- 购物车。
+- 确认订单。
+- 订单列表。
+- 订单详情。
+- 地址预览页。
+- 余额支付密码页面。
+- 小程序 API 客户端。
+- 微信登录、店铺/商品/团购/购物车/结算/订单查询/支付密码/微信支付预下单接入点。
+- 默认访问 BFF，不直接访问内部 Worker 或数据库。
+
+未完成：
+
+- 真机完整首单验收。
+- 真实 `wx.login` 页面流程和用户授权体验。
+- 定位、搜索、评价、售后入口、邀请页、钱包账单、红包、官方群/商户群、客服消息、买药、跑腿完整页面。
+
+### 3.4 商户端 uni-app
+
+已完成首批页面和 API 工具：
+
+- 经营概况页面。
+- 订单处理页面。
+- 商品管理页面。
+- 团购核销页面。
+- 资质资料页面。
+- 商户 API 客户端。
+- 商户邀请注册设置密码。
+- 商户账号密码登录。
+- 资质上传。
+- 员工健康证。
+- 补充资料。
+- 商户保证金查询和缴纳。
+- 商户订单列表。
+- 接单、出餐。
+- 商品列表、创建、编辑、上下架、售罄。
+- 团购券扫码核销入口。
+
+未完成：
+
+- 完整登录/邀请注册 UI。
+- 店铺装修和店铺展示页管理。
+- 商户钱包、结算、消息页。
+- 资质过期强弹窗。
+- 商户自发券、平台活动券确认参与、商户承担活动结算审计。
+
+### 3.5 骑手端 uni-app
+
+已完成首批页面和 API 工具：
+
+- 抢单大厅首屏。
+- 骑手上线/离线。
+- 保证金缴纳。
+- 微信免押申请入口。
+- 退押申请入口。
+- 取货。
+- 送达完成。
+- 每日一次免责取消。
+- 拒绝当前派单。
+- 站长工作台首屏。
+- 站点骑手列表。
+- 骑手等级、接单耗时。
+- 待调度订单列表。
+- 站长手动派单。
+- 每日任务时长和固定单量配置。
+- 站长创建骑手邀约。
+- 骑手接受邀约带密码。
+- 骑手/站长账号密码登录 API 调用入口。
+
+未完成：
+
+- 完整任务详情、地图导航、轨迹、收入、钱包、账单、提现。
+- 健康证、保险、违规申诉、骑手之家。
+- 真机定位和后台持续定位验证。
+- 与实时网关的派单弹窗、位置和消息联动。
+
+### 3.6 管理端
+
+已完成：
+
+- `apps/admin-web` 和 `apps/admin-uni` 骨架。
+- `packages/admin-core` 已定义关键运营模块。
+- 核心后台 API 已覆盖很多运营动作：退款策略、售后、outbox、对象存储清理、派单事件、站长任务、骑手绩效等。
+
+未完成：
+
+- 桌面管理端实际页面。
+- 移动管理端实际页面。
+- RBAC 细分权限、操作审计页面、敏感字段脱敏展示。
+- 订单、售后、用户、商户、骑手、首页卡片、优惠券、圈子/饭搭、团购、买药、跑腿、客服、RTC、OAuth/API、对象存储告警等后台面板。
+
+### 3.7 核心 API 和数据链路
+
+`services/api-go` 已完成大量核心闭环：
+
+- 用户微信登录签名 token 骨架。
+- 真实微信 `code2session` provider resolver。
+- auth session 持久化和 logout 撤销。
+- 生产默认关闭开发 token。
+- 商户邀约注册、资质、员工健康证、补充资料。
+- 商户主体登录。
+- 管理员 bootstrap 登录。
+- 骑手/站长邀约注册。
+- 骑手/站长主体登录。
+- 商户资料、订单列表、接单、出餐。
+- 商户商品管理。
+- 商户/骑手保证金。
+- 店铺接单门槛。
+- 团购下单发券和扫码核销。
+- 骑手在线状态。
+- 10 分钟后自动派单。
+- 拒单顺延派单。
+- 派单确认超时自动转派。
+- 订单状态机补偿首版。
+- 平台 outbox 事件首版。
+- outbox 手动恢复、批量恢复、死信隔离、租约领取、租约续租、租约健康观测。
+- 消费端幂等落库首版。
+- 支付/钱包 PostgreSQL 规范化恢复首版。
+- 订单创建 PostgreSQL 事务化首版。
+- 购物车结算 PostgreSQL 事务化首版。
+- 余额支付 PostgreSQL 事务扣减首版。
+- 退款策略与余额退款核心闭环首版。
+- payment-worker 原路退款事件规范化首版。
+- 退款 PostgreSQL 事务化首版。
+- 售后申请与审核核心闭环首版。
+- 售后 PostgreSQL 规范化恢复首版。
+- 售后审核 PostgreSQL 事务化首版。
+- 售后部分退款资金账本首版。
+- 售后仲裁与客服介入处理日志首版。
+- 售后可退金额与证据上传票据首版。
+- 售后证据确认与附件元数据首版。
+- 对象存储上传签名配置化首版。
+- 售后上传票据账本与确认防伪首版。
+- 售后对象存在性 HEAD 校验开关首版。
+- 售后上传回调验签与扫描门禁首版。
+- 对象扫描 worker 首版。
+- 对象扫描 worker ClamAV 适配与下载首版。
+- 对象生命周期清理 worker 首版。
+- 对象清理失败账本首版。
+- 对象清理统计接口首版。
+- 派单审计事件 PostgreSQL 规范化恢复首版。
+- 商家订单流转 PostgreSQL 事务化首版。
+- 骑手取货/送达完成。
+- 固定单量完成后免责拒派决策。
+- 站长站点骑手/订单视图。
+- 站长手动派单。
+- 站长任务时长/固定单量配置。
+- 站点骑手绩效等级快照。
+- 派单事件持久化与查询审计。
+- 站点区域匹配首版。
+- 店铺、商品、地址、购物车、结算订单、订单列表、订单详情。
+- 余额支付、余额支付密码。
+- 微信支付预下单/回调验签骨架。
+- 骑手抢单。
+- 每日一次免责取消。
+
+当前仍未完成：
+
+- 微信支付生产参数完整接入。
+- 微信原路退款 API 真调用。
+- 微信支付对账和差错处理。
+- 钱包提现。
+- 商户结算和骑手收入结算真实资金链路。
+- 充值外部网页跳转/OAuth/二维码登录闭环。
+- 买药完整订单与监管审计。
+- 跑腿/快递完整下单、计价、异常处理。
+- 用户邀请页和邀请奖励闭环。
+- 优惠券、红包、群聊资金闭环的 API 实装。
+- 评价、收藏、积分会员、推送、风控完整闭环。
+- 管理端 RBAC、操作日志和完整审计后台。
+
+### 3.8 BFF
+
+已完成代理：
+
+- 运行时配置。
+- 首页模块和首页卡片。
+- 用户端微信登录。
+- 商户邀约和主体登录。
+- 管理员 bootstrap 登录。
+- 骑手/站长邀约和主体登录。
+- 店铺、商品、地址、购物车、结算、订单、钱包、微信支付预下单。
+- 退款策略和订单退款。
+- 商户订单、商品、保证金。
+- 骑手调度、保证金。
+- 派单事件查询。
+- 派单确认超时转派。
+- 订单状态机补偿。
+- 对象存储清理候选、统计、完成、失败代理。
+- 站长任务和绩效核心接口代理。
+
+未完成：
+
+- BFF 缓存策略。
+- 限流策略。
+- 多端错误文案适配。
+- 灰度发布配置。
+- BFF 观测指标。
+
+### 3.9 Worker
+
+已完成：
+
+- `outbox-relay-worker`：可轮询、claim、发布、续租、失败回写、Kafka REST publisher 可选。
+- `dispatch-worker`：调度规则测试覆盖最近骑手、10 分钟抢单大厅、拒单跳过、等级优先、固定单量免责。
+- `payment-worker`：支付回调和原路退款事件规范化，消费幂等。
+- `notification-worker`：订单和消息事件通知 payload 骨架，消费幂等。
+- `integration-worker`：OAuth/API provider 配置和同步事件骨架，消费幂等。
+- `settlement-worker`：完成订单结算计算骨架，金额整数分。
+- `object-scan-worker`：对象上传事件、下载、大小限制、ClamAV INSTREAM、回调签名、消费幂等。
+- `object-lifecycle-worker`：清理候选读取、对象删除、404 幂等成功、删除完成回写、删除失败回写。
+
+未完成：
+
+- 真实 Kafka/NATS broker 运维接入和生产拓扑。
+- 通知通道真实接入：微信订阅消息、短信、站内信、Push。
+- payment-worker 真正调用微信退款/对账 API。
+- settlement-worker 真正落库商户结算、骑手收入、平台抽佣。
+- integration-worker 真正接入微信以外 provider、地图、短信、第三方 API。
+- object-scan/object-lifecycle 的真实 MinIO SDK、STS/Vault 临时凭证、隔离 bucket、告警投递和最小权限 IAM。
+
+### 3.10 实时网关
+
+已完成：
+
+- `realtime-gateway` WebSocket-only 容量守卫和基础健康接口测试。
+- 架构计划已定义 IM、订单通知、骑手位置、抢单/派单事件和 RTC 信令由该网关承载。
+
+未完成：
+
+- 用户/商户/骑手/客服 IM 落库。
+- 已读、撤回、离线补偿。
+- 官方群自动入群和默认免打扰。
+- 商户群、券进群门槛。
+- 红包消息和余额资金链路。
+- 骑手位置上报、轨迹抽样。
+- RTC 呼叫、接听、拒绝、取消、挂断、超时、审计。
+- 10 万连接压测。
+
+### 3.11 基础设施
+
+已完成：
+
+- PostgreSQL 核心迁移：`0001_core.sql`、`0002_auth_payment.sql`、`0003_platform_store_snapshots.sql`、`0004_platform_outbox.sql`。
+- Docker Compose 开发依赖骨架。
+- Kubernetes base namespace 和 app stack 骨架。
+- outbox relay、object scan、object lifecycle worker 部署骨架。
+- 观测说明文档。
+- 10 万在线压测计划 JSON 骨架。
+
+未完成：
+
+- PostgreSQL HA + PgBouncer。
+- Redis Cluster/Sentinel。
+- Kafka 多 Broker。
+- MinIO 生产 bucket、隔离策略和权限。
+- Vault/KMS 真接入。
+- Ingress、CDN、WAF、API Gateway、灰度发布。
+- Prometheus/Grafana/Loki/Tempo/OpenTelemetry 实际部署和告警规则。
+- CI/CD、镜像构建、版本发布、回滚演练。
+- 数据备份恢复和灾备演练报告。
+
+## 4. 当前验证情况
+
+最近一次验证通过：
+
+```bash
+npm run verify
+cd services/api-go && go test -count=1 ./...
+npm run verify:architecture
+```
+
+`npm run verify` 覆盖：
+
+- 架构守卫。
+- contracts。
+- domain-core。
+- client-sdk。
+- admin-core。
+- BFF。
+- realtime-gateway。
+- dispatch-worker。
+- payment-worker。
+- notification-worker。
+- integration-worker。
+- object-scan-worker。
+- object-lifecycle-worker。
+- settlement-worker。
+- outbox-relay-worker。
+- api-go 全包测试。
+
+## 5. 明确未完成清单
+
+### 5.1 商业级上线必须补齐
+
+- 真实微信支付生产参数、证书、验签、退款、对账。
+- 钱包提现、商户结算、骑手结算。
+- 管理端 Web 完整运营后台。
+- 移动管理端高频运营处理。
+- 用户端真机首单闭环。
+- 商户端和骑手端 HBuilderX 真机闭环。
+- IM 消息落库、已读、离线补偿。
+- RTC 语音通话信令和审计。
+- 骑手实时位置、轨迹和地图。
+- 买药完整资质和监管审计。
+- 快递/跑腿完整任务模型和计价。
+- 邀请用户页和奖励闭环。
+- 优惠券、群聊、红包、平台补贴、商户承担活动结算。
+- 评价、内容审核、举报、风控、隐私合规。
+- 后台 RBAC、操作审计、敏感字段脱敏。
+- 真实 Kafka/Redis/PostgreSQL HA/MinIO/Vault 生产部署。
+- Prometheus/Grafana/Loki/Tempo 告警和仪表盘。
+- 10k/30k/60k/100k 在线压测报告。
+- 容灾演练报告。
+
+### 5.2 不能提前宣称完成的事项
+
+- 不能说已经支撑 10 万在线。
+- 不能说已经商业级上线。
+- 不能说微信支付生产闭环完成。
+- 不能说实时 IM/RTC 完成。
+- 不能说资金结算闭环完成。
+- 不能说对象存储生产权限和 Vault 完成。
+
+## 6. 接下来建议推进顺序
+
+### 第 1 优先级：GitHub 和协作基线
+
+- 初始化 Git 仓库并推送到 `HCRXchenghong/infinitech2.0`。
+- 补 GitHub Actions：`npm run verify`、`go test ./...`。
+- 补 PR 模板、Issue 模板、CODEOWNERS。
+- 确认 `.gitignore` 不上传本地二进制、日志、env 和临时文件。
+
+### 第 2 优先级：管理端 Web 最小可运营
+
+- 建立 admin-web 技术栈。
+- 做登录页。
+- 做运营首页。
+- 做订单监控。
+- 做售后审核。
+- 做商户资质审核。
+- 做骑手/站长管理。
+- 做派单事件和对象存储清理告警面板。
+- 做退款策略和对象清理统计展示。
+
+### 第 3 优先级：微信支付生产链路
+
+- 接入真实 JSAPI 下单参数。
+- 接入微信支付平台证书/公钥。
+- 接入真实回调验签。
+- 接入微信退款 API。
+- 接入退款回调和对账。
+- 给支付、退款、钱包补并发和重放压测。
+
+### 第 4 优先级：实时 IM 和骑手位置
+
+- 设计消息表、会话表、群成员表、已读表。
+- 用户/骑手/商户/客服会话落库。
+- 官方群自动入群默认免打扰。
+- 商户群、进群领券门槛。
+- 骑手位置上报与订单订阅。
+- 离线补偿和重连恢复。
+
+### 第 5 优先级：骑手计价、结算和提现
+
+- 后台配置骑手计价规则。
+- 订单保存计价版本和明细。
+- 骑手端展示收入明细。
+- settlement-worker 落库商户结算、骑手收入、平台抽佣。
+- 提现申请、审核、打款状态、失败重试。
+
+### 第 6 优先级：营销和社交闭环
+
+- 用户邀请页。
+- 优惠券资金责任：商户承担、平台承担、商户同意活动承担。
+- 群聊红包、拼手气红包、余额资金冻结/领取/退回。
+- 圈子内容审核、举报、风控。
+- 找饭搭问卷、真实性承诺、免责协议、匹配规则。
+
+### 第 7 优先级：生产基础设施和 10 万在线验证
+
+- Docker 镜像构建。
+- K8s 环境拆分：dev/staging/prod。
+- PostgreSQL HA、PgBouncer。
+- Redis Cluster/Sentinel。
+- Kafka 多 Broker。
+- MinIO + Vault/STS。
+- Prometheus/Grafana/Loki/Tempo/OpenTelemetry。
+- 10k、30k、60k、100k 压测。
+- API/BFF/Realtime/Redis/PostgreSQL/Kafka 故障演练。
+
+## 7. 当前关键文档索引
+
+- 总计划：`PLATFORM_MASTER_PLAN.md`
+- 执行台账：`EXECUTION_LEDGER.md`
+- 商业级验收清单：`docs/product/commercial-readiness-checklist.md`
+- 旧版复用审计：`docs/LEGACY_REUSE_AUDIT.md`
+- 美团和旧版对标矩阵：`docs/product/meituan-legacy-parity-matrix.md`
+- 容量与容灾：`docs/operations/capacity-and-dr.md`
+- 系统架构图文档：`docs/architecture/system-architecture.md`
+- 用户小程序预览图：`docs/product/user-miniprogram-preview.png`
+
+## 8. 当前仓库上传注意事项
+
+- 不上传 `.env`、`.env.*`、日志、`node_modules`、临时目录。
+- 不上传 Go 测试二进制，例如 `services/api-go/platform.test`。
+- 远程仓库当前只有一个短 README，本地 README 会成为主 README。
+- 如果远程拒绝推送，优先检查 GitHub 凭据和分支保护，不建议强推。

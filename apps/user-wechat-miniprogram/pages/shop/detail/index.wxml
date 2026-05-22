@@ -1,0 +1,53 @@
+<view class="page">
+  <view class="shop-hero">
+    <view class="brand-mark">
+      <image class="brand-logo" src="/assets/brand/logo.jpg" mode="aspectFill"></image>
+    </view>
+    <view class="shop-info">
+      <text class="shop-name">{{shop.name}}</text>
+      <text class="shop-meta">{{shop.rating}} 分 · {{shop.delivery}}</text>
+      <text class="announcement">{{shop.announcement}}</text>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-head">
+      <text class="section-title">外卖商品</text>
+      <text class="section-note">图片、描述、配料表由商户维护</text>
+    </view>
+    <view wx:for="{{products}}" wx:key="id" class="product-row">
+      <view class="product-image"></view>
+      <view class="product-main">
+        <text class="product-name">{{item.name}}</text>
+        <text class="product-desc">{{item.description}}</text>
+        <view class="product-bottom">
+          <text class="price">¥{{item.price}}</text>
+          <button class="add-button" size="mini" data-id="{{item.id}}" bindtap="handleAddTap">加入</button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-head">
+      <text class="section-title">团购券</text>
+      <text class="section-note">到店扫码核销</text>
+    </view>
+    <view wx:for="{{groupbuyDeals}}" wx:key="id" class="coupon-card">
+      <text class="coupon-title">{{item.title}}</text>
+      <text class="product-desc">{{item.note}}</text>
+      <view class="product-bottom">
+        <text class="price">¥{{item.price}}</text>
+        <button class="outline-button" size="mini" data-id="{{item.id}}" bindtap="handleGroupbuyTap">购买</button>
+      </view>
+    </view>
+  </view>
+
+  <view class="cart-bar">
+    <view>
+      <text class="cart-title">已选 1 件</text>
+      <text class="cart-subtitle">商品 ¥25.99 · 配送 ¥3 · 打包 ¥1</text>
+    </view>
+    <button class="checkout-button" bindtap="handleCartTap">去结算</button>
+  </view>
+</view>

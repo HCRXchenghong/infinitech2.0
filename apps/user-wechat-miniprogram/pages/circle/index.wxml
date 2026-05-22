@@ -1,0 +1,9 @@
+<view class="page">
+  <view class="tabs">
+    <text wx:for="{{tabs}}" wx:key="*this" class="tab">{{item}}</text>
+  </view>
+  <view wx:for="{{posts}}" wx:key="id" class="post">
+    <text class="post-title">{{item.title}}</text>
+    <text class="post-content">{{item.content}}</text>
+  </view>
+</view>

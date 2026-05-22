@@ -1,0 +1,178 @@
+.page {
+  min-height: 100vh;
+  padding: 28rpx 28rpx 148rpx;
+  box-sizing: border-box;
+  background: #f3f4f6;
+}
+
+.shop-hero {
+  display: flex;
+  gap: 22rpx;
+  padding: 28rpx;
+  border: 1rpx solid #dbeafe;
+  border-radius: 16rpx;
+  background: #ffffff;
+}
+
+.brand-mark,
+.product-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14rpx;
+  background: #009bf5;
+}
+
+.brand-mark {
+  width: 112rpx;
+  height: 112rpx;
+  color: #ffffff;
+  font-size: 32rpx;
+  font-weight: 800;
+  overflow: hidden;
+}
+
+.brand-logo {
+  width: 100%;
+  height: 100%;
+}
+
+.shop-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.shop-name,
+.section-title,
+.product-name,
+.coupon-title,
+.cart-title {
+  display: block;
+  color: #111827;
+  font-weight: 700;
+}
+
+.shop-name {
+  font-size: 36rpx;
+}
+
+.shop-meta,
+.announcement,
+.section-note,
+.product-desc,
+.cart-subtitle {
+  display: block;
+  color: #6b7280;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.shop-meta,
+.announcement {
+  margin-top: 8rpx;
+}
+
+.section {
+  margin-top: 24rpx;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 14rpx;
+}
+
+.section-title {
+  font-size: 30rpx;
+}
+
+.product-row,
+.coupon-card {
+  display: flex;
+  gap: 18rpx;
+  margin-bottom: 16rpx;
+  padding: 22rpx;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.product-image {
+  width: 128rpx;
+  height: 128rpx;
+  flex: 0 0 128rpx;
+  background: #e0f2fe;
+}
+
+.product-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.product-name,
+.coupon-title {
+  font-size: 28rpx;
+}
+
+.product-desc {
+  margin-top: 8rpx;
+}
+
+.product-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12rpx;
+}
+
+.price {
+  color: #009bf5;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.add-button,
+.outline-button,
+.checkout-button {
+  border-radius: 10rpx;
+  font-size: 24rpx;
+}
+
+.add-button,
+.checkout-button {
+  color: #ffffff;
+  background: #009bf5;
+}
+
+.outline-button {
+  color: #009bf5;
+  border: 1rpx solid #009bf5;
+  background: #ffffff;
+}
+
+.cart-bar {
+  position: fixed;
+  right: 28rpx;
+  bottom: 32rpx;
+  left: 28rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 20rpx 24rpx;
+  border-radius: 16rpx;
+  background: #111827;
+  box-sizing: border-box;
+}
+
+.cart-title {
+  color: #ffffff;
+  font-size: 26rpx;
+}
+
+.cart-subtitle {
+  margin-top: 4rpx;
+  color: #d1d5db;
+}

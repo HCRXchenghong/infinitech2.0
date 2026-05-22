@@ -1,0 +1,38 @@
+<view class="page">
+  <view class="address-card" bindtap="handleAddressTap">
+    <text class="section-label">配送地址</text>
+    <text class="address-detail">{{address.detail}}</text>
+    <text class="address-contact">{{address.name}} {{address.phone}}</text>
+  </view>
+
+  <view class="section">
+    <text class="section-title">蓝海餐厅</text>
+    <view wx:for="{{items}}" wx:key="name" class="order-row">
+      <text>{{item.name}} x {{item.quantity}}</text>
+      <text>¥{{item.price}}</text>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="order-row">
+      <text>餐具数量</text>
+      <text>{{options.tableware}}</text>
+    </view>
+    <view class="order-row">
+      <text>订单备注</text>
+      <text>{{options.remark}}</text>
+    </view>
+    <view class="order-row">
+      <text>支付方式</text>
+      <navigator url="/pages/wallet/payment-password/index">微信支付 / 余额支付</navigator>
+    </view>
+  </view>
+
+  <view class="bottom-bar">
+    <view>
+      <text class="payable">¥{{payable}}</text>
+      <text class="bottom-note">余额支付前需设置支付密码。</text>
+    </view>
+    <button class="pay-button" bindtap="handleSubmitTap">提交订单</button>
+  </view>
+</view>

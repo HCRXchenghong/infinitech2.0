@@ -1,0 +1,23 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "抢单大厅",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/station/index",
+      "style": {
+        "navigationBarTitleText": "站长工作台",
+        "navigationStyle": "custom"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f3f4f6"
+  }
+}

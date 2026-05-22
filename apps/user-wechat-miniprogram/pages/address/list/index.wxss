@@ -1,0 +1,60 @@
+.page {
+  min-height: 100vh;
+  padding: 28rpx;
+  box-sizing: border-box;
+  background: #f3f4f6;
+}
+
+.address-card {
+  padding: 24rpx;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.head {
+  display: flex;
+  gap: 12rpx;
+  align-items: center;
+}
+
+.tag,
+.default {
+  padding: 6rpx 12rpx;
+  border-radius: 8rpx;
+  font-size: 22rpx;
+}
+
+.tag {
+  color: #007ccc;
+  background: #e0f2fe;
+}
+
+.default {
+  color: #ffffff;
+  background: #009bf5;
+}
+
+.detail {
+  display: block;
+  margin-top: 16rpx;
+  color: #111827;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.contact {
+  display: block;
+  margin-top: 8rpx;
+  color: #6b7280;
+  font-size: 24rpx;
+}
+
+.add-button {
+  margin-top: 24rpx;
+  border-radius: 10rpx;
+  color: #ffffff;
+  background: #009bf5;
+  font-size: 26rpx;
+}

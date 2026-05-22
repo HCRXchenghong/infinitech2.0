@@ -1,0 +1,23 @@
+<view class="page">
+  <view class="hero">
+    <image class="logo" src="/assets/brand/logo.jpg" mode="aspectFit"></image>
+    <text class="title">Infinitech</text>
+    <text class="subtitle">外卖 · 团购 · 买药 · 快递跑腿 · 圈子</text>
+  </view>
+  <view class="module-grid">
+    <view wx:for="{{modules}}" wx:key="key" class="module {{item.primary ? 'primary' : ''}}" data-route="{{item.route}}" bindtap="handleModuleTap">
+      <text>{{item.title}}</text>
+    </view>
+  </view>
+  <view class="section">
+    <text class="section-title">推荐卡片</text>
+    <view wx:for="{{homeCards}}" wx:key="id" class="home-card">
+      <text class="card-title">{{item.title}}</text>
+      <text class="card-subtitle">{{item.subtitle}}</text>
+    </view>
+  </view>
+  <view class="meal-match">
+    <text class="section-title">找饭搭</text>
+    <text class="card-subtitle">完善性别、签署真实性和平台免责承诺，并完成性格与饮食问卷后开启。</text>
+  </view>
+</view>

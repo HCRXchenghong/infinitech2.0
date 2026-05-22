@@ -1,0 +1,38 @@
+<view class="page">
+  <view class="shop-card">
+    <text class="shop-name">{{shopName}}</text>
+    <text class="shop-note">购物车按店铺隔离，结算时校验地址、库存和资质状态。</text>
+  </view>
+
+  <view wx:for="{{items}}" wx:key="id" class="cart-item">
+    <view class="check-dot {{item.selected ? 'checked' : ''}}"></view>
+    <view class="item-main">
+      <text class="item-name">{{item.name}}</text>
+      <text class="item-meta">数量 {{item.quantity}}</text>
+    </view>
+    <text class="price">¥{{item.price}}</text>
+  </view>
+
+  <view class="summary">
+    <view class="summary-row">
+      <text>商品小计</text>
+      <text>¥{{summary.itemsTotal}}</text>
+    </view>
+    <view class="summary-row">
+      <text>配送费</text>
+      <text>¥{{summary.deliveryFee}}</text>
+    </view>
+    <view class="summary-row">
+      <text>打包费</text>
+      <text>¥{{summary.packagingFee}}</text>
+    </view>
+  </view>
+
+  <view class="bottom-bar">
+    <view>
+      <text class="payable">¥{{summary.payable}}</text>
+      <text class="bottom-note">退款默认回平台余额，后台可配置策略。</text>
+    </view>
+    <button class="checkout-button" bindtap="handleCheckoutTap">去结算</button>
+  </view>
+</view>

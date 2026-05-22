@@ -1,0 +1,23 @@
+{
+  "claimPolicy": "Do not claim 100k support until all stages pass and reports are archived.",
+  "stages": ["10k", "30k", "60k", "100k"],
+  "trafficMix": {
+    "authenticatedConnections": true,
+    "activeConnectionRatio": 0.5,
+    "chatMessages": true,
+    "orderWrites": true,
+    "dispatchGrabRace": true,
+    "riderLocationUpdates": true,
+    "rtcSignaling": true
+  },
+  "thresholds": {
+    "socketAuthSuccessRate": 0.9995,
+    "realtimeP95Ms": 150,
+    "realtimeP99Ms": 300,
+    "writeApiP95Ms": 250,
+    "rtcInviteDeliveryP95Ms": 2000,
+    "totalErrorRate": 0.001,
+    "nodeRecoveryP95Seconds": 15
+  }
+}
+

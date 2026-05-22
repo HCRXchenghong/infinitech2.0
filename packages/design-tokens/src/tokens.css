@@ -1,0 +1,16 @@
+:root {
+  --it-color-primary: #009bf5;
+  --it-color-primary-dark: #0081cc;
+  --it-color-primary-strong: #0284c7;
+  --it-color-bg: #f3f4f6;
+  --it-color-surface: #ffffff;
+  --it-color-text: #1f2937;
+  --it-color-text-muted: #6b7280;
+  --it-color-border: #e5e7eb;
+  --it-color-warning: #ea580c;
+  --it-color-danger: #ef4444;
+  --it-color-success: #16a34a;
+  --it-radius-sm: 4px;
+  --it-radius-md: 8px;
+}
+

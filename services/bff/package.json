@@ -1,0 +1,13 @@
+{
+  "name": "@infinitech/bff",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/server.mjs"
+  },
+  "scripts": {
+    "dev": "node src/index.mjs",
+    "test": "node --test src/*.test.mjs"
+  }
+}
+

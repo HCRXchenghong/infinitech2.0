@@ -1,0 +1,14 @@
+{
+  "description": "Infinitech 2.0 user WeChat mini program",
+  "appid": "touristappid",
+  "projectname": "infinitech-user-wechat-miniprogram",
+  "compileType": "miniprogram",
+  "miniprogramRoot": "./",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "postcss": true,
+    "minified": true
+  }
+}
+

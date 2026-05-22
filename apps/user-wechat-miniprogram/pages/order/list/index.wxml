@@ -1,0 +1,13 @@
+<view class="page">
+  <view wx:for="{{orders}}" wx:key="id" class="order-card" data-id="{{item.id}}" bindtap="handleOrderTap">
+    <view class="order-head">
+      <text class="shop-name">{{item.shopName}}</text>
+      <text class="status">{{item.status}}</text>
+    </view>
+    <text class="subtitle">{{item.subtitle}}</text>
+    <view class="order-bottom">
+      <text class="time">{{item.time}}</text>
+      <text class="amount">¥{{item.amount}}</text>
+    </view>
+  </view>
+</view>

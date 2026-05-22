@@ -1,0 +1,23 @@
+<view class="page">
+  <view class="status-card">
+    <text class="status">{{status}}</text>
+    <text class="order-id">订单号 {{orderId}}</text>
+    <text class="amount">¥{{amount}}</text>
+  </view>
+
+  <view class="section">
+    <text class="section-title">商品明细</text>
+    <view wx:for="{{items}}" wx:key="product_name" class="row">
+      <text>{{item.product_name}} x {{item.quantity}}</text>
+      <text>¥{{item.price}}</text>
+    </view>
+  </view>
+
+  <view class="section">
+    <text class="section-title">订单进度</text>
+    <view wx:for="{{events}}" wx:key="type" class="event-row">
+      <view class="dot"></view>
+      <text class="event-text">{{item.message}}</text>
+    </view>
+  </view>
+</view>

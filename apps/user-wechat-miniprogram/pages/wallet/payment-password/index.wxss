@@ -1,0 +1,48 @@
+.page {
+  min-height: 100vh;
+  padding: 28rpx;
+  box-sizing: border-box;
+  background: #f3f4f6;
+}
+
+.panel {
+  padding: 28rpx;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.title {
+  display: block;
+  color: #111827;
+  font-size: 34rpx;
+  font-weight: 800;
+}
+
+.subtitle {
+  display: block;
+  margin-top: 12rpx;
+  color: #6b7280;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.input {
+  margin-top: 24rpx;
+  min-height: 82rpx;
+  padding: 0 22rpx;
+  border: 1rpx solid #dbeafe;
+  border-radius: 12rpx;
+  background: #f8fafc;
+  box-sizing: border-box;
+  font-size: 30rpx;
+}
+
+.submit-button {
+  margin-top: 28rpx;
+  border-radius: 10rpx;
+  color: #ffffff;
+  background: #009bf5;
+  font-size: 26rpx;
+}

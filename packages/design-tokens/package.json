@@ -1,0 +1,14 @@
+{
+  "name": "@infinitech/design-tokens",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./tokens.json": "./src/tokens.json",
+    "./tokens.css": "./src/tokens.css"
+  },
+  "scripts": {
+    "test": "node --test src/*.test.mjs"
+  }
+}
+
