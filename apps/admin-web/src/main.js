@@ -1,5 +1,6 @@
 import { ADMIN_API_OPERATIONS, DEFAULT_BFF_BASE_URL, executeAdminOperation, fieldsForOperation, getAdminOperation } from "./adminApi.mjs";
 import { ADMIN_WEB_KPIS, ADMIN_WEB_MODULES, ADMIN_WEB_QUEUES, ADMIN_WEB_RBAC, ADMIN_WEB_SECTIONS } from "./config.mjs";
+import { getAdminView } from "./adminViews.mjs";
 
 const STORAGE_KEY = "infinitech.admin-web";
 const root = document.getElementById("app");
@@ -48,6 +49,10 @@ function operationOptions() {
   return ADMIN_API_OPERATIONS.map((operation) => `<option value="${operation.key}" ${operation.key === state.activeOperation ? "selected" : ""}>${operation.title}</option>`).join("");
 }
 
+function toneClass(tone) {
+  return ["blue", "green", "red", "amber", "slate"].includes(tone) ? tone : "slate";
+}
+
 function renderFields(operation) {
   const fields = fieldsForOperation(operation);
   if (fields.length === 0) {
@@ -73,10 +78,54 @@ function renderFields(operation) {
   }).join("");
 }
 
+function renderModuleView(view) {
+  return `
+    <article class="panel wide module-view">
+      <div class="panel-head">
+        <div>
+          <h2>${view.title}</h2>
+          <p>${view.subtitle}</p>
+        </div>
+        <span class="badge">${view.key}</span>
+      </div>
+      <div class="mini-metrics">
+        ${view.metrics.map((metric) => `
+          <div class="mini-metric ${toneClass(metric.tone)}">
+            <span>${metric.label}</span>
+            <strong>${metric.value}</strong>
+          </div>
+        `).join("")}
+      </div>
+      <div class="view-actions">
+        ${view.actions.length > 0 ? view.actions.map((operationKey) => {
+          const operation = getAdminOperation(operationKey);
+          return operation ? `<button class="link-button" data-operation="${operation.key}">${operation.title}</button>` : "";
+        }).join("") : `<span class="empty-state compact">暂无直连操作</span>`}
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>${view.columns.map((column) => `<th>${column}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${view.rows.map((row) => `
+              <tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+      <div class="safeguards">
+        ${view.safeguards.map((item) => `<span>${item}</span>`).join("")}
+      </div>
+    </article>
+  `;
+}
+
 function render() {
   if (!root) return;
   const activeOperation = getAdminOperation(state.activeOperation) || ADMIN_API_OPERATIONS[0];
   const activeModule = ADMIN_WEB_MODULES.find((module) => module.key === state.activeModule) || ADMIN_WEB_MODULES[0];
+  const activeView = getAdminView(activeModule.key);
   root.innerHTML = `
     <div class="shell">
       <aside class="sidebar">
@@ -133,6 +182,8 @@ function render() {
         </section>
 
         <section class="grid">
+          ${renderModuleView(activeView)}
+
           <article class="panel wide">
             <div class="panel-head">
               <div>

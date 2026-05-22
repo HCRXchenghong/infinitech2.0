@@ -1634,6 +1634,29 @@
   - `docs/product/commercial-readiness-checklist.md`
   - `EXECUTION_LEDGER.md`
 
+### DONE-20260522-080 管理端 P0 业务视图首版
+
+- 日期：2026-05-22
+- 结果：管理端 Web 从“全局工作台 + 接口操作台”继续推进到“P0 业务视图首版”。新增 `adminViews` 视图层，订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略均有独立页面结构，包含关键指标、操作入口、表格列、首批运营行和安全约束。新增站点骑手、站点订单、骑手绩效、站点任务配置等可执行操作入口，后续可直接接入真实 BFF/API 数据。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - 浏览器打开 `http://127.0.0.1:4173/apps/admin-web/index.html`，点击订单监控、商户资质、骑手/站长模块，均能展示对应业务视图；浏览器控制台无 error。
+- 当前边界：这些是 P0 页面结构和操作入口，仍需把表格行替换为真实 API 数据源，补分页、筛选、详情抽屉、审核表单、操作审计落库、敏感字段脱敏和服务端细分 RBAC。
+- 文件：
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/README.md`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
 ## 进行中
 
 ### TASK-USER-MP-001 用户端原生微信小程序
@@ -1711,8 +1734,8 @@
 
 - 状态：进行中
 - 目标：完成桌面管理端。
-- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 草案。
-- 下一步：补真实订单监控页、商户资质审核页、骑手/站长管理页、售后审核详情页、操作审计、敏感字段脱敏和首页卡片/优惠券/圈子饭搭配置页。
+- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 草案；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略等 P0 业务视图首版。
+- 下一步：把 P0 业务视图表格接真实 API 数据源，补订单详情、商户资质审核详情、骑手/站长管理详情、售后审核详情、操作审计、敏感字段脱敏和首页卡片/优惠券/圈子饭搭配置页。
 - 范围：订单、售后、用户、商户、骑手绩效等级、商品、精选商品、首页卡片、首页活动、优惠券、圈子/饭搭、团购、买药、跑腿、支付中心、钱包、提现、退款策略、积分会员、通知推送、评价、风控、数据备份恢复、派单规则、骑手计价、群聊红包、客服、RTC、电话联系审计、OAuth/API 管理、系统日志。
 - 验收：
   - 桌面浏览器可完成运营配置和订单处理。

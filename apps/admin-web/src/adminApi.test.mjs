@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ADMIN_API_OPERATIONS, buildAdminRequest, executeAdminOperation, fieldsForOperation, getAdminOperation } from "./adminApi.mjs";
 import { ADMIN_WEB_KPIS, ADMIN_WEB_MODULES, ADMIN_WEB_QUEUES, ADMIN_WEB_RBAC, ADMIN_WEB_SECTIONS, getAdminWebModule } from "./config.mjs";
+import { ADMIN_WEB_VIEWS, getAdminView } from "./adminViews.mjs";
 
 test("admin web exposes the first operable control-center modules", () => {
   for (const key of ["orders", "after-sales", "merchants", "riders", "dispatch", "refund-settings", "payment", "support", "rtc", "integrations"]) {
@@ -28,11 +29,30 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
     "outbox-stats",
     "outbox-events",
     "outbox-replay-batch",
-    "order-compensate"
+    "order-compensate",
+    "station-riders",
+    "station-orders",
+    "station-performance",
+    "station-task-config"
   ]) {
     assert.ok(getAdminOperation(key), `missing ${key}`);
   }
   assert.ok(ADMIN_API_OPERATIONS.every((operation) => operation.method && operation.path && operation.title));
+});
+
+test("admin web ships P0 business views with actions and safeguards", () => {
+  for (const key of ["orders", "after-sales", "merchants", "riders", "rider-performance", "dispatch", "refund-settings"]) {
+    const view = getAdminView(key);
+    assert.equal(view.key, key);
+    assert.ok(view.metrics.length >= 4, `missing metrics for ${key}`);
+    assert.ok(view.columns.length >= 4, `missing columns for ${key}`);
+    assert.ok(view.rows.length >= 4, `missing rows for ${key}`);
+    assert.ok(view.safeguards.length >= 3, `missing safeguards for ${key}`);
+  }
+  assert.ok(ADMIN_WEB_VIEWS.orders.actions.includes("order-compensate"));
+  assert.ok(ADMIN_WEB_VIEWS.merchants.actions.includes("merchant-invite"));
+  assert.ok(ADMIN_WEB_VIEWS.riders.actions.includes("station-riders"));
+  assert.ok(ADMIN_WEB_VIEWS.dispatch.actions.includes("station-orders"));
 });
 
 test("admin request builder normalizes auth query path and body", () => {

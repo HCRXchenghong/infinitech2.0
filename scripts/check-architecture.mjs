@@ -48,6 +48,7 @@ const requiredPaths = [
   "apps/admin-web/package.json",
   "apps/admin-web/index.html",
   "apps/admin-web/src/adminApi.mjs",
+  "apps/admin-web/src/adminViews.mjs",
   "apps/admin-web/src/config.mjs",
   "apps/admin-web/src/styles.css"
 ];
@@ -87,14 +88,22 @@ test("github collaboration gates protect commercial readiness", () => {
 test("admin web has a minimum operable control center", () => {
   const main = readFileSync(join(root, "apps/admin-web/src/main.js"), "utf8");
   const api = readFileSync(join(root, "apps/admin-web/src/adminApi.mjs"), "utf8");
+  const views = readFileSync(join(root, "apps/admin-web/src/adminViews.mjs"), "utf8");
   const config = readFileSync(join(root, "apps/admin-web/src/config.mjs"), "utf8");
   const styles = readFileSync(join(root, "apps/admin-web/src/styles.css"), "utf8");
   assert.match(main, /executeAdminOperation/);
+  assert.match(main, /renderModuleView/);
   assert.match(main, /运营后台/);
   assert.match(api, /\/api\/auth\/admin\/login/);
   assert.match(api, /\/api\/admin\/merchant-invites/);
   assert.match(api, /\/api\/admin\/outbox\/stats/);
   assert.match(api, /\/api\/admin\/object-storage\/cleanup-stats/);
+  assert.match(api, /\/api\/station-manager\/rider-performance/);
+  assert.match(views, /订单监控/);
+  assert.match(views, /商户资质/);
+  assert.match(views, /骑手\/站长/);
+  assert.match(views, /售后审核/);
+  assert.match(views, /订单状态补偿必须写审计/);
   assert.match(config, /ADMIN_WEB_RBAC/);
   assert.match(config, /refund-settings/);
   assert.match(config, /rtc/);

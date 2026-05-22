@@ -153,6 +153,42 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
       { key: "order_id", label: "订单号", type: "text", defaultValue: "ord_1", required: true }
     ],
     fields: []
+  },
+  {
+    key: "station-riders",
+    title: "站点骑手列表",
+    method: "GET",
+    path: "/api/station-manager/riders",
+    authRequired: true,
+    area: "rider",
+    fields: []
+  },
+  {
+    key: "station-orders",
+    title: "站点待调度订单",
+    method: "GET",
+    path: "/api/station-manager/orders",
+    authRequired: true,
+    area: "dispatch",
+    fields: []
+  },
+  {
+    key: "station-performance",
+    title: "站点骑手绩效",
+    method: "GET",
+    path: "/api/station-manager/rider-performance",
+    authRequired: true,
+    area: "rider",
+    fields: []
+  },
+  {
+    key: "station-task-config",
+    title: "站点任务配置",
+    method: "GET",
+    path: "/api/station-manager/task-duration",
+    authRequired: true,
+    area: "dispatch",
+    fields: []
   }
 ]);
 
