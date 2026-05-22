@@ -1770,6 +1770,19 @@
   - `scripts/check-architecture.mjs`
   - `EXECUTION_LEDGER.md`
 
+### DONE-20260522-086 最近进展与路线图 Markdown 同步
+
+- 日期：2026-05-22
+- 结果：新增 `docs/product/recent-progress-roadmap.md`，集中记录最近已完成、当前未完成、未来将要完成的工作和下一批优先推进顺序；`README.md` 已加入入口，`PROJECT_STATUS.md` 已补最近进展摘要。当前口径明确：项目正在按商业级标准推进，但仍未完成真实生产支付、真实 IM/RTC、完整管理端、高可用基础设施、10 万在线压测和容灾演练，不能宣称已经商业级上线。
+- 验收证据：
+  - `npm run verify`
+- 当前边界：这是项目状态和路线图同步，不是业务能力新增；后续每次完成关键能力都要继续同步本文件、`PROJECT_STATUS.md`、`PLATFORM_MASTER_PLAN.md` 和商业级验收清单。
+- 文件：
+  - `docs/product/recent-progress-roadmap.md`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `EXECUTION_LEDGER.md`
+
 ## 进行中
 
 ### TASK-USER-MP-001 用户端原生微信小程序
