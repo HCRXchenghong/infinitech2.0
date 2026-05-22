@@ -48,6 +48,7 @@ const requiredPaths = [
   "apps/admin-web/package.json",
   "apps/admin-web/index.html",
   "apps/admin-web/src/adminApi.mjs",
+  "apps/admin-web/src/adminSnapshot.mjs",
   "apps/admin-web/src/adminViews.mjs",
   "apps/admin-web/src/config.mjs",
   "apps/admin-web/src/styles.css"
@@ -89,14 +90,19 @@ test("admin web has a minimum operable control center", () => {
   const main = readFileSync(join(root, "apps/admin-web/src/main.js"), "utf8");
   const api = readFileSync(join(root, "apps/admin-web/src/adminApi.mjs"), "utf8");
   const views = readFileSync(join(root, "apps/admin-web/src/adminViews.mjs"), "utf8");
+  const snapshot = readFileSync(join(root, "apps/admin-web/src/adminSnapshot.mjs"), "utf8");
   const config = readFileSync(join(root, "apps/admin-web/src/config.mjs"), "utf8");
   const styles = readFileSync(join(root, "apps/admin-web/src/styles.css"), "utf8");
   assert.match(main, /executeAdminOperation/);
+  assert.match(main, /refreshOperationsSnapshot/);
   assert.match(main, /renderModuleView/);
   assert.match(main, /运营后台/);
   assert.match(api, /\/api\/auth\/admin\/login/);
   assert.match(api, /\/api\/admin\/merchant-invites/);
   assert.match(api, /\/api\/admin\/operations\/snapshot/);
+  assert.match(snapshot, /applySnapshotToAdminView/);
+  assert.match(snapshot, /buildSnapshotKpis/);
+  assert.match(snapshot, /buildSnapshotQueues/);
   assert.match(api, /\/api\/admin\/outbox\/stats/);
   assert.match(api, /\/api\/admin\/object-storage\/cleanup-stats/);
   assert.match(api, /\/api\/station-manager\/rider-performance/);
@@ -109,6 +115,19 @@ test("admin web has a minimum operable control center", () => {
   assert.match(config, /refund-settings/);
   assert.match(config, /rtc/);
   assert.match(styles, /#009bf5/);
+});
+
+test("bff keeps browser CORS guard for local admin and uni shells", () => {
+  const server = readFileSync(join(root, "services/bff/src/server.mjs"), "utf8");
+  const tests = readFileSync(join(root, "services/bff/src/runtime.test.mjs"), "utf8");
+  assert.match(server, /DEFAULT_ALLOWED_ORIGINS/);
+  assert.match(server, /BFF_ALLOWED_ORIGINS/);
+  assert.match(server, /Access-Control-Allow-Origin/);
+  assert.match(server, /Access-Control-Allow-Headers/);
+  assert.match(server, /Authorization,Content-Type,X-Client-Kind/);
+  assert.match(server, /req\.method === "OPTIONS"/);
+  assert.match(tests, /admin api preflight and proxy responses/);
+  assert.match(tests, /\/api\/admin\/operations\/snapshot/);
 });
 
 test("core database migration records commercial-grade ledgers and events", () => {

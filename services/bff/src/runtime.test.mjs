@@ -41,6 +41,63 @@ test("bff server answers runtime endpoint", async () => {
   assert.equal(cards.data[0].type, "product");
 });
 
+test("bff allows configured browser origins for admin api preflight and proxy responses", async () => {
+  const upstream = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/api/admin/operations/snapshot?limit=1") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          generated_at: "2026-05-22T12:00:00Z",
+          counts: { total_orders: 1 },
+          authorization: req.headers.authorization
+        }
+      }));
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: false }));
+  });
+  upstream.listen(0);
+  await once(upstream, "listening");
+
+  const server = createBffServer({
+    env: {
+      API_BASE_URL: `http://127.0.0.1:${upstream.address().port}`,
+      BFF_ALLOWED_ORIGINS: "http://admin.test"
+    }
+  });
+  server.listen(0);
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const preflight = await requestRaw("OPTIONS", `${baseUrl}/api/admin/operations/snapshot`, {
+    Origin: "http://admin.test",
+    "Access-Control-Request-Method": "GET",
+    "Access-Control-Request-Headers": "Authorization,Content-Type"
+  });
+  const snapshot = await requestRaw("GET", `${baseUrl}/api/admin/operations/snapshot?limit=1`, {
+    Origin: "http://admin.test",
+    Authorization: "Bearer admin:admin_1"
+  });
+  const blocked = await requestRaw("GET", `${baseUrl}/api/runtime`, {
+    Origin: "http://evil.test"
+  });
+
+  server.close();
+  upstream.close();
+
+  assert.equal(preflight.statusCode, 204);
+  assert.equal(preflight.headers["access-control-allow-origin"], "http://admin.test");
+  assert.match(preflight.headers["access-control-allow-methods"], /GET/);
+  assert.match(preflight.headers["access-control-allow-headers"], /Authorization/);
+  assert.equal(snapshot.statusCode, 200);
+  assert.equal(snapshot.headers["access-control-allow-origin"], "http://admin.test");
+  assert.equal(JSON.parse(snapshot.body).data.authorization, "Bearer admin:admin_1");
+  assert.equal(blocked.statusCode, 403);
+  assert.equal(blocked.headers["access-control-allow-origin"], undefined);
+});
+
 test("bff proxies user-facing api routes with authorization", async () => {
   const upstream = http.createServer((req, res) => {
     if (req.method === "POST" && req.url === "/api/auth/wechat-mini/login") {
@@ -1170,6 +1227,25 @@ function postJSON(url, authorization, payload) {
 
 function putJSON(url, authorization, payload) {
   return requestJSON("PUT", url, authorization, payload);
+}
+
+function requestRaw(method, url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(url, {
+      method,
+      headers
+    }, (res) => {
+      let body = "";
+      res.on("data", (chunk) => {
+        body += chunk;
+      });
+      res.on("end", () => {
+        resolve({ statusCode: res.statusCode, headers: res.headers, body });
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 function requestJSON(method, url, authorization, payload) {

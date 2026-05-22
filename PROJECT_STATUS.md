@@ -58,7 +58,7 @@
 - 已完成美团/旧版能力对标矩阵：`docs/product/meituan-legacy-parity-matrix.md`。
 - 已完成商业级验收清单：`docs/product/commercial-readiness-checklist.md`。
 - 已完成容量与容灾规划：`docs/operations/capacity-and-dr.md`。
-- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260522-081`。
+- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260522-083`。
 - 已完成 GitHub 协作与质量门禁首版：`verify.yml` 会在 `push`/`pull_request` 跑 `npm run verify` 和 uncached Go 测试；PR 模板要求商业影响、验证和回滚说明；Issue 模板区分 bug、feature、commercial readiness gap；CODEOWNERS 和 Dependabot 已建立。
 
 ### 3.2 品牌和 UI 基线
@@ -161,6 +161,8 @@
 - `apps/admin-web` 接口操作台已接入管理员登录、商户/站长/骑手邀约、退款策略、售后列表、对象清理、outbox 运维和订单状态补偿等现有 BFF/API。
 - `apps/admin-web` 已补 P0 业务视图首版：订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略均有独立页面结构、指标、表格、操作入口和安全约束。
 - 管理端已新增 `/api/admin/operations/snapshot` 运营快照首版，按后台视角聚合订单、商户资质/保证金、骑手/站长、骑手绩效、售后、派单审计、退款策略、outbox 健康和对象清理统计；BFF 与管理端操作台已接入该入口。
+- 管理端 P0 视图已开始绑定运营快照：有管理员 token 时可刷新快照，订单、售后、商户、骑手、骑手绩效、派单、退款策略和顶部 KPI 会按快照数据生成；快照字段渲染已做 HTML 转义。
+- BFF 已补浏览器来源 CORS 白名单和 `OPTIONS` 预检处理，默认覆盖本地管理端/uni 调试来源，并可通过 `BFF_ALLOWED_ORIGINS` 配置部署来源。
 - `apps/admin-uni` 骨架。
 - `packages/admin-core` 已定义关键运营模块。
 - 核心后台 API 已覆盖很多运营动作：退款策略、售后、outbox、对象存储清理、派单事件、站长任务、骑手绩效等。
@@ -168,7 +170,7 @@
 未完成：
 
 - 桌面管理端完整业务页面和详情页。
-- 管理端 P0 视图已有运营快照聚合 API，但页面仍需把表格/指标绑定真实数据，并继续补分页筛选、详情抽屉、审核表单、操作审计、敏感字段脱敏和服务端细分 RBAC。
+- 管理端 P0 视图已能读取运营快照生成首批表格/指标，但仍需补分页筛选、详情抽屉、审核表单、操作审计、敏感字段脱敏策略和服务端细分 RBAC。
 - 移动管理端实际页面。
 - RBAC 细分权限、操作审计页面、敏感字段脱敏展示。
 - 订单、售后、用户、商户、骑手、首页卡片、优惠券、圈子/饭搭、团购、买药、跑腿、客服、RTC、OAuth/API、对象存储告警等后台面板。
@@ -220,6 +222,7 @@
 - 对象扫描 worker 首版。
 - 对象扫描 worker ClamAV 适配与下载首版。
 - 管理端运营快照 API 首版：订单、商户、骑手、售后、调度、退款策略、outbox 和对象清理统一聚合。
+- 管理端运营快照绑定首版：P0 表格、KPI 和队列可从 `/api/admin/operations/snapshot` 响应生成，并对展示字段做 HTML 转义。
 - 对象生命周期清理 worker 首版。
 - 对象清理失败账本首版。
 - 对象清理统计接口首版。
@@ -273,6 +276,7 @@
 - 订单状态机补偿。
 - 对象存储清理候选、统计、完成、失败代理。
 - 站长任务和绩效核心接口代理。
+- 浏览器来源 CORS 白名单、`OPTIONS` 预检、`Authorization`/`Content-Type`/`X-Client-Kind` 请求头放行。
 
 未完成：
 

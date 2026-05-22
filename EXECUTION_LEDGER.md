@@ -1684,6 +1684,45 @@
   - `PLATFORM_MASTER_PLAN.md`
   - `EXECUTION_LEDGER.md`
 
+### DONE-20260522-082 管理端 P0 快照绑定首版
+
+- 日期：2026-05-22
+- 结果：管理端 Web 新增 `adminSnapshot` 快照适配层，把 `/api/admin/operations/snapshot` 响应转换为顶部 KPI、今日 P0 队列、订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计和退款策略视图数据。有管理员 token 时可手动刷新运营快照，执行“运营快照”操作成功后也会更新页面数据；登录返回 token 一键填入后会尝试刷新。所有快照字段进入页面前通过 HTML 转义渲染，避免商户名、订单字段、售后字段等后端内容直接注入页面。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+- 当前边界：P0 页面已能按运营快照生成首批表格和指标，但仍需分页筛选、详情抽屉、审核表单、操作审计落库、敏感字段脱敏策略和服务端细分 RBAC。
+- 文件：
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `apps/admin-web/README.md`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260522-083 BFF 浏览器 CORS 白名单首版
+
+- 日期：2026-05-22
+- 结果：BFF 新增浏览器来源白名单和 `OPTIONS` 预检处理，默认允许本地管理端/uni 调试来源，并支持通过 `BFF_ALLOWED_ORIGINS` 配置生产或测试来源。管理端从静态预览页访问 BFF 时，`Authorization`、`Content-Type` 和 `X-Client-Kind` 头已被明确允许，`/api/admin/operations/snapshot` 代理响应会返回匹配的 `Access-Control-Allow-Origin`。非法来源会得到 `FORBIDDEN_ORIGIN`，不返回跨域放行头；后台带 token 的接口不接受 `*` 通配来源。
+- 验收证据：
+  - `npm run test --workspace @infinitech/bff`
+  - `npm run verify:architecture`
+- 当前边界：这是浏览器到 BFF 的基础白名单，不等于完整 API Gateway/WAF 能力；仍需生产域名白名单、限流、灰度、认证失败统一错误码、观测埋点和安全扫描。
+- 文件：
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
 ## 进行中
 
 ### TASK-USER-MP-001 用户端原生微信小程序
@@ -1761,8 +1800,8 @@
 
 - 状态：进行中
 - 目标：完成桌面管理端。
-- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、运营快照、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 草案；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略等 P0 业务视图首版。
-- 下一步：把 P0 业务视图表格/指标绑定运营快照或明细 API，补订单详情、商户资质审核详情、骑手/站长管理详情、售后审核详情、操作审计、敏感字段脱敏和首页卡片/优惠券/圈子饭搭配置页。
+- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、运营快照、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 草案；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略等 P0 业务视图首版；P0 KPI、队列和表格已可由运营快照生成，并对展示字段做 HTML 转义。
+- 下一步：补订单详情、商户资质审核详情、骑手/站长管理详情、售后审核详情、分页筛选、操作审计、敏感字段脱敏和首页卡片/优惠券/圈子饭搭配置页。
 - 范围：订单、售后、用户、商户、骑手绩效等级、商品、精选商品、首页卡片、首页活动、优惠券、圈子/饭搭、团购、买药、跑腿、支付中心、钱包、提现、退款策略、积分会员、通知推送、评价、风控、数据备份恢复、派单规则、骑手计价、群聊红包、客服、RTC、电话联系审计、OAuth/API 管理、系统日志。
 - 验收：
   - 桌面浏览器可完成运营配置和订单处理。
@@ -1782,7 +1821,7 @@
 
 - 状态：进行中
 - 目标：建立面向用户小程序、商户端、骑手端、管理端的聚合层。
-- 已完成：运行时配置、首页模块/卡片、用户端微信登录、商户邀约与主体登录、管理员 bootstrap 登录、骑手/站长邀约与主体登录、店铺/商品/地址/购物车/结算/订单/钱包/微信支付预下单、退款策略/订单退款、商户订单/商品/保证金、骑手调度/保证金、派单事件查询、派单确认超时转派、订单状态机补偿、管理端运营快照代理、对象存储清理候选/统计/完成/失败代理、站长任务/绩效核心接口代理。
+- 已完成：运行时配置、首页模块/卡片、用户端微信登录、商户邀约与主体登录、管理员 bootstrap 登录、骑手/站长邀约与主体登录、店铺/商品/地址/购物车/结算/订单/钱包/微信支付预下单、退款策略/订单退款、商户订单/商品/保证金、骑手调度/保证金、派单事件查询、派单确认超时转派、订单状态机补偿、管理端运营快照代理、对象存储清理候选/统计/完成/失败代理、站长任务/绩效核心接口代理、浏览器来源 CORS 白名单与预检处理首版。
 - 范围：运行时配置、聚合接口、灰度、端侧兼容、错误标准化。
 - 验收：
   - 各端不直接依赖内部领域 API。

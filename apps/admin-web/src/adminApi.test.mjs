@@ -3,6 +3,7 @@ import test from "node:test";
 import { ADMIN_API_OPERATIONS, buildAdminRequest, executeAdminOperation, fieldsForOperation, getAdminOperation } from "./adminApi.mjs";
 import { ADMIN_WEB_KPIS, ADMIN_WEB_MODULES, ADMIN_WEB_QUEUES, ADMIN_WEB_RBAC, ADMIN_WEB_SECTIONS, getAdminWebModule } from "./config.mjs";
 import { ADMIN_WEB_VIEWS, getAdminView } from "./adminViews.mjs";
+import { applySnapshotToAdminView, buildSnapshotKpis, buildSnapshotQueues, snapshotDataFromResult } from "./adminSnapshot.mjs";
 
 test("admin web exposes the first operable control-center modules", () => {
   for (const key of ["orders", "after-sales", "merchants", "riders", "dispatch", "refund-settings", "payment", "support", "rtc", "integrations"]) {
@@ -95,4 +96,81 @@ test("admin operation executor returns response metadata and payload", async () 
   assert.equal(result.ok, true);
   assert.equal(result.status, 200);
   assert.equal(result.payload.data.default_refund_strategy, "original_route_first");
+});
+
+test("admin snapshot adapter binds backend data into P0 views", () => {
+  const snapshot = {
+    generated_at: "2026-05-22T12:00:00Z",
+    counts: {
+      total_orders: 3,
+      pending_merchant_orders: 1,
+      dispatching_orders: 1,
+      rider_assigned_orders: 1,
+      exception_orders: 1,
+      total_merchants: 2,
+      merchant_qualification_risks: 1,
+      merchant_deposit_missing: 1,
+      total_riders: 3,
+      online_riders: 2,
+      rider_deposit_missing: 1,
+      station_managers: 1,
+      after_sales_pending: 1,
+      after_sales_admin_review: 1,
+      dispatch_event_count: 2,
+      outbox_ready: 2,
+      outbox_blocked: 1,
+      object_cleanup_failed: 1,
+      object_cleanup_total_candidate: 4
+    },
+    orders: [
+      { id: "ord_1", type: "takeout", status: "dispatching", shop_id: "shop_1", rider_id: "" }
+    ],
+    merchants: [
+      {
+        account: { id: "merchant_1", display_name: "蓝湾轻食", deposit_status: "unpaid" },
+        shops: [{ name: "蓝湾轻食望京店", capabilities: ["takeout", "groupbuy"] }],
+        missing_qualifications: ["health_certificate"],
+        qualifications: [{ expires_at: "2026-11-30T00:00:00Z" }],
+        deposit: { status: "unpaid" },
+        can_accept_orders: false
+      }
+    ],
+    riders: [
+      { id: "rider_1", type: "rider", station_id: "station_1", online: true, deposit_status: "paid", dispatch_priority: 40, capacity: 2 }
+    ],
+    rider_performance: [
+      { rider_id: "rider_1", average_accept_seconds: 18.4, completion_rate: 0.98, level: "S", dispatch_priority: 40 }
+    ],
+    after_sales: [
+      { id: "asr_1", order_id: "ord_1", user_id: "user_1", status: "admin_review", refundable_fen: 1200, evidence_urls: ["https://cdn.test/evidence.jpg"] }
+    ],
+    dispatch_events: [
+      { order_id: "ord_1", type: "dispatch.assigned", mode: "auto_assign", rider_id: "rider_1", online_candidate_size: 2, created_at: "2026-05-22T12:01:00Z" }
+    ],
+    refund_settings: { default_refund_strategy: "balance_first" },
+    outbox_stats: { ready: 2, blocked: 1, dead_letter: 0 }
+  };
+
+  const orderView = applySnapshotToAdminView(getAdminView("orders"), snapshot);
+  assert.equal(orderView.metrics[1].value, "1");
+  assert.equal(orderView.rows[0][0], "ord_1");
+  assert.equal(orderView.rows[0][2], "待派单");
+
+  const merchantView = applySnapshotToAdminView(getAdminView("merchants"), snapshot);
+  assert.equal(merchantView.rows[0][0], "蓝湾轻食");
+  assert.equal(merchantView.rows[0][3], "未缴");
+
+  const performanceView = applySnapshotToAdminView(getAdminView("rider-performance"), snapshot);
+  assert.equal(performanceView.rows[0][1], "18s");
+  assert.equal(performanceView.rows[0][2], "98.0%");
+
+  const kpis = buildSnapshotKpis(snapshot, ADMIN_WEB_KPIS);
+  assert.equal(kpis[0].value, "3");
+  assert.equal(kpis[3].value, "2");
+
+  const queues = buildSnapshotQueues(snapshot, ADMIN_WEB_QUEUES);
+  assert.equal(queues[1].title, "商户资质/保证金");
+  assert.equal(queues[4].target, "Ready 2 / Blocked 1");
+
+  assert.equal(snapshotDataFromResult({ payload: { data: snapshot } }), snapshot);
 });

@@ -167,6 +167,53 @@ h2 {
   font-weight: 700;
 }
 
+.snapshot-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #b8e3ff;
+  border-radius: 8px;
+  background: #f4fbff;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+
+.snapshot-strip.error {
+  border-color: #f2c5c5;
+  background: #fff7f7;
+}
+
+.snapshot-strip div {
+  display: grid;
+  gap: 3px;
+}
+
+.snapshot-strip strong {
+  color: var(--brand-dark);
+  font-size: 14px;
+}
+
+.snapshot-strip span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.snapshot-strip button {
+  border: 0;
+  border-radius: 8px;
+  background: var(--brand);
+  color: #ffffff;
+  padding: 9px 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.snapshot-strip button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 input,
 select {
   width: 100%;
@@ -494,6 +541,11 @@ th {
   }
 
   .topbar {
+    display: grid;
+  }
+
+  .snapshot-strip {
+    align-items: stretch;
     display: grid;
   }
 

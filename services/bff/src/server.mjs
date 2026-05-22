@@ -1,10 +1,20 @@
 import { createServer } from "node:http";
 import { createRuntimeConfig, defaultHomeCards, defaultHomeModules } from "./runtime.mjs";
 
-function writeJson(res, statusCode, payload) {
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://127.0.0.1:4173",
+  "http://localhost:4173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5173",
+  "http://127.0.0.1:8080",
+  "http://localhost:8080"
+];
+
+function writeJson(res, statusCode, payload, extraHeaders = {}) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
-    "X-Content-Type-Options": "nosniff"
+    "X-Content-Type-Options": "nosniff",
+    ...extraHeaders
   });
   res.end(JSON.stringify(payload));
 }
@@ -19,6 +29,32 @@ function notFound() {
 
 function badGateway(message = "upstream service unavailable") {
   return { success: false, code: "BAD_GATEWAY", message };
+}
+
+function forbiddenOrigin() {
+  return { success: false, code: "FORBIDDEN_ORIGIN", message: "origin is not allowed" };
+}
+
+function parseAllowedOrigins(value) {
+  if (!value) return DEFAULT_ALLOWED_ORIGINS;
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item !== "*")
+    .filter(Boolean);
+}
+
+function corsHeaders(req, allowedOrigins) {
+  const origin = req.headers.origin;
+  if (!origin) return {};
+  if (!allowedOrigins.includes(origin)) return null;
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization,Content-Type,X-Client-Kind",
+    "Access-Control-Max-Age": "600",
+    "Vary": "Origin"
+  };
 }
 
 function isApiProxyRoute(method, pathname) {
@@ -122,7 +158,7 @@ function readRequestBody(req) {
   });
 }
 
-async function proxyToApi(req, res, runtime, url) {
+async function proxyToApi(req, res, runtime, url, responseCorsHeaders = {}) {
   const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readRequestBody(req);
   const headers = {
     "Content-Type": req.headers["content-type"] || "application/json",
@@ -141,42 +177,55 @@ async function proxyToApi(req, res, runtime, url) {
     const text = await upstream.text();
     res.writeHead(upstream.status, {
       "Content-Type": upstream.headers.get("content-type") || "application/json; charset=utf-8",
-      "X-Content-Type-Options": "nosniff"
+      "X-Content-Type-Options": "nosniff",
+      ...responseCorsHeaders
     });
     res.end(text);
   } catch (_error) {
-    writeJson(res, 502, badGateway());
+    writeJson(res, 502, badGateway(), responseCorsHeaders);
   }
 }
 
 export function createBffServer(options = {}) {
-  const runtime = createRuntimeConfig(options.env || process.env);
+  const env = options.env || process.env;
+  const runtime = createRuntimeConfig(env);
+  const allowedOrigins = parseAllowedOrigins(env.BFF_ALLOWED_ORIGINS);
   return createServer((req, res) => {
+    const responseCorsHeaders = corsHeaders(req, allowedOrigins);
+    if (responseCorsHeaders === null) {
+      writeJson(res, 403, forbiddenOrigin());
+      return;
+    }
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, responseCorsHeaders || {});
+      res.end();
+      return;
+    }
     const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
     if (req.method === "GET" && url.pathname === "/healthz") {
-      writeJson(res, 200, success({ status: "ok", service: "bff" }));
+      writeJson(res, 200, success({ status: "ok", service: "bff" }), responseCorsHeaders);
       return;
     }
     if (req.method === "GET" && url.pathname === "/readyz") {
-      writeJson(res, 200, success({ status: "ready", service: "bff", apiBaseUrl: runtime.apiBaseUrl }));
+      writeJson(res, 200, success({ status: "ready", service: "bff", apiBaseUrl: runtime.apiBaseUrl }), responseCorsHeaders);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/runtime") {
-      writeJson(res, 200, success(runtime));
+      writeJson(res, 200, success(runtime), responseCorsHeaders);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/home/modules") {
-      writeJson(res, 200, success(defaultHomeModules()));
+      writeJson(res, 200, success(defaultHomeModules()), responseCorsHeaders);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/home/cards") {
-      writeJson(res, 200, success(defaultHomeCards()));
+      writeJson(res, 200, success(defaultHomeCards()), responseCorsHeaders);
       return;
     }
     if (isApiProxyRoute(req.method || "GET", url.pathname)) {
-      void proxyToApi(req, res, runtime, url);
+      void proxyToApi(req, res, runtime, url, responseCorsHeaders);
       return;
     }
-    writeJson(res, 404, notFound());
+    writeJson(res, 404, notFound(), responseCorsHeaders);
   });
 }

@@ -1,6 +1,7 @@
 import { ADMIN_API_OPERATIONS, DEFAULT_BFF_BASE_URL, executeAdminOperation, fieldsForOperation, getAdminOperation } from "./adminApi.mjs";
 import { ADMIN_WEB_KPIS, ADMIN_WEB_MODULES, ADMIN_WEB_QUEUES, ADMIN_WEB_RBAC, ADMIN_WEB_SECTIONS } from "./config.mjs";
 import { getAdminView } from "./adminViews.mjs";
+import { applySnapshotToAdminView, buildSnapshotKpis, buildSnapshotQueues, snapshotDataFromResult } from "./adminSnapshot.mjs";
 
 const STORAGE_KEY = "infinitech.admin-web";
 const root = document.getElementById("app");
@@ -11,7 +12,11 @@ const state = {
   baseUrl: DEFAULT_BFF_BASE_URL,
   token: "",
   lastResult: null,
+  snapshot: null,
+  snapshotStatus: "idle",
+  snapshotError: "",
   busy: false,
+  snapshotBusy: false,
   values: {}
 };
 
@@ -34,6 +39,23 @@ function formatJson(value) {
     return "{\n  \"status\": \"waiting\"\n}";
   }
   return JSON.stringify(value, null, 2);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function snapshotStatusText() {
+  if (state.snapshotBusy) return "正在刷新运营快照";
+  if (state.snapshotStatus === "ready" && state.snapshot?.generated_at) return `已同步 ${new Date(state.snapshot.generated_at).toLocaleString("zh-CN")}`;
+  if (state.snapshotStatus === "error") return state.snapshotError || "快照同步失败";
+  if (!state.token) return "填入管理员 Token 后刷新快照";
+  return "尚未同步运营快照";
 }
 
 function statusLabel(status) {
@@ -83,16 +105,16 @@ function renderModuleView(view) {
     <article class="panel wide module-view">
       <div class="panel-head">
         <div>
-          <h2>${view.title}</h2>
-          <p>${view.subtitle}</p>
+          <h2>${escapeHtml(view.title)}</h2>
+          <p>${escapeHtml(view.subtitle)}</p>
         </div>
-        <span class="badge">${view.key}</span>
+        <span class="badge">${escapeHtml(view.key)}</span>
       </div>
       <div class="mini-metrics">
         ${view.metrics.map((metric) => `
           <div class="mini-metric ${toneClass(metric.tone)}">
-            <span>${metric.label}</span>
-            <strong>${metric.value}</strong>
+            <span>${escapeHtml(metric.label)}</span>
+            <strong>${escapeHtml(metric.value)}</strong>
           </div>
         `).join("")}
       </div>
@@ -105,17 +127,17 @@ function renderModuleView(view) {
       <div class="table-wrap">
         <table>
           <thead>
-            <tr>${view.columns.map((column) => `<th>${column}</th>`).join("")}</tr>
+            <tr>${view.columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>
           </thead>
           <tbody>
             ${view.rows.map((row) => `
-              <tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>
+              <tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>
             `).join("")}
           </tbody>
         </table>
       </div>
       <div class="safeguards">
-        ${view.safeguards.map((item) => `<span>${item}</span>`).join("")}
+        ${view.safeguards.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
       </div>
     </article>
   `;
@@ -125,7 +147,9 @@ function render() {
   if (!root) return;
   const activeOperation = getAdminOperation(state.activeOperation) || ADMIN_API_OPERATIONS[0];
   const activeModule = ADMIN_WEB_MODULES.find((module) => module.key === state.activeModule) || ADMIN_WEB_MODULES[0];
-  const activeView = getAdminView(activeModule.key);
+  const activeView = applySnapshotToAdminView(getAdminView(activeModule.key), state.snapshot);
+  const kpis = buildSnapshotKpis(state.snapshot, ADMIN_WEB_KPIS);
+  const queues = buildSnapshotQueues(state.snapshot, ADMIN_WEB_QUEUES);
   root.innerHTML = `
     <div class="shell">
       <aside class="sidebar">
@@ -157,7 +181,7 @@ function render() {
         <header class="topbar">
           <div>
             <p class="eyebrow">桌面 Web 管理端</p>
-            <h1>${activeModule.title}</h1>
+            <h1>${escapeHtml(activeModule.title)}</h1>
           </div>
           <div class="connection">
             <label>
@@ -171,12 +195,20 @@ function render() {
           </div>
         </header>
 
+        <section class="snapshot-strip ${state.snapshotStatus === "error" ? "error" : ""}">
+          <div>
+            <strong>运营快照</strong>
+            <span>${escapeHtml(snapshotStatusText())}</span>
+          </div>
+          <button id="refresh-snapshot" ${state.snapshotBusy || !state.token ? "disabled" : ""}>${state.snapshotBusy ? "刷新中" : "刷新快照"}</button>
+        </section>
+
         <section class="kpis">
-          ${ADMIN_WEB_KPIS.map((kpi) => `
+          ${kpis.map((kpi) => `
             <article class="kpi ${kpi.tone}">
-              <span>${kpi.title}</span>
-              <strong>${kpi.value}</strong>
-              <small>${kpi.trend}</small>
+              <span>${escapeHtml(kpi.title)}</span>
+              <strong>${escapeHtml(kpi.value)}</strong>
+              <small>${escapeHtml(kpi.trend)}</small>
             </article>
           `).join("")}
         </section>
@@ -202,11 +234,11 @@ function render() {
                 </tr>
               </thead>
               <tbody>
-                ${ADMIN_WEB_QUEUES.map((queue) => `
+                ${queues.map((queue) => `
                   <tr>
-                    <td>${queue.title}</td>
-                    <td>${queue.target}</td>
-                    <td><span class="pill">${queue.level}</span></td>
+                    <td>${escapeHtml(queue.title)}</td>
+                    <td>${escapeHtml(queue.target)}</td>
+                    <td><span class="pill">${escapeHtml(queue.level)}</span></td>
                     <td><button class="link-button" data-operation="${queue.operationKey}">打开</button></td>
                   </tr>
                 `).join("")}
@@ -224,8 +256,8 @@ function render() {
             <div class="role-list">
               ${ADMIN_WEB_RBAC.map((role) => `
                 <div class="role-row">
-                  <strong>${role.name}</strong>
-                  <span>${role.scopes.slice(0, 3).join(" / ")}</span>
+                  <strong>${escapeHtml(role.name)}</strong>
+                  <span>${escapeHtml(role.scopes.slice(0, 3).join(" / "))}</span>
                 </div>
               `).join("")}
             </div>
@@ -241,8 +273,8 @@ function render() {
             <div class="module-list">
               ${ADMIN_WEB_MODULES.map((module) => `
                 <button class="module-row ${state.activeModule === module.key ? "active" : ""}" data-module="${module.key}">
-                  <span>${module.title}</span>
-                  <small>${statusLabel(module.status)} · ${module.owner}</small>
+                  <span>${escapeHtml(module.title)}</span>
+                  <small>${escapeHtml(`${statusLabel(module.status)} · ${module.owner}`)}</small>
                 </button>
               `).join("")}
             </div>
@@ -297,10 +329,14 @@ function bindEvents() {
   });
   document.getElementById("base-url")?.addEventListener("input", (event) => {
     state.baseUrl = event.target.value.trim();
+    state.snapshotStatus = "idle";
+    state.snapshotError = "";
     persistState();
   });
   document.getElementById("admin-token")?.addEventListener("input", (event) => {
     state.token = event.target.value.trim();
+    state.snapshotStatus = "idle";
+    state.snapshotError = "";
     persistState();
   });
   document.querySelectorAll("[data-field]").forEach((field) => {
@@ -308,12 +344,16 @@ function bindEvents() {
       state.values[field.getAttribute("data-field")] = field.value;
     });
   });
-  document.getElementById("fill-login")?.addEventListener("click", () => {
+  document.getElementById("refresh-snapshot")?.addEventListener("click", async () => {
+    await refreshOperationsSnapshot();
+  });
+  document.getElementById("fill-login")?.addEventListener("click", async () => {
     const token = state.lastResult?.payload?.data?.access_token;
     if (token) {
       state.token = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
       persistState();
       render();
+      await refreshOperationsSnapshot({ silent: true });
     }
   });
   document.getElementById("operation-form")?.addEventListener("submit", async (event) => {
@@ -335,6 +375,14 @@ async function runActiveOperation() {
       operationKey: operation.key,
       values: state.values
     });
+    if (operation.key === "operations-snapshot" && state.lastResult.ok) {
+      const snapshot = snapshotDataFromResult(state.lastResult);
+      if (snapshot) {
+        state.snapshot = snapshot;
+        state.snapshotStatus = "ready";
+        state.snapshotError = "";
+      }
+    }
   } catch (error) {
     state.lastResult = {
       ok: false,
@@ -348,5 +396,45 @@ async function runActiveOperation() {
   }
 }
 
+async function refreshOperationsSnapshot({ silent = false } = {}) {
+  if (!state.token || state.snapshotBusy) {
+    return;
+  }
+  state.snapshotBusy = true;
+  state.snapshotStatus = state.snapshot ? state.snapshotStatus : "loading";
+  state.snapshotError = "";
+  if (!silent) {
+    render();
+  }
+  try {
+    const result = await executeAdminOperation({
+      baseUrl: state.baseUrl || DEFAULT_BFF_BASE_URL,
+      token: state.token,
+      operationKey: "operations-snapshot",
+      values: { limit: 20, lease_expiring_within_seconds: 60, object_cleanup_grace_seconds: 3600 }
+    });
+    if (!result.ok || result.payload?.success === false) {
+      throw new Error(result.payload?.message || `HTTP ${result.status}`);
+    }
+    const snapshot = snapshotDataFromResult(result);
+    if (!snapshot) {
+      throw new Error("快照响应缺少 data");
+    }
+    state.snapshot = snapshot;
+    state.snapshotStatus = "ready";
+    state.snapshotError = "";
+  } catch (error) {
+    state.snapshotStatus = "error";
+    state.snapshotError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.snapshotBusy = false;
+    persistState();
+    render();
+  }
+}
+
 restoreState();
 render();
+if (state.token) {
+  void refreshOperationsSnapshot({ silent: true });
+}
