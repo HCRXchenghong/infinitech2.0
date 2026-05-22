@@ -337,16 +337,34 @@ test("refund settings and admin order refund are wired end to end", () => {
 });
 
 test("admin operation audit logs are wired end to end", () => {
+  const coreSchema = readFileSync(join(root, "infra/db/migrations/0001_core.sql"), "utf8");
   const contracts = readFileSync(join(root, "services/api-go/internal/platform/contracts.go"), "utf8");
   const repository = readFileSync(join(root, "services/api-go/internal/platform/repository.go"), "utf8");
   const store = readFileSync(join(root, "services/api-go/internal/platform/store.go"), "utf8");
+  const postgresStore = readFileSync(join(root, "services/api-go/internal/platform/postgres_store.go"), "utf8");
+  const postgresStoreTest = readFileSync(join(root, "services/api-go/internal/platform/postgres_store_test.go"), "utf8");
   const router = readFileSync(join(root, "services/api-go/internal/httpapi/router.go"), "utf8");
   const bff = readFileSync(join(root, "services/bff/src/server.mjs"), "utf8");
+  assert.match(coreSchema, /CREATE TABLE audit_logs/);
+  assert.match(coreSchema, /id TEXT PRIMARY KEY/);
+  assert.match(coreSchema, /CREATE INDEX idx_audit_logs_actor_time/);
   assert.match(contracts, /type AuditLog struct/);
   assert.match(repository, /RecordAuditLog/);
   assert.match(repository, /AuditLogs/);
   assert.match(store, /func \(s \*Store\) RecordAuditLog/);
   assert.match(store, /func \(s \*Store\) AuditLogs/);
+  assert.match(postgresStore, /func \(s \*PostgresStore\) ensureAuditLogTable/);
+  assert.match(postgresStore, /CREATE TABLE IF NOT EXISTS audit_logs/);
+  assert.match(postgresStore, /func upsertSQLAuditLog/);
+  assert.match(postgresStore, /func insertSQLAuditLog/);
+  assert.match(postgresStore, /ON CONFLICT \(id\) DO NOTHING/);
+  assert.match(postgresStore, /func nextSQLAuditLogNumber/);
+  assert.match(postgresStore, /WHERE name = 'audit_logs'[\s\S]*FOR UPDATE/);
+  assert.match(postgresStore, /func \(s \*PostgresStore\) AuditLogs/);
+  assert.match(postgresStore, /FROM audit_logs/);
+  assert.match(postgresStore, /syncSnapshotAuditLogsToTable/);
+  assert.match(postgresStore, /restoreNextAuditLogSequenceFromTable/);
+  assert.match(postgresStoreTest, /TestSQLAuditLogQueryBuilderAppliesFiltersAndLimit/);
   assert.match(router, /GET \/api\/admin\/audit-logs/);
   assert.match(router, /recordAuditLog/);
   assert.match(router, /admin\.refund_settings\.updated/);

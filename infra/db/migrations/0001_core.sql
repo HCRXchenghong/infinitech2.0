@@ -347,7 +347,7 @@ CREATE INDEX idx_messages_conversation_time
   ON messages (conversation_id, created_at DESC);
 
 CREATE TABLE audit_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id TEXT PRIMARY KEY,
   actor_type TEXT NOT NULL,
   actor_id TEXT NOT NULL,
   action TEXT NOT NULL,
@@ -360,4 +360,10 @@ CREATE TABLE audit_logs (
 );
 
 CREATE INDEX idx_audit_logs_target_time
-  ON audit_logs (target_type, target_id, created_at DESC);
+  ON audit_logs (target_type, target_id, created_at DESC, id DESC);
+
+CREATE INDEX idx_audit_logs_actor_time
+  ON audit_logs (actor_type, actor_id, created_at DESC, id DESC);
+
+CREATE INDEX idx_audit_logs_action_time
+  ON audit_logs (action, created_at DESC, id DESC);

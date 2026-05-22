@@ -2,6 +2,7 @@ package platform
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -571,6 +572,94 @@ func TestDispatchEventTableRestoreRebuildsAuditAndCompensationIndexes(t *testing
 	}
 	if len(nextEvents) != 1 || nextEvents[0].ID != "dpe_4" {
 		t.Fatalf("expected next dispatch event id to continue after table restore, got %+v", nextEvents)
+	}
+}
+
+func TestAuditLogSnapshotAndSequenceForSQLTable(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	firstAt := time.Date(2026, 5, 22, 9, 0, 0, 0, time.UTC)
+	first, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.refund_settings.updated",
+		TargetType: "refund_settings",
+		TargetID:   "default",
+		Payload:    map[string]any{"strategy": RefundStrategyBalanceFirst},
+		CreatedAt:  firstAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   "ord_1",
+		Payload:    map[string]any{"amount_fen": 1200},
+		CreatedAt:  firstAt.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := store.auditLogSnapshot()
+	if len(snapshot) != 2 || snapshot[0].ID != first.ID || snapshot[0].Payload["strategy"] != RefundStrategyBalanceFirst {
+		t.Fatalf("expected immutable sorted audit snapshot for SQL sync, got %+v", snapshot)
+	}
+	snapshot[0].Payload["strategy"] = "tampered"
+	logs, err := store.AuditLogs(AuditLogsRequest{Action: "admin.refund_settings.updated", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].Payload["strategy"] != RefundStrategyBalanceFirst {
+		t.Fatalf("expected audit snapshot to protect payload copies, got %+v", logs)
+	}
+
+	restored := NewStore(DefaultHomeModules())
+	restored.advanceAuditLogSequence(9)
+	next, err := restored.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_2",
+		Action:     "admin.outbox.replayed",
+		TargetType: "outbox_event",
+		TargetID:   "obe_1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ID != "aud_10" {
+		t.Fatalf("expected restored SQL audit sequence to continue, got %s", next.ID)
+	}
+}
+
+func TestSQLAuditLogQueryBuilderAppliesFiltersAndLimit(t *testing.T) {
+	before := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	query, args := buildSQLAuditLogsQuery(AuditLogsRequest{
+		ActorType:  "admin",
+		ActorID:    " admin_1 ",
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   "ord_1",
+		Before:     before,
+		Limit:      999,
+	})
+	for _, expected := range []string{
+		"FROM audit_logs",
+		"actor_type = $1",
+		"actor_id = $2",
+		"action = $3",
+		"target_type = $4",
+		"target_id = $5",
+		"created_at < $6",
+		"ORDER BY created_at DESC, id DESC",
+		"LIMIT $7",
+	} {
+		if !strings.Contains(query, expected) {
+			t.Fatalf("expected audit query to contain %q, got %s", expected, query)
+		}
+	}
+	if len(args) != 7 || args[1] != "admin_1" || args[6] != 500 {
+		t.Fatalf("expected sanitized audit query args and capped limit, got %+v", args)
 	}
 }
 

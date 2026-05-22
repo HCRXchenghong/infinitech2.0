@@ -3205,47 +3205,14 @@ func (s *Store) RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error) {
 }
 
 func (s *Store) AuditLogs(req AuditLogsRequest) ([]AuditLog, error) {
-	limit := req.Limit
-	if limit <= 0 {
-		limit = 100
-	}
-	if limit > 500 {
-		limit = 500
-	}
-	actorType := strings.TrimSpace(req.ActorType)
-	actorID := strings.TrimSpace(req.ActorID)
-	action := strings.TrimSpace(req.Action)
-	targetType := strings.TrimSpace(req.TargetType)
-	targetID := strings.TrimSpace(req.TargetID)
-	before := req.Before
-	if !before.IsZero() {
-		before = before.UTC()
-	}
+	req = normalizeAuditLogsRequest(req)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	logs := make([]AuditLog, 0, len(s.auditLogs))
 	for _, log := range s.auditLogs {
-		if log == nil {
-			continue
-		}
-		if actorType != "" && log.ActorType != actorType {
-			continue
-		}
-		if actorID != "" && log.ActorID != actorID {
-			continue
-		}
-		if action != "" && log.Action != action {
-			continue
-		}
-		if targetType != "" && log.TargetType != targetType {
-			continue
-		}
-		if targetID != "" && log.TargetID != targetID {
-			continue
-		}
-		if !before.IsZero() && !log.CreatedAt.Before(before) {
+		if !auditLogMatchesRequest(log, req) {
 			continue
 		}
 		logs = append(logs, *cloneAuditLog(log))
@@ -3256,10 +3223,53 @@ func (s *Store) AuditLogs(req AuditLogsRequest) ([]AuditLog, error) {
 		}
 		return logs[i].ID > logs[j].ID
 	})
-	if len(logs) > limit {
-		logs = logs[:limit]
+	if len(logs) > req.Limit {
+		logs = logs[:req.Limit]
 	}
 	return logs, nil
+}
+
+func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
+	req.ActorType = strings.TrimSpace(req.ActorType)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.Action = strings.TrimSpace(req.Action)
+	req.TargetType = strings.TrimSpace(req.TargetType)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	if !req.Before.IsZero() {
+		req.Before = req.Before.UTC()
+	}
+	if req.Limit <= 0 {
+		req.Limit = 100
+	}
+	if req.Limit > 500 {
+		req.Limit = 500
+	}
+	return req
+}
+
+func auditLogMatchesRequest(log *AuditLog, req AuditLogsRequest) bool {
+	if log == nil {
+		return false
+	}
+	if req.ActorType != "" && log.ActorType != req.ActorType {
+		return false
+	}
+	if req.ActorID != "" && log.ActorID != req.ActorID {
+		return false
+	}
+	if req.Action != "" && log.Action != req.Action {
+		return false
+	}
+	if req.TargetType != "" && log.TargetType != req.TargetType {
+		return false
+	}
+	if req.TargetID != "" && log.TargetID != req.TargetID {
+		return false
+	}
+	if !req.Before.IsZero() && !log.CreatedAt.Before(req.Before) {
+		return false
+	}
+	return true
 }
 
 func (s *Store) OutboxEvents(req OutboxEventsRequest) ([]OutboxEvent, error) {

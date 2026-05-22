@@ -23,6 +23,9 @@ const postgresOutboxEventReturningColumns = `
 	event.id, event.topic, event.aggregate_type, event.aggregate_id, event.event_type, event.idempotency_key,
 	event.payload, event.status, event.attempts, event.last_error, event.available_at, event.lease_owner,
 	event.lease_expires_at, event.published_at, event.created_at, event.updated_at`
+const postgresAuditLogColumns = `
+	id, actor_type, actor_id, action, target_type, target_id,
+	request_id, ip_hash, payload, created_at`
 
 var ErrPersistence = errors.New("persistence failed")
 
@@ -128,6 +131,10 @@ func NewPostgresStore(ctx context.Context, databaseURL string, homeModules []Hom
 		_ = db.Close()
 		return nil, err
 	}
+	if err := store.ensureAuditLogTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := store.loadSnapshot(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -137,6 +144,10 @@ func NewPostgresStore(ctx context.Context, databaseURL string, homeModules []Hom
 		return nil, err
 	}
 	if err := store.syncDispatchEventsToTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.syncSnapshotAuditLogsToTable(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -153,6 +164,10 @@ func NewPostgresStore(ctx context.Context, databaseURL string, homeModules []Hom
 		return nil, err
 	}
 	if err := store.loadOutboxFromTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.restoreNextAuditLogSequenceFromTable(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -238,6 +253,37 @@ CREATE TABLE IF NOT EXISTS platform_consumed_events (
 CREATE INDEX IF NOT EXISTS idx_platform_consumed_events_topic
   ON platform_consumed_events (consumer_name, topic, updated_at)`)
 	return err
+}
+
+func (s *PostgresStore) ensureAuditLogTable(ctx context.Context) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  actor_type TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  request_id TEXT NOT NULL DEFAULT '',
+  ip_hash TEXT NOT NULL DEFAULT '',
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)`,
+		`ALTER TABLE audit_logs ALTER COLUMN id DROP DEFAULT`,
+		`ALTER TABLE audit_logs ALTER COLUMN id TYPE TEXT USING id::text`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_logs_target_time
+  ON audit_logs (target_type, target_id, created_at DESC, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_time
+  ON audit_logs (actor_type, actor_id, created_at DESC, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_logs_action_time
+  ON audit_logs (action, created_at DESC, id DESC)`,
+	}
+	for _, statement := range statements {
+		if _, err := s.db.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *PostgresStore) loadSnapshot(ctx context.Context) error {
@@ -1216,6 +1262,260 @@ func (s *Store) dispatchEventSnapshot() []DispatchEvent {
 		return events[i].CreatedAt.Before(events[j].CreatedAt)
 	})
 	return events
+}
+
+func (s *Store) auditLogSnapshot() []AuditLog {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	logs := make([]AuditLog, 0, len(s.auditLogs))
+	for _, log := range s.auditLogs {
+		if log == nil {
+			continue
+		}
+		logs = append(logs, *cloneAuditLog(log))
+	}
+	sort.SliceStable(logs, func(i, j int) bool {
+		if logs[i].CreatedAt.Equal(logs[j].CreatedAt) {
+			return logs[i].ID < logs[j].ID
+		}
+		return logs[i].CreatedAt.Before(logs[j].CreatedAt)
+	})
+	return logs
+}
+
+func (s *Store) advanceAuditLogSequence(maxID uint64) {
+	if maxID == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if maxID > s.nextAuditLogID {
+		s.nextAuditLogID = maxID
+	}
+}
+
+func (s *Store) applyAuditLogFromSQL(log AuditLog) {
+	if strings.TrimSpace(log.ID) == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditLogs[log.ID] = cloneAuditLog(&log)
+	if value, err := strconv.ParseUint(strings.TrimPrefix(log.ID, "aud_"), 10, 64); err == nil && value > s.nextAuditLogID {
+		s.nextAuditLogID = value
+	}
+}
+
+func (s *PostgresStore) syncSnapshotAuditLogsToTable(ctx context.Context) error {
+	logs := s.Store.auditLogSnapshot()
+	if len(logs) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	for _, log := range logs {
+		if err := upsertSQLAuditLog(ctx, tx, log); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) restoreNextAuditLogSequenceFromTable(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, "SELECT id FROM audit_logs WHERE id LIKE 'aud_%'")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var maxID uint64
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		value, err := strconv.ParseUint(strings.TrimPrefix(id, "aud_"), 10, 64)
+		if err == nil && value > maxID {
+			maxID = value
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	s.Store.advanceAuditLogSequence(maxID)
+	return nil
+}
+
+func auditLogFromRequest(req RecordAuditLogRequest, id string) (*AuditLog, error) {
+	actorType := strings.TrimSpace(req.ActorType)
+	actorID := strings.TrimSpace(req.ActorID)
+	action := strings.TrimSpace(req.Action)
+	targetType := strings.TrimSpace(req.TargetType)
+	targetID := strings.TrimSpace(req.TargetID)
+	if actorType == "" || actorID == "" || action == "" || targetType == "" || targetID == "" {
+		return nil, ErrInvalidArgument
+	}
+	now := req.CreatedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	return &AuditLog{
+		ID:         strings.TrimSpace(id),
+		ActorType:  actorType,
+		ActorID:    actorID,
+		Action:     action,
+		TargetType: targetType,
+		TargetID:   targetID,
+		RequestID:  strings.TrimSpace(req.RequestID),
+		IPHash:     strings.TrimSpace(req.IPHash),
+		Payload:    cloneMapAny(req.Payload),
+		CreatedAt:  now,
+	}, nil
+}
+
+func upsertSQLAuditLog(ctx context.Context, tx *sql.Tx, log AuditLog) error {
+	return writeSQLAuditLog(ctx, tx, log, false)
+}
+
+func insertSQLAuditLog(ctx context.Context, tx *sql.Tx, log AuditLog) error {
+	return writeSQLAuditLog(ctx, tx, log, true)
+}
+
+func writeSQLAuditLog(ctx context.Context, tx *sql.Tx, log AuditLog, requireInsert bool) error {
+	log.ID = strings.TrimSpace(log.ID)
+	log.ActorType = strings.TrimSpace(log.ActorType)
+	log.ActorID = strings.TrimSpace(log.ActorID)
+	log.Action = strings.TrimSpace(log.Action)
+	log.TargetType = strings.TrimSpace(log.TargetType)
+	log.TargetID = strings.TrimSpace(log.TargetID)
+	log.RequestID = strings.TrimSpace(log.RequestID)
+	log.IPHash = strings.TrimSpace(log.IPHash)
+	if log.ID == "" || log.ActorType == "" || log.ActorID == "" || log.Action == "" || log.TargetType == "" || log.TargetID == "" {
+		return ErrInvalidArgument
+	}
+	if log.CreatedAt.IsZero() {
+		log.CreatedAt = time.Now().UTC()
+	} else {
+		log.CreatedAt = log.CreatedAt.UTC()
+	}
+	payload, err := json.Marshal(cloneMapAny(log.Payload))
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+INSERT INTO audit_logs (
+  id, actor_type, actor_id, action, target_type, target_id,
+  request_id, ip_hash, payload, created_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+ON CONFLICT (id) DO NOTHING`,
+		log.ID,
+		log.ActorType,
+		log.ActorID,
+		log.Action,
+		log.TargetType,
+		log.TargetID,
+		log.RequestID,
+		log.IPHash,
+		string(payload),
+		log.CreatedAt,
+	)
+	if err != nil {
+		return err
+	}
+	if requireInsert {
+		rowsAffected, err := result.RowsAffected()
+		if err == nil && rowsAffected == 0 {
+			return fmt.Errorf("audit log %s already exists", log.ID)
+		}
+	}
+	return nil
+}
+
+func buildSQLAuditLogsQuery(req AuditLogsRequest) (string, []any) {
+	req = normalizeAuditLogsRequest(req)
+	filters := []string{"1 = 1"}
+	args := []any{}
+	addFilter := func(column string, value any) {
+		args = append(args, value)
+		filters = append(filters, fmt.Sprintf("%s = $%d", column, len(args)))
+	}
+	if req.ActorType != "" {
+		addFilter("actor_type", req.ActorType)
+	}
+	if req.ActorID != "" {
+		addFilter("actor_id", req.ActorID)
+	}
+	if req.Action != "" {
+		addFilter("action", req.Action)
+	}
+	if req.TargetType != "" {
+		addFilter("target_type", req.TargetType)
+	}
+	if req.TargetID != "" {
+		addFilter("target_id", req.TargetID)
+	}
+	if !req.Before.IsZero() {
+		args = append(args, req.Before.UTC())
+		filters = append(filters, fmt.Sprintf("created_at < $%d", len(args)))
+	}
+	args = append(args, req.Limit)
+	query := fmt.Sprintf(`
+SELECT %s
+FROM audit_logs
+WHERE %s
+ORDER BY created_at DESC, id DESC
+LIMIT $%d`, postgresAuditLogColumns, strings.Join(filters, " AND "), len(args))
+	return query, args
+}
+
+func (s *PostgresStore) loadSQLAuditLogs(ctx context.Context, req AuditLogsRequest) ([]AuditLog, error) {
+	query, args := buildSQLAuditLogsQuery(req)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	logs := []AuditLog{}
+	for rows.Next() {
+		var log AuditLog
+		var payload []byte
+		if err := rows.Scan(
+			&log.ID,
+			&log.ActorType,
+			&log.ActorID,
+			&log.Action,
+			&log.TargetType,
+			&log.TargetID,
+			&log.RequestID,
+			&log.IPHash,
+			&payload,
+			&log.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if len(payload) > 0 {
+			if err := json.Unmarshal(payload, &log.Payload); err != nil {
+				return nil, err
+			}
+		}
+		if log.Payload == nil {
+			log.Payload = map[string]any{}
+		}
+		log.CreatedAt = log.CreatedAt.UTC()
+		logs = append(logs, log)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return logs, nil
 }
 
 func upsertSQLUser(ctx context.Context, tx *sql.Tx, user AppUser) error {
@@ -3001,6 +3301,45 @@ func nextSQLOrderNumber(ctx context.Context, tx *sql.Tx) (uint64, error) {
 	SET next_value = $2,
 	    updated_at = now()
 	WHERE name = $1`, "orders", nextValue+1); err != nil {
+		return 0, err
+	}
+	return uint64(nextValue), nil
+}
+
+func nextSQLAuditLogNumber(ctx context.Context, tx *sql.Tx) (uint64, error) {
+	if _, err := tx.ExecContext(ctx, `
+	INSERT INTO platform_sequences (name, next_value)
+	SELECT 'audit_logs', COALESCE(MAX((substring(id FROM '^aud_([0-9]+)$'))::bigint), 0) + 1
+	FROM audit_logs
+	ON CONFLICT (name) DO NOTHING`); err != nil {
+		return 0, err
+	}
+
+	var nextValue int64
+	if err := tx.QueryRowContext(ctx, `
+	SELECT next_value
+	FROM platform_sequences
+	WHERE name = 'audit_logs'
+	FOR UPDATE`).Scan(&nextValue); err != nil {
+		return 0, err
+	}
+	var maxAuditLogNumber int64
+	if err := tx.QueryRowContext(ctx, `
+	SELECT COALESCE(MAX((substring(id FROM '^aud_([0-9]+)$'))::bigint), 0)
+	FROM audit_logs`).Scan(&maxAuditLogNumber); err != nil {
+		return 0, err
+	}
+	if nextValue <= maxAuditLogNumber {
+		nextValue = maxAuditLogNumber + 1
+	}
+	if nextValue < 1 {
+		nextValue = 1
+	}
+	if _, err := tx.ExecContext(ctx, `
+	UPDATE platform_sequences
+	SET next_value = $2,
+	    updated_at = now()
+	WHERE name = $1`, "audit_logs", nextValue+1); err != nil {
 		return 0, err
 	}
 	return uint64(nextValue), nil
@@ -5700,8 +6039,39 @@ func (s *PostgresStore) CreateMerchantInvite(req CreateMerchantInviteRequest) (*
 }
 
 func (s *PostgresStore) RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error) {
-	log, err := s.Store.RecordAuditLog(req)
-	return log, s.persistAfter(err)
+	log, err := auditLogFromRequest(req, "")
+	if err != nil {
+		return log, err
+	}
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	auditLogNumber, err := nextSQLAuditLogNumber(ctx, tx)
+	if err != nil {
+		return log, errors.Join(ErrPersistence, err)
+	}
+	log.ID = fmt.Sprintf("aud_%d", auditLogNumber)
+	if err := insertSQLAuditLog(ctx, tx, *log); err != nil {
+		return log, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return log, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	return cloneAuditLog(log), nil
+}
+
+func (s *PostgresStore) AuditLogs(req AuditLogsRequest) ([]AuditLog, error) {
+	logs, err := s.loadSQLAuditLogs(context.Background(), req)
+	if err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	return logs, nil
 }
 
 func (s *PostgresStore) AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error) {
