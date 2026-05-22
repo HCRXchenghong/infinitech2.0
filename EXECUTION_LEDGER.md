@@ -1608,6 +1608,32 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `EXECUTION_LEDGER.md`
 
+### DONE-20260522-079 管理端 Web 最小运营控制台首版
+
+- 日期：2026-05-22
+- 结果：`apps/admin-web` 从占位页推进到可打开的桌面运营控制台首版。新增静态入口、运营导航、P0 指标位、今日必盯队列、RBAC 草案、模块状态列表和接口操作台；接口操作台已接入现有 BFF/API 的管理员登录、商户邀请、站长/骑手邀请、退款策略读取/保存、售后列表、对象清理统计/候选、outbox 健康/事件/批量恢复、订单状态补偿等操作。根目录 verify 已加入 `verify:apps`，管理端 Web 自带 Node 测试，架构守卫也会检查管理端首版关键文件和操作入口。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - 浏览器打开 `http://127.0.0.1:4173/apps/admin-web/index.html`，确认页面非白屏，包含“运营首页/接口操作台/今日必须盯住”，点击 Outbox 健康可切换操作表单，浏览器控制台无 error。
+- 当前边界：这是最小可运营控制台，不是完整后台。仍需接真实业务列表页、细分 RBAC 服务端策略、操作审计、敏感字段脱敏、商户资质审核实页、骑手/站长管理实页、客服/RTC/优惠券/首页卡片/圈子饭搭/红包等完整面板。
+- 文件：
+  - `apps/admin-web/index.html`
+  - `apps/admin-web/package.json`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/config.mjs`
+  - `apps/admin-web/README.md`
+  - `package.json`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
 ## 进行中
 
 ### TASK-USER-MP-001 用户端原生微信小程序
@@ -1683,8 +1709,10 @@
 
 ### TASK-ADMIN-WEB-001 管理端 Web
 
-- 状态：未开始
+- 状态：进行中
 - 目标：完成桌面管理端。
+- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 草案。
+- 下一步：补真实订单监控页、商户资质审核页、骑手/站长管理页、售后审核详情页、操作审计、敏感字段脱敏和首页卡片/优惠券/圈子饭搭配置页。
 - 范围：订单、售后、用户、商户、骑手绩效等级、商品、精选商品、首页卡片、首页活动、优惠券、圈子/饭搭、团购、买药、跑腿、支付中心、钱包、提现、退款策略、积分会员、通知推送、评价、风控、数据备份恢复、派单规则、骑手计价、群聊红包、客服、RTC、电话联系审计、OAuth/API 管理、系统日志。
 - 验收：
   - 桌面浏览器可完成运营配置和订单处理。

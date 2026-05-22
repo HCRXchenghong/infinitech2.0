@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Infinitech 2.0 local life platform monorepo",
   "workspaces": [
+    "apps/admin-web",
     "packages/*",
     "services/bff",
     "services/realtime-gateway",
@@ -18,9 +19,10 @@
     "services/outbox-relay-worker"
   ],
   "scripts": {
-    "verify": "npm run verify:architecture && npm run verify:packages && npm run verify:services",
+    "verify": "npm run verify:architecture && npm run verify:packages && npm run verify:apps && npm run verify:services",
     "verify:architecture": "node scripts/check-architecture.mjs",
     "verify:packages": "npm run test --workspace @infinitech/contracts && npm run test --workspace @infinitech/domain-core && npm run test --workspace @infinitech/client-sdk && npm run test --workspace @infinitech/admin-core",
+    "verify:apps": "npm run test --workspace @infinitech/admin-web",
     "verify:services": "npm run test --workspace @infinitech/bff && npm run test --workspace @infinitech/realtime-gateway && npm run test --workspace @infinitech/dispatch-worker && npm run test --workspace @infinitech/payment-worker && npm run test --workspace @infinitech/notification-worker && npm run test --workspace @infinitech/integration-worker && npm run test --workspace @infinitech/object-scan-worker && npm run test --workspace @infinitech/object-lifecycle-worker && npm run test --workspace @infinitech/settlement-worker && npm run test --workspace @infinitech/outbox-relay-worker && npm run verify:api-go",
     "verify:api-go": "cd services/api-go && go test ./...",
     "dev:api-go": "cd services/api-go && WECHAT_MINI_LOGIN_MODE=dev go run ./cmd/api",

@@ -62,6 +62,7 @@
 - UI 使用旧版 logo 和 `#009bf5`。
 - 核心流程必须有真机/浏览器截图验收。
 - 端侧只访问 BFF 或公开 API，不直连内部 Worker 和数据库。
+- 当前证据：`apps/admin-web` 已有最小运营控制台首版，接入管理员登录、邀约准入、退款策略、售后列表、对象清理、outbox 运维和订单状态补偿等 BFF/API；`npm run test --workspace @infinitech/admin-web` 和浏览器打开验证已通过。仍需补完整后台页面、细分 RBAC、操作审计、敏感字段脱敏和截图归档。
 
 ## 7. 容量和容灾
 

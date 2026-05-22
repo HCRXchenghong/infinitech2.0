@@ -24,7 +24,7 @@
 - `apps/user-wechat-miniprogram`：用户端原生微信小程序。
 - `apps/merchant-uni`：商户端 uni-app。
 - `apps/rider-uni`：骑手端 uni-app。
-- `apps/admin-web`：桌面管理端 Web，目前是骨架。
+- `apps/admin-web`：桌面管理端 Web，已完成最小运营控制台首版。
 - `apps/admin-uni`：移动管理端 uni-app，目前是骨架。
 - `services/api-go`：核心业务 API。
 - `services/bff`：多端 BFF。
@@ -58,7 +58,7 @@
 - 已完成美团/旧版能力对标矩阵：`docs/product/meituan-legacy-parity-matrix.md`。
 - 已完成商业级验收清单：`docs/product/commercial-readiness-checklist.md`。
 - 已完成容量与容灾规划：`docs/operations/capacity-and-dr.md`。
-- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260522-078`。
+- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260522-079`。
 - 已完成 GitHub 协作与质量门禁首版：`verify.yml` 会在 `push`/`pull_request` 跑 `npm run verify` 和 uncached Go 测试；PR 模板要求商业影响、验证和回滚说明；Issue 模板区分 bug、feature、commercial readiness gap；CODEOWNERS 和 Dependabot 已建立。
 
 ### 3.2 品牌和 UI 基线
@@ -157,13 +157,15 @@
 
 已完成：
 
-- `apps/admin-web` 和 `apps/admin-uni` 骨架。
+- `apps/admin-web` 最小运营控制台首版：静态入口、运营导航、P0 指标位、今日必盯队列、模块状态、RBAC 草案和接口操作台。
+- `apps/admin-web` 接口操作台已接入管理员登录、商户/站长/骑手邀约、退款策略、售后列表、对象清理、outbox 运维和订单状态补偿等现有 BFF/API。
+- `apps/admin-uni` 骨架。
 - `packages/admin-core` 已定义关键运营模块。
 - 核心后台 API 已覆盖很多运营动作：退款策略、售后、outbox、对象存储清理、派单事件、站长任务、骑手绩效等。
 
 未完成：
 
-- 桌面管理端实际页面。
+- 桌面管理端完整业务页面和详情页。
 - 移动管理端实际页面。
 - RBAC 细分权限、操作审计页面、敏感字段脱敏展示。
 - 订单、售后、用户、商户、骑手、首页卡片、优惠券、圈子/饭搭、团购、买药、跑腿、客服、RTC、OAuth/API、对象存储告警等后台面板。
@@ -413,9 +415,10 @@ npm run verify:architecture
 
 ### 第 2 优先级：管理端 Web 最小可运营
 
-- 建立 admin-web 技术栈。
-- 做登录页。
-- 做运营首页。
+- 已建立 admin-web 技术栈和 workspace 测试。
+- 已做登录操作台。
+- 已做运营首页首版。
+- 已接入商户/站长/骑手邀约、退款策略、售后、对象清理、outbox 和订单状态补偿操作。
 - 做订单监控。
 - 做售后审核。
 - 做商户资质审核。
