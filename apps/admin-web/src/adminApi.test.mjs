@@ -12,6 +12,7 @@ import {
   auditRetentionReportFromResult,
   auditSearchValuesFromFilters,
   auditTargetRoute,
+  buildAuditArchiveVerificationRows,
   buildAuditRows,
   makeAuditFilterPreset,
   nextAuditBefore,
@@ -375,6 +376,58 @@ test("admin audit adapter redacts sensitive payload and builds cursor rows", () 
     auditLogId: ""
   }]);
   assert.deepEqual(auditArchiveVerificationsFromResult({ payload: { data: {} } }), []);
+  assert.deepEqual(buildAuditArchiveVerificationRows(auditArchiveVerificationsFromResult({ payload: { data: [{
+    archive_id: "audit_archive_1",
+    status: "verified",
+    storage_key: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl",
+    manifest_hash: "abcdef1234567890",
+    expected_content_hash: "content_expected_hash",
+    actual_content_hash: "content_actual_hash",
+    expected_bytes: 1024,
+    actual_bytes: 1024,
+    archive_id_matched: true,
+    manifest_hash_matched: true,
+    content_hash_matched: true,
+    bytes_matched: true,
+    log_count_matched: true,
+    header_log_count: 1,
+    manifest_entry_count: 1,
+    verified_at: "2026-05-24T00:00:03Z"
+  }] } })), [{
+    id: "audit_archive_1:2026-05-24T00:00:03Z:0",
+    archiveId: "audit_archive_1",
+    status: "verified",
+    statusTone: "ok",
+    storageKey: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl",
+    verifiedAt: "2026-05-24T00:00:03Z",
+    manifestHashShort: "abcdef123456...",
+    expectedContentHashShort: "content_expe...",
+    actualContentHashShort: "content_actu...",
+    bytesLabel: "1024/1024",
+    logCountLabel: "1/1",
+    matchSummary: "archive / manifest / content / bytes / log count",
+    errorLabel: "",
+    raw: {
+      archiveId: "audit_archive_1",
+      status: "verified",
+      storageKey: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl",
+      manifestHash: "abcdef1234567890",
+      expectedContentHash: "content_expected_hash",
+      actualContentHash: "content_actual_hash",
+      expectedBytes: 1024,
+      actualBytes: 1024,
+      archiveIdMatched: true,
+      manifestHashMatched: true,
+      contentHashMatched: true,
+      bytesMatched: true,
+      logCountMatched: true,
+      headerLogCount: 1,
+      manifestEntryCount: 1,
+      errorCode: "",
+      verifiedAt: "2026-05-24T00:00:03Z",
+      auditLogId: ""
+    }
+  }]);
 
   const tamperedRows = buildAuditRows([{ ...logs[0], integrity_verified: false }]);
   assert.equal(tamperedRows[0].integrityLabel, "未通过");

@@ -2,7 +2,9 @@ import { ADMIN_API_OPERATIONS, DEFAULT_BFF_BASE_URL, executeAdminOperation, fiel
 import {
   AUDIT_FILTER_DEFAULTS,
   auditDataFromResult,
+  auditArchiveVerificationsFromResult,
   auditSearchValuesFromFilters,
+  buildAuditArchiveVerificationRows,
   buildAuditRows,
   makeAuditFilterPreset,
   nextAuditBefore,
@@ -34,6 +36,10 @@ const state = {
   auditFilters: { ...AUDIT_FILTER_DEFAULTS },
   auditFilterPresets: [],
   auditSelectedId: "",
+  archiveVerificationBusy: false,
+  archiveVerificationError: "",
+  archiveVerificationFilters: { archive_id: "", status: "", limit: 20 },
+  archiveVerifications: [],
   values: {}
 };
 
@@ -44,6 +50,10 @@ function restoreState() {
     state.token = saved.token || state.token;
     state.auditFilters = normalizeAuditFilters(saved.auditFilters || state.auditFilters);
     state.auditFilterPresets = Array.isArray(saved.auditFilterPresets) ? saved.auditFilterPresets.slice(0, 8) : [];
+    state.archiveVerificationFilters = {
+      ...state.archiveVerificationFilters,
+      ...(saved.archiveVerificationFilters || {})
+    };
   } catch {
     localStorage.removeItem(STORAGE_KEY);
   }
@@ -54,7 +64,8 @@ function persistState() {
     baseUrl: state.baseUrl,
     token: state.token,
     auditFilters: normalizeAuditFilters(state.auditFilters),
-    auditFilterPresets: state.auditFilterPresets
+    auditFilterPresets: state.auditFilterPresets,
+    archiveVerificationFilters: state.archiveVerificationFilters
   }));
 }
 
@@ -208,7 +219,9 @@ function renderModuleView(view) {
 
 function renderAuditCenter(view) {
   const rows = buildAuditRows(state.auditLogs);
+  const archiveRows = buildAuditArchiveVerificationRows(state.archiveVerifications);
   const filters = state.auditFilters;
+  const archiveFilters = state.archiveVerificationFilters;
   const selectedRow = selectedAuditRow(rows);
   return `
     <article class="panel wide audit-center">
@@ -314,6 +327,82 @@ function renderAuditCenter(view) {
           </tbody>
         </table>
       </div>
+      <section class="archive-verification-panel">
+        <div class="archive-verification-head">
+          <div>
+            <h3>归档校验历史</h3>
+            <p>回看每一次 WORM 归档对象校验结果、匹配项和异常码。</p>
+          </div>
+          <span class="badge">archive verify</span>
+        </div>
+        <form id="archive-verification-form" class="archive-verification-controls">
+          <label class="field">
+            <span>归档 ID</span>
+            <input data-archive-verification-field="archive_id" value="${escapeHtml(archiveFilters.archive_id)}" placeholder="audit_archive_1" />
+          </label>
+          <label class="field">
+            <span>状态</span>
+            <select data-archive-verification-field="status">
+              ${["", "verified", "failed"].map((value) => `<option value="${value}" ${archiveFilters.status === value ? "selected" : ""}>${value || "全部"}</option>`).join("")}
+            </select>
+          </label>
+          <label class="field">
+            <span>条数</span>
+            <input data-archive-verification-field="limit" type="number" min="1" max="1000" value="${escapeHtml(archiveFilters.limit)}" />
+          </label>
+          <div class="audit-actions">
+            <button type="submit" ${state.archiveVerificationBusy || !state.token ? "disabled" : ""}>${state.archiveVerificationBusy ? "查询中" : "查询历史"}</button>
+          </div>
+        </form>
+        ${state.archiveVerificationError ? `<div class="empty-state audit-error">${escapeHtml(state.archiveVerificationError)}</div>` : ""}
+        <div class="table-wrap archive-verification-table">
+          <table>
+            <thead>
+              <tr>
+                <th>归档</th>
+                <th>状态</th>
+                <th>校验时间</th>
+                <th>Hash</th>
+                <th>字节/条目</th>
+                <th>详情</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${archiveRows.length > 0 ? archiveRows.map((row) => `
+                <tr>
+                  <td>
+                    <strong>${escapeHtml(row.archiveId || "-")}</strong>
+                    <small>${escapeHtml(row.storageKey || "-")}</small>
+                  </td>
+                  <td><span class="integrity-pill ${escapeHtml(row.statusTone)}">${escapeHtml(row.status)}</span></td>
+                  <td>${escapeHtml(row.verifiedAt || "-")}</td>
+                  <td>
+                    <span>manifest ${escapeHtml(row.manifestHashShort)}</span>
+                    <small>content ${escapeHtml(row.actualContentHashShort)} / ${escapeHtml(row.expectedContentHashShort)}</small>
+                  </td>
+                  <td>
+                    <span>bytes ${escapeHtml(row.bytesLabel)}</span>
+                    <small>logs ${escapeHtml(row.logCountLabel)}</small>
+                  </td>
+                  <td>
+                    <span>${escapeHtml(row.errorLabel || row.matchSummary)}</span>
+                    <details>
+                      <summary>详情</summary>
+                      <pre class="audit-payload">${escapeHtml(JSON.stringify(row.raw, null, 2))}</pre>
+                    </details>
+                  </td>
+                </tr>
+              `).join("") : `
+                <tr>
+                  <td colspan="6">
+                    <div class="empty-state">${state.token ? "暂无归档校验历史，输入归档 ID 后查询。" : "填入管理员 Token 后可查询归档校验历史。"}</div>
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </section>
       <div class="safeguards">
         ${view.safeguards.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
       </div>
@@ -562,6 +651,15 @@ function bindEvents() {
   document.getElementById("audit-next-page")?.addEventListener("click", async () => {
     await runAuditSearch({ useNextPage: true });
   });
+  document.querySelectorAll("[data-archive-verification-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      state.archiveVerificationFilters[field.getAttribute("data-archive-verification-field")] = field.value;
+    });
+  });
+  document.getElementById("archive-verification-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await runArchiveVerificationSearch();
+  });
   document.getElementById("audit-save-filter")?.addEventListener("click", () => {
     const preset = makeAuditFilterPreset(state.auditFilters);
     state.auditFilterPresets = upsertAuditFilterPreset(state.auditFilterPresets, preset);
@@ -659,6 +757,10 @@ async function runActiveOperation() {
       state.auditNextBefore = nextAuditBefore(state.auditLogs);
       state.auditError = "";
     }
+    if (operation.key === "audit-archive-verifications" && state.lastResult.ok) {
+      state.archiveVerifications = auditArchiveVerificationsFromResult(state.lastResult);
+      state.archiveVerificationError = "";
+    }
   } catch (error) {
     state.lastResult = {
       ok: false,
@@ -667,6 +769,34 @@ async function runActiveOperation() {
     };
   } finally {
     state.busy = false;
+    persistState();
+    render();
+  }
+}
+
+async function runArchiveVerificationSearch() {
+  if (!state.token || state.archiveVerificationBusy) {
+    return;
+  }
+  state.archiveVerificationBusy = true;
+  state.archiveVerificationError = "";
+  render();
+  try {
+    const result = await executeAdminOperation({
+      baseUrl: state.baseUrl || DEFAULT_BFF_BASE_URL,
+      token: state.token,
+      operationKey: "audit-archive-verifications",
+      values: state.archiveVerificationFilters
+    });
+    if (!result.ok || result.payload?.success === false) {
+      throw new Error(result.payload?.message || `HTTP ${result.status}`);
+    }
+    state.lastResult = result;
+    state.archiveVerifications = auditArchiveVerificationsFromResult(result);
+  } catch (error) {
+    state.archiveVerificationError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.archiveVerificationBusy = false;
     persistState();
     render();
   }

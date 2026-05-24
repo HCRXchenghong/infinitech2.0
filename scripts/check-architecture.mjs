@@ -98,9 +98,12 @@ test("admin web has a minimum operable control center", () => {
   assert.match(main, /executeAdminOperation/);
   assert.match(main, /refreshOperationsSnapshot/);
   assert.match(main, /runAuditSearch/);
+  assert.match(main, /runArchiveVerificationSearch/);
   assert.match(main, /renderModuleView/);
   assert.match(main, /renderAuditCenter/);
   assert.match(main, /audit-save-filter/);
+  assert.match(main, /archive-verification-form/);
+  assert.match(main, /data-archive-verification-field/);
   assert.match(main, /data-audit-detail/);
   assert.match(main, /data-audit-jump/);
   assert.match(main, /integrity-pill/);
@@ -122,6 +125,7 @@ test("admin web has a minimum operable control center", () => {
   assert.match(audit, /auditArchiveRecordsFromResult/);
   assert.match(audit, /auditArchiveVerificationFromResult/);
   assert.match(audit, /auditArchiveVerificationsFromResult/);
+  assert.match(audit, /buildAuditArchiveVerificationRows/);
   assert.match(api, /\/api\/admin\/rbac\/policy/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests\/:change_request_id\/review/);
@@ -180,6 +184,7 @@ test("admin web has a minimum operable control center", () => {
   assert.match(styles, /audit-center/);
   assert.match(styles, /audit-detail/);
   assert.match(styles, /audit-presets/);
+  assert.match(styles, /archive-verification-panel/);
   assert.match(styles, /integrity-pill/);
 });
 

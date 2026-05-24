@@ -453,3 +453,47 @@ export function auditArchiveVerificationsFromResult(result) {
     .filter((item) => item && typeof item === "object" && !Array.isArray(item))
     .map((item) => mapAuditArchiveVerification(item));
 }
+
+function shortHash(value) {
+  const text = compact(value, "");
+  if (!text) {
+    return "-";
+  }
+  return text.length > 12 ? `${text.slice(0, 12)}...` : text;
+}
+
+export function buildAuditArchiveVerificationRows(verifications) {
+  if (!Array.isArray(verifications)) {
+    return [];
+  }
+  return verifications
+    .filter((item) => item && typeof item === "object" && !Array.isArray(item))
+    .map((item, index) => {
+      const status = compact(item.status, "unknown");
+      const allMatched = item.archiveIdMatched && item.manifestHashMatched && item.contentHashMatched && item.bytesMatched && item.logCountMatched;
+      const statusTone = status === "verified" && allMatched ? "ok" : status === "failed" || !allMatched ? "danger" : "muted";
+      const matchSummary = [
+        item.archiveIdMatched ? "archive" : "archive mismatch",
+        item.manifestHashMatched ? "manifest" : "manifest mismatch",
+        item.contentHashMatched ? "content" : "content mismatch",
+        item.bytesMatched ? "bytes" : "bytes mismatch",
+        item.logCountMatched ? "log count" : "log count mismatch"
+      ].join(" / ");
+      return {
+        id: `${compact(item.archiveId, "archive")}:${compact(item.verifiedAt, String(index))}:${index}`,
+        archiveId: compact(item.archiveId, ""),
+        status,
+        statusTone,
+        storageKey: compact(item.storageKey, ""),
+        verifiedAt: compact(item.verifiedAt, ""),
+        manifestHashShort: shortHash(item.manifestHash),
+        expectedContentHashShort: shortHash(item.expectedContentHash),
+        actualContentHashShort: shortHash(item.actualContentHash),
+        bytesLabel: `${Number(item.actualBytes || 0)}/${Number(item.expectedBytes || 0)}`,
+        logCountLabel: `${Number(item.manifestEntryCount || 0)}/${Number(item.headerLogCount || 0)}`,
+        matchSummary,
+        errorLabel: compact(item.errorCode || item.errorMessage, ""),
+        raw: item
+      };
+    });
+}
