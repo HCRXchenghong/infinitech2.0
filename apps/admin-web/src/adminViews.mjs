@@ -149,7 +149,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "Payload", value: "脱敏", tone: "amber" },
       { label: "留存告警", value: "已接入", tone: "green" }
     ],
-    actions: ["audit-logs", "audit-logs-export", "audit-retention-report", "operations-snapshot"],
+    actions: ["audit-logs", "audit-logs-export", "audit-retention-report", "audit-retention-alert-emit", "operations-snapshot"],
     columns: ["时间", "操作者", "动作", "目标", "请求", "摘要", "完整性"],
     rows: [
       ["05-22 12:00", "admin:admin_1", "admin.order.refunded", "order:ord_1", "req_1", "amount_fen: 1200", "已验证"],
@@ -157,7 +157,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       ["05-22 12:02", "admin:admin_1", "admin.outbox.replayed", "outbox_event:obe_1", "req_3", "event_id: obe_1", "已验证"],
       ["05-22 12:03", "admin:admin_1", "after_sales.reviewed", "after_sales:asr_1", "req_4", "decision: approve", "已验证"]
     ],
-    safeguards: ["默认不展示敏感 payload", "返回完整性验证状态", "导出、留存和告警均可查询"]
+    safeguards: ["默认不展示敏感 payload", "返回完整性验证状态", "留存告警可进入可靠投递"]
   },
   "refund-settings": {
     key: "refund-settings",

@@ -92,6 +92,7 @@ type Repository interface {
 	RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error)
 	AuditLogs(req AuditLogsRequest) ([]AuditLog, error)
 	AuditRetentionReport(req AuditRetentionReportRequest) (*AuditRetentionReport, error)
+	EmitAuditRetentionAlerts(req AuditRetentionAlertEmissionRequest, audit RecordAuditLogRequest) (*AuditRetentionAlertEmission, *OutboxEvent, *AuditLog, error)
 	MarkOutboxEventPublished(req MarkOutboxEventPublishedRequest) (*OutboxEvent, error)
 	MarkOutboxEventPublishedWithAudit(req MarkOutboxEventPublishedRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error)
 	MarkOutboxEventFailed(req MarkOutboxEventFailedRequest) (*OutboxEvent, error)

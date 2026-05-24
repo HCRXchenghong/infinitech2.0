@@ -1422,6 +1422,27 @@ type AuditRetentionReport struct {
 	Alerts                 []AuditRetentionAlert `json:"alerts"`
 }
 
+type AuditRetentionAlertEmissionRequest struct {
+	RetentionDays        int       `json:"retention_days"`
+	HotDays              int       `json:"hot_days"`
+	IntegritySampleLimit int       `json:"integrity_sample_limit"`
+	Now                  time.Time `json:"now"`
+}
+
+type AuditRetentionAlertEmission struct {
+	Status         string                `json:"status"`
+	ReportStatus   string                `json:"report_status"`
+	AlertCount     int                   `json:"alert_count"`
+	CriticalCount  int                   `json:"critical_count"`
+	WarningCount   int                   `json:"warning_count"`
+	Topic          string                `json:"topic"`
+	OutboxEventID  string                `json:"outbox_event_id"`
+	IdempotencyKey string                `json:"idempotency_key"`
+	EmittedAt      time.Time             `json:"emitted_at"`
+	Alerts         []AuditRetentionAlert `json:"alerts"`
+	Report         *AuditRetentionReport `json:"report"`
+}
+
 func DefaultHomeModules() []HomeModule {
 	return []HomeModule{
 		{Key: "takeout", Title: "外卖", Route: "/pages/shop/list/index", Icon: "takeout", Enabled: true, SortOrder: 10, Scene: "home"},

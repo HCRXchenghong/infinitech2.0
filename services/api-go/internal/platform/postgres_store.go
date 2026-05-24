@@ -5970,6 +5970,44 @@ ON CONFLICT (idempotency_key) DO NOTHING`,
 	return err
 }
 
+func insertOrGetSQLOutboxEvent(ctx context.Context, tx *sql.Tx, event OutboxEvent) (*OutboxEvent, error) {
+	normalized := normalizeOutboxEventForSQL(event)
+	if normalized.ID == "" || normalized.Topic == "" || normalized.AggregateType == "" || normalized.AggregateID == "" || normalized.EventType == "" || normalized.IdempotencyKey == "" {
+		return nil, ErrInvalidArgument
+	}
+	payload, err := json.Marshal(normalized.Payload)
+	if err != nil {
+		return nil, err
+	}
+	return scanOutboxEvent(tx.QueryRowContext(ctx, `
+INSERT INTO platform_outbox_events AS event (
+  id, topic, aggregate_type, aggregate_id, event_type, idempotency_key,
+  payload, status, attempts, last_error, available_at, lease_owner,
+  lease_expires_at, published_at, created_at, updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+ON CONFLICT (idempotency_key) DO UPDATE
+SET updated_at = event.updated_at
+RETURNING `+postgresOutboxEventReturningColumns,
+		normalized.ID,
+		normalized.Topic,
+		normalized.AggregateType,
+		normalized.AggregateID,
+		normalized.EventType,
+		normalized.IdempotencyKey,
+		string(payload),
+		normalized.Status,
+		normalized.Attempts,
+		normalized.LastError,
+		normalized.AvailableAt,
+		normalized.LeaseOwner,
+		nullableTime(normalized.LeaseExpiresAt),
+		nullableTime(normalized.PublishedAt),
+		normalized.CreatedAt,
+		normalized.UpdatedAt,
+	))
+}
+
 func normalizeOutboxEventForSQL(event OutboxEvent) OutboxEvent {
 	event.ID = strings.TrimSpace(event.ID)
 	event.Topic = strings.TrimSpace(event.Topic)
@@ -6669,6 +6707,62 @@ func (s *PostgresStore) AuditRetentionReport(req AuditRetentionReportRequest) (*
 		return nil, errors.Join(ErrPersistence, err)
 	}
 	return report, nil
+}
+
+func (s *PostgresStore) EmitAuditRetentionAlerts(req AuditRetentionAlertEmissionRequest, audit RecordAuditLogRequest) (*AuditRetentionAlertEmission, *OutboxEvent, *AuditLog, error) {
+	reportReq := normalizeAuditRetentionReportRequest(AuditRetentionReportRequest{
+		RetentionDays:        req.RetentionDays,
+		HotDays:              req.HotDays,
+		IntegritySampleLimit: req.IntegritySampleLimit,
+		Now:                  req.Now,
+	})
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = reportReq.Now
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, log, err
+	}
+	if log.Action != "admin.audit_retention_alerts.emitted" || log.TargetType != "audit_retention_alerts" || log.TargetID != "default" {
+		return nil, nil, log, ErrInvalidArgument
+	}
+	ctx := context.Background()
+	report, err := s.loadSQLAuditRetentionReport(ctx, reportReq)
+	if err != nil {
+		return nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	emission := auditRetentionAlertEmissionFromReport(report)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	var event *OutboxEvent
+	if len(report.Alerts) > 0 {
+		event, err = insertOrGetSQLOutboxEvent(ctx, tx, *auditRetentionAlertOutboxEvent(emission))
+		if err != nil {
+			return nil, nil, log, errors.Join(ErrPersistence, err)
+		}
+		emission.OutboxEventID = event.ID
+	}
+	log.Payload = auditRetentionAlertEmissionAuditPayload(emission)
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, event, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, event, log, errors.Join(ErrPersistence, err)
+	}
+	events := []OutboxEvent{}
+	if event != nil {
+		events = append(events, *event)
+	}
+	if err := s.applyOutboxEventsAndAuditAfterCommit(ctx, events, log); err != nil {
+		return emission, event, log, err
+	}
+	return emission, cloneOutboxEvent(event), cloneAuditLog(log), nil
 }
 
 func (s *PostgresStore) AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error) {

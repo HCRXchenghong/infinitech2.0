@@ -3566,6 +3566,55 @@ func TestAuditRetentionReportFlagsRetentionCoverageAndIntegrity(t *testing.T) {
 	}
 }
 
+func TestEmitAuditRetentionAlertsEnqueuesOutboxAndAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	now := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   "ord_alert",
+		Payload:    map[string]any{"amount_fen": int64(1200), "idempotency_key": "refund_alert"},
+		CreatedAt:  now.AddDate(0, 0, -10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	emission, event, audit, err := store.EmitAuditRetentionAlerts(AuditRetentionAlertEmissionRequest{
+		RetentionDays:        7,
+		HotDays:              1,
+		IntegritySampleLimit: 10,
+		Now:                  now,
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.audit_retention_alerts.emitted",
+		TargetType: "audit_retention_alerts",
+		TargetID:   "default",
+		CreatedAt:  now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if emission.Status != "emitted" || emission.AlertCount == 0 || emission.CriticalCount == 0 || emission.OutboxEventID == "" {
+		t.Fatalf("expected emitted retention alerts, got %+v", emission)
+	}
+	if event == nil || event.Topic != "audit.retention_alerts" || event.EventType != "audit.retention_alerts.emitted" {
+		t.Fatalf("expected audit retention outbox event, got %+v", event)
+	}
+	if audit == nil || audit.Action != "admin.audit_retention_alerts.emitted" || audit.Payload["outbox_event_id"] != event.ID {
+		t.Fatalf("expected audit log for alert emission, got %+v", audit)
+	}
+	events, err := store.OutboxEvents(OutboxEventsRequest{Topic: "audit.retention_alerts", Now: now, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].ID != event.ID {
+		t.Fatalf("expected retention alert outbox event to be queryable, got %+v", events)
+	}
+}
+
 func mustPaidDispatchOrder(t *testing.T, store *Store, suffix string) *Order {
 	t.Helper()
 	userID := "user_" + suffix

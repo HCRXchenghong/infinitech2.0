@@ -220,6 +220,26 @@ test("bff proxies user-facing api routes with authorization", async () => {
       }));
       return;
     }
+    if (req.method === "POST" && req.url === "/api/admin/audit-logs/retention-alerts/emit") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          emission: {
+            status: "emitted",
+            alert_count: 1,
+            critical_count: 0,
+            warning_count: 1,
+            topic: "audit.retention_alerts",
+            outbox_event_id: "obe_audit_alert_1",
+            authorization: req.headers.authorization
+          },
+          outbox_event: { id: "obe_audit_alert_1", topic: "audit.retention_alerts", event_type: "audit.retention_alerts.emitted" },
+          audit_log: { id: "aud_alert_1", action: "admin.audit_retention_alerts.emitted" }
+        }
+      }));
+      return;
+    }
     if (req.method === "GET" && req.url === "/api/admin/rbac/policy") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
@@ -1167,6 +1187,7 @@ test("bff proxies user-facing api routes with authorization", async () => {
   const adminAuditLogs = await getJSON(`${baseUrl}/api/admin/audit-logs?target_type=order&limit=1`, "Bearer admin:admin_1");
   const adminAuditExport = await getJSON(`${baseUrl}/api/admin/audit-logs/export?target_type=order&limit=1`, "Bearer admin:admin_1");
   const adminAuditRetention = await getJSON(`${baseUrl}/api/admin/audit-logs/retention-report?retention_days=2555&hot_days=180&integrity_sample_limit=500`, "Bearer admin:admin_1");
+  const adminAuditRetentionAlert = await postJSON(`${baseUrl}/api/admin/audit-logs/retention-alerts/emit`, "Bearer admin:admin_1", { retention_days: 2555, hot_days: 180, integrity_sample_limit: 500 });
   const adminRBACPolicy = await getJSON(`${baseUrl}/api/admin/rbac/policy`, "Bearer admin:admin_1");
   const adminRBACChanges = await getJSON(`${baseUrl}/api/admin/rbac/change-requests?status=pending_approval&limit=5`, "Bearer admin:admin_1");
   const adminRBACChange = await postJSON(`${baseUrl}/api/admin/rbac/change-requests`, "Bearer admin:admin_1", { role: "support_admin", requested_scopes: ["after_sales:read", "rbac:read"], reason: "support recertification" });
@@ -1314,6 +1335,9 @@ test("bff proxies user-facing api routes with authorization", async () => {
   assert.equal(adminAuditRetention.data.authorization, "Bearer admin:admin_1");
   assert.equal(adminAuditRetention.data.status, "warning");
   assert.equal(adminAuditRetention.data.export_events, 1);
+  assert.equal(adminAuditRetentionAlert.data.emission.authorization, "Bearer admin:admin_1");
+  assert.equal(adminAuditRetentionAlert.data.emission.topic, "audit.retention_alerts");
+  assert.equal(adminAuditRetentionAlert.data.outbox_event.event_type, "audit.retention_alerts.emitted");
   assert.equal(adminRBACPolicy.data.authorization, "Bearer admin:admin_1");
   assert.equal(adminRBACPolicy.data.can_request_changes, true);
   assert.equal(adminRBACChanges.data.authorization, "Bearer admin:admin_1");

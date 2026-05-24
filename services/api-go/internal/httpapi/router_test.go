@@ -189,7 +189,22 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	if len(missingCriticalActions) == 0 {
 		t.Fatalf("expected retention report to expose missing critical action coverage, got %+v", retentionBody)
 	}
+	alertBody := authPostJSON(t, server.URL+"/api/admin/audit-logs/retention-alerts/emit", adminToken("admin_1"), `{"retention_days":2555,"hot_days":180,"integrity_sample_limit":10}`, http.StatusOK)
+	alertData := alertBody["data"].(map[string]any)
+	emission := alertData["emission"].(map[string]any)
+	if emission["status"] != "emitted" || emission["alert_count"].(float64) == 0 || emission["outbox_event_id"] == "" {
+		t.Fatalf("expected emitted retention alert event, got %+v", alertBody)
+	}
+	outboxEvent := alertData["outbox_event"].(map[string]any)
+	if outboxEvent["topic"] != "audit.retention_alerts" || outboxEvent["event_type"] != "audit.retention_alerts.emitted" {
+		t.Fatalf("expected audit retention alert outbox event, got %+v", outboxEvent)
+	}
+	alertAudit := alertData["audit_log"].(map[string]any)
+	if alertAudit["action"] != "admin.audit_retention_alerts.emitted" || alertAudit["target_type"] != "audit_retention_alerts" {
+		t.Fatalf("expected alert emission to be audited, got %+v", alertAudit)
+	}
 	authGetJSON(t, server.URL+"/api/admin/audit-logs/retention-report", userToken("user_1"), http.StatusForbidden)
+	authPostJSON(t, server.URL+"/api/admin/audit-logs/retention-alerts/emit", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
 }
 
 func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {

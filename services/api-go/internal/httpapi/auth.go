@@ -33,6 +33,7 @@ const (
 	AdminScopeAfterSalesRead     = "after_sales:read"
 	AdminScopeAfterSalesReview   = "after_sales:review"
 	AdminScopeAuditRead          = "audit:read"
+	AdminScopeAuditWrite         = "audit:write"
 	AdminScopeDispatchRead       = "dispatch:read"
 	AdminScopeDispatchWrite      = "dispatch:write"
 	AdminScopeInviteWrite        = "invite:write"
@@ -108,6 +109,10 @@ func (p Principal) HasAdminScope(scope string) bool {
 
 func (p Principal) CanReadAuditLogs() bool {
 	return p.HasAdminScope(AdminScopeAuditRead)
+}
+
+func (p Principal) CanManageAuditLogs() bool {
+	return p.HasAdminScope(AdminScopeAuditWrite)
 }
 
 func (p Principal) CanManageInvites() bool {
@@ -518,6 +523,7 @@ var adminScopePolicyCatalog = []AdminScopePolicy{
 	{Key: AdminScopeAfterSalesRead, Category: "support", Description: "Read platform after-sales queues and evidence.", RiskLevel: "medium"},
 	{Key: AdminScopeAfterSalesReview, Category: "support", Description: "Review after-sales requests and trigger approved refunds.", RiskLevel: "high"},
 	{Key: AdminScopeAuditRead, Category: "security", Description: "Read operation audit logs.", RiskLevel: "high"},
+	{Key: AdminScopeAuditWrite, Category: "security", Description: "Emit audit retention alert events for downstream notification and incident workflows.", RiskLevel: "critical"},
 	{Key: AdminScopeDispatchRead, Category: "dispatch", Description: "Read dispatch events, station riders and station order queues.", RiskLevel: "medium"},
 	{Key: AdminScopeDispatchWrite, Category: "dispatch", Description: "Run auto assign, timeout reassignment, manual assignment and station task writes.", RiskLevel: "high"},
 	{Key: AdminScopeInviteWrite, Category: "onboarding", Description: "Create merchant, station manager and rider onboarding invites.", RiskLevel: "high"},

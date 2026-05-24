@@ -122,6 +122,7 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("GET /api/admin/audit-logs", r.handleAdminAuditLogs)
 	r.mux.HandleFunc("GET /api/admin/audit-logs/export", r.handleAdminAuditLogsExport)
 	r.mux.HandleFunc("GET /api/admin/audit-logs/retention-report", r.handleAdminAuditRetentionReport)
+	r.mux.HandleFunc("POST /api/admin/audit-logs/retention-alerts/emit", r.handleAdminEmitAuditRetentionAlerts)
 	r.mux.HandleFunc("GET /api/admin/rbac/policy", r.handleAdminRBACPolicy)
 	r.mux.HandleFunc("GET /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequests)
 	r.mux.HandleFunc("POST /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequest)
@@ -1477,6 +1478,56 @@ func (r *Router) handleAdminAuditRetentionReport(w http.ResponseWriter, req *htt
 		return
 	}
 	writeSuccess(w, report)
+}
+
+type adminAuditRetentionAlertPayload struct {
+	RetentionDays        int       `json:"retention_days"`
+	HotDays              int       `json:"hot_days"`
+	IntegritySampleLimit int       `json:"integrity_sample_limit"`
+	Now                  time.Time `json:"now"`
+}
+
+func (r *Router) handleAdminEmitAuditRetentionAlerts(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanManageAuditLogs() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	var payload adminAuditRetentionAlertPayload
+	if !decodeJSON(w, req, &payload) {
+		return
+	}
+	if payload.RetentionDays < 0 || payload.HotDays < 0 || payload.IntegritySampleLimit < 0 {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	emission, event, audit, err := r.store.EmitAuditRetentionAlerts(platform.AuditRetentionAlertEmissionRequest{
+		RetentionDays:        payload.RetentionDays,
+		HotDays:              payload.HotDays,
+		IntegritySampleLimit: payload.IntegritySampleLimit,
+		Now:                  payload.Now,
+	}, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.audit_retention_alerts.emitted",
+		TargetType: "audit_retention_alerts",
+		TargetID:   "default",
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+		CreatedAt:  payload.Now,
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccess(w, map[string]any{
+		"emission":     emission,
+		"outbox_event": event,
+		"audit_log":    audit,
+	})
 }
 
 func (r *Router) handleAdminRBACPolicy(w http.ResponseWriter, req *http.Request) {

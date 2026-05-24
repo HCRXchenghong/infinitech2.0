@@ -46,7 +46,7 @@ func TestBackofficeRBACScopeMatrix(t *testing.T) {
 			name:    "security auditor is read only for audit",
 			role:    RoleSecurityAuditor,
 			allowed: []string{AdminScopeAuditRead, AdminScopeRBACRead, AdminScopeSystemLogsRead},
-			denied:  []string{AdminScopeInviteWrite, AdminScopeRefundWrite, AdminScopeOutboxWrite, AdminScopeRBACWrite},
+			denied:  []string{AdminScopeAuditWrite, AdminScopeInviteWrite, AdminScopeRefundWrite, AdminScopeOutboxWrite, AdminScopeRBACWrite},
 		},
 	}
 

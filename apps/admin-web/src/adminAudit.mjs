@@ -331,3 +331,21 @@ export function auditRetentionReportFromResult(result) {
     alerts
   };
 }
+
+export function auditRetentionAlertEmissionFromResult(result) {
+  const data = result?.payload?.data;
+  const emission = data?.emission;
+  if (!emission || typeof emission !== "object" || Array.isArray(emission)) {
+    return null;
+  }
+  return {
+    status: compact(emission.status, "unknown"),
+    reportStatus: compact(emission.report_status, "unknown"),
+    alertCount: Number(emission.alert_count || 0),
+    criticalCount: Number(emission.critical_count || 0),
+    warningCount: Number(emission.warning_count || 0),
+    topic: compact(emission.topic, ""),
+    outboxEventId: compact(emission.outbox_event_id, ""),
+    auditLogId: compact(data.audit_log?.id, "")
+  };
+}

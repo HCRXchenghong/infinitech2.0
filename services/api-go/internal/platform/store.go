@@ -3673,6 +3673,56 @@ func (s *Store) AuditRetentionReport(req AuditRetentionReportRequest) (*AuditRet
 	return auditRetentionReportFromLogs(req, logs), nil
 }
 
+func (s *Store) EmitAuditRetentionAlerts(req AuditRetentionAlertEmissionRequest, audit RecordAuditLogRequest) (*AuditRetentionAlertEmission, *OutboxEvent, *AuditLog, error) {
+	reportReq := normalizeAuditRetentionReportRequest(AuditRetentionReportRequest{
+		RetentionDays:        req.RetentionDays,
+		HotDays:              req.HotDays,
+		IntegritySampleLimit: req.IntegritySampleLimit,
+		Now:                  req.Now,
+	})
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = reportReq.Now
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, log, err
+	}
+	if log.Action != "admin.audit_retention_alerts.emitted" || log.TargetType != "audit_retention_alerts" || log.TargetID != "default" {
+		return nil, nil, log, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	logs := make([]AuditLog, 0, len(s.auditLogs))
+	for _, auditLog := range s.auditLogs {
+		output := cloneAuditLog(auditLog)
+		output.IntegrityVerified = verifyAuditLogIntegrity(*output, s.auditLogSigningSecret)
+		logs = append(logs, *output)
+	}
+	report := auditRetentionReportFromLogs(reportReq, logs)
+	emission := auditRetentionAlertEmissionFromReport(report)
+	var event *OutboxEvent
+	if len(report.Alerts) > 0 {
+		event = s.enqueueOutboxEventLocked(
+			auditRetentionAlertTopic,
+			"audit_retention",
+			"default",
+			"audit.retention_alerts.emitted",
+			emission.IdempotencyKey,
+			auditRetentionAlertOutboxPayload(emission),
+			emission.EmittedAt,
+		)
+		if event != nil {
+			emission.OutboxEventID = event.ID
+		}
+	}
+	log.Payload = auditRetentionAlertEmissionAuditPayload(emission)
+	auditLog := s.appendAuditLogLocked(log)
+	eventCopy := cloneOutboxEvent(event)
+
+	return emission, eventCopy, auditLog, nil
+}
+
 func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 	req.ActorType = strings.TrimSpace(req.ActorType)
 	req.ActorID = strings.TrimSpace(req.ActorID)
@@ -3699,6 +3749,7 @@ const (
 	defaultAuditHotDays              = 180
 	defaultAuditIntegritySampleLimit = 500
 	maxAuditIntegritySampleLimit     = 5000
+	auditRetentionAlertTopic         = "audit.retention_alerts"
 )
 
 var defaultCriticalAuditActions = []string{
@@ -3891,8 +3942,130 @@ func auditRetentionStatus(alerts []AuditRetentionAlert) string {
 	return status
 }
 
+func auditRetentionAlertEmissionFromReport(report *AuditRetentionReport) *AuditRetentionAlertEmission {
+	if report == nil {
+		return &AuditRetentionAlertEmission{Status: "skipped", ReportStatus: "unknown", Alerts: []AuditRetentionAlert{}}
+	}
+	alerts := append([]AuditRetentionAlert{}, report.Alerts...)
+	emission := &AuditRetentionAlertEmission{
+		Status:       "skipped",
+		ReportStatus: strings.TrimSpace(report.Status),
+		AlertCount:   len(alerts),
+		Topic:        auditRetentionAlertTopic,
+		EmittedAt:    report.GeneratedAt,
+		Alerts:       alerts,
+		Report:       report,
+	}
+	for _, alert := range alerts {
+		switch alert.Severity {
+		case "critical":
+			emission.CriticalCount++
+		case "warning":
+			emission.WarningCount++
+		}
+	}
+	if len(alerts) > 0 {
+		emission.Status = "emitted"
+		emission.IdempotencyKey = auditRetentionAlertIdempotencyKey(report)
+	}
+	return emission
+}
+
+func auditRetentionAlertIdempotencyKey(report *AuditRetentionReport) string {
+	if report == nil {
+		return ""
+	}
+	parts := []string{
+		"audit_retention_alerts",
+		report.GeneratedAt.UTC().Format("2006-01-02"),
+		fmt.Sprintf("retention:%d", report.RetentionDays),
+		fmt.Sprintf("hot:%d", report.HotDays),
+		fmt.Sprintf("status:%s", report.Status),
+		fmt.Sprintf("expired:%d", report.ExpiredLogs),
+		fmt.Sprintf("archive:%d", report.ColdArchiveDueLogs),
+		fmt.Sprintf("integrity:%d", report.IntegrityFailures),
+		fmt.Sprintf("missing:%d", len(report.MissingCriticalActions)),
+	}
+	return strings.Join(parts, ":")
+}
+
+func auditRetentionAlertOutboxPayload(emission *AuditRetentionAlertEmission) map[string]any {
+	if emission == nil {
+		return map[string]any{}
+	}
+	payload := map[string]any{
+		"alert_count":     emission.AlertCount,
+		"critical_count":  emission.CriticalCount,
+		"warning_count":   emission.WarningCount,
+		"report_status":   emission.ReportStatus,
+		"emitted_at":      emission.EmittedAt.Format(time.RFC3339Nano),
+		"idempotency_key": emission.IdempotencyKey,
+		"alerts":          emission.Alerts,
+	}
+	if emission.Report != nil {
+		payload["retention_days"] = emission.Report.RetentionDays
+		payload["hot_days"] = emission.Report.HotDays
+		payload["expired_logs"] = emission.Report.ExpiredLogs
+		payload["cold_archive_due_logs"] = emission.Report.ColdArchiveDueLogs
+		payload["integrity_failures"] = emission.Report.IntegrityFailures
+		payload["missing_critical_actions"] = append([]string{}, emission.Report.MissingCriticalActions...)
+	}
+	return payload
+}
+
+func auditRetentionAlertOutboxEvent(emission *AuditRetentionAlertEmission) *OutboxEvent {
+	if emission == nil || strings.TrimSpace(emission.IdempotencyKey) == "" {
+		return nil
+	}
+	now := emission.EmittedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	eventID := "obe_audit_alert_" + shortHash(emission.IdempotencyKey)
+	emission.OutboxEventID = eventID
+	return &OutboxEvent{
+		ID:             eventID,
+		Topic:          auditRetentionAlertTopic,
+		AggregateType:  "audit_retention",
+		AggregateID:    "default",
+		EventType:      "audit.retention_alerts.emitted",
+		IdempotencyKey: emission.IdempotencyKey,
+		Payload:        auditRetentionAlertOutboxPayload(emission),
+		Status:         OutboxStatusPending,
+		AvailableAt:    now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+}
+
+func auditRetentionAlertEmissionAuditPayload(emission *AuditRetentionAlertEmission) map[string]any {
+	if emission == nil {
+		return map[string]any{}
+	}
+	payload := map[string]any{
+		"alert_count":     emission.AlertCount,
+		"critical_count":  emission.CriticalCount,
+		"warning_count":   emission.WarningCount,
+		"status":          emission.Status,
+		"topic":           emission.Topic,
+		"idempotency_key": emission.IdempotencyKey,
+		"outbox_event_id": emission.OutboxEventID,
+	}
+	if emission.Report != nil {
+		payload["cold_archive_due_logs"] = emission.Report.ColdArchiveDueLogs
+		payload["expired_logs"] = emission.Report.ExpiredLogs
+		payload["hot_days"] = emission.Report.HotDays
+		payload["integrity_failures"] = emission.Report.IntegrityFailures
+		payload["retention_days"] = emission.Report.RetentionDays
+	}
+	return payload
+}
+
 var auditPayloadAllowlist = map[string]struct{}{
 	"action_filter":           {},
+	"alert_count":             {},
 	"actor_id":                {},
 	"actor_type":              {},
 	"after":                   {},
@@ -3904,7 +4077,9 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"changed":                 {},
 	"claimed":                 {},
 	"cleanup_attempts":        {},
+	"cold_archive_due_logs":   {},
 	"compensation_type":       {},
+	"critical_count":          {},
 	"current_scopes":          {},
 	"decision":                {},
 	"default_refund_strategy": {},
@@ -3914,18 +4089,23 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"expected_status":         {},
 	"export_format":           {},
 	"expires_at":              {},
+	"expired_logs":            {},
 	"generated_at":            {},
+	"hot_days":                {},
 	"idempotency_key":         {},
+	"integrity_failures":      {},
 	"lease_owner":             {},
 	"lease_seconds":           {},
 	"limit":                   {},
 	"object_key":              {},
+	"outbox_event_id":         {},
 	"previous_scopes":         {},
 	"previous_rider_id":       {},
 	"previous_status":         {},
 	"policy_version":          {},
 	"reason":                  {},
 	"refund_id":               {},
+	"retention_days":          {},
 	"replayed":                {},
 	"requested_scopes":        {},
 	"retry_after_seconds":     {},
@@ -3937,6 +4117,7 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"status":                  {},
 	"topic":                   {},
 	"type":                    {},
+	"warning_count":           {},
 }
 
 func sanitizeAuditPayload(input map[string]any) map[string]any {
