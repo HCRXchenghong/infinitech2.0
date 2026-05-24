@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -117,7 +118,9 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("GET /api/admin/operations/snapshot", r.handleAdminOperationsSnapshot)
 	r.mux.HandleFunc("GET /api/admin/audit-logs", r.handleAdminAuditLogs)
 	r.mux.HandleFunc("GET /api/admin/rbac/policy", r.handleAdminRBACPolicy)
+	r.mux.HandleFunc("GET /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequests)
 	r.mux.HandleFunc("POST /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequest)
+	r.mux.HandleFunc("POST /api/admin/rbac/change-requests/{changeRequestID}/review", r.handleAdminRBACChangeRequestReview)
 	r.mux.HandleFunc("GET /api/admin/object-storage/cleanup-candidates", r.handleAdminObjectStorageCleanupCandidates)
 	r.mux.HandleFunc("GET /api/admin/object-storage/cleanup-stats", r.handleAdminObjectStorageCleanupStats)
 	r.mux.HandleFunc("POST /api/admin/object-storage/cleanup-complete", r.handleAdminObjectStorageCleanupComplete)
@@ -1309,6 +1312,101 @@ type adminRBACChangeRequestPayload struct {
 	Reason          string   `json:"reason"`
 }
 
+type adminRBACChangeReviewPayload struct {
+	Decision string `json:"decision"`
+	Reason   string `json:"reason"`
+}
+
+type adminRBACChangeRequestRecord struct {
+	ID               string     `json:"id"`
+	Role             string     `json:"role"`
+	CurrentScopes    []string   `json:"current_scopes"`
+	RequestedScopes  []string   `json:"requested_scopes"`
+	RequestReason    string     `json:"request_reason"`
+	Status           string     `json:"status"`
+	PolicyVersion    string     `json:"policy_version"`
+	ApprovalRequired bool       `json:"approval_required"`
+	AutoApplied      bool       `json:"auto_applied"`
+	RequestedByRole  string     `json:"requested_by_role"`
+	RequestedByAdmin string     `json:"requested_by_admin"`
+	RequestedAt      time.Time  `json:"requested_at"`
+	RequestAuditID   string     `json:"request_audit_id"`
+	ReviewDecision   string     `json:"review_decision,omitempty"`
+	ReviewReason     string     `json:"review_reason,omitempty"`
+	ReviewedByRole   string     `json:"reviewed_by_role,omitempty"`
+	ReviewedByAdmin  string     `json:"reviewed_by_admin,omitempty"`
+	ReviewedAt       *time.Time `json:"reviewed_at,omitempty"`
+	ReviewAuditID    string     `json:"review_audit_id,omitempty"`
+}
+
+const (
+	adminRBACChangeStatusPending  = "pending_approval"
+	adminRBACChangeStatusApproved = "approved"
+	adminRBACChangeStatusRejected = "rejected"
+	adminRBACReviewApprove        = "approve"
+	adminRBACReviewReject         = "reject"
+)
+
+func (r *Router) handleAdminRBACChangeRequests(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanReadRBACPolicy() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	query := req.URL.Query()
+	limit, ok := parseOptionalIntQuery(w, query.Get("limit"))
+	if !ok {
+		return
+	}
+	status := strings.TrimSpace(query.Get("status"))
+	if status != "" && !isAdminRBACChangeStatus(status) {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	requests, err := r.adminRBACChangeRequestLedger()
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	filtered := make([]adminRBACChangeRequestRecord, 0, len(requests))
+	counts := map[string]int{
+		adminRBACChangeStatusPending:  0,
+		adminRBACChangeStatusApproved: 0,
+		adminRBACChangeStatusRejected: 0,
+	}
+	for _, item := range requests {
+		if _, ok := counts[item.Status]; ok {
+			counts[item.Status]++
+		}
+		if status == "" || item.Status == status {
+			filtered = append(filtered, item)
+		}
+	}
+	filteredTotal := len(filtered)
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+	writeSuccess(w, map[string]any{
+		"items":          filtered,
+		"total":          len(requests),
+		"filtered_total": filteredTotal,
+		"pending_count":  counts[adminRBACChangeStatusPending],
+		"approved_count": counts[adminRBACChangeStatusApproved],
+		"rejected_count": counts[adminRBACChangeStatusRejected],
+		"policy_version": adminRBACPolicyVersion,
+		"auto_apply":     false,
+	})
+}
+
 func (r *Router) handleAdminRBACChangeRequest(w http.ResponseWriter, req *http.Request) {
 	var payload adminRBACChangeRequestPayload
 	if !decodeJSON(w, req, &payload) {
@@ -1358,7 +1456,7 @@ func (r *Router) handleAdminRBACChangeRequest(w http.ResponseWriter, req *http.R
 			"reason":            reason,
 			"requested_scopes":  requestedScopes,
 			"role":              role,
-			"status":            "pending_approval",
+			"status":            adminRBACChangeStatusPending,
 		},
 	})
 	if err != nil {
@@ -1371,13 +1469,93 @@ func (r *Router) handleAdminRBACChangeRequest(w http.ResponseWriter, req *http.R
 		"current_scopes":     currentScopes,
 		"requested_scopes":   requestedScopes,
 		"reason":             reason,
-		"status":             "pending_approval",
+		"status":             adminRBACChangeStatusPending,
 		"policy_version":     adminRBACPolicyVersion,
 		"approval_required":  true,
 		"auto_applied":       false,
 		"audit_log":          audit,
 		"requested_by_role":  principal.Role,
 		"requested_by_admin": principal.ID,
+	})
+}
+
+func (r *Router) handleAdminRBACChangeRequestReview(w http.ResponseWriter, req *http.Request) {
+	var payload adminRBACChangeReviewPayload
+	if !decodeJSON(w, req, &payload) {
+		return
+	}
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanManageRBACPolicy() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	changeRequestID := strings.TrimSpace(req.PathValue("changeRequestID"))
+	if changeRequestID == "" {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	decision, status, ok := normalizeAdminRBACReviewDecision(payload.Decision)
+	if !ok {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	reason := strings.TrimSpace(payload.Reason)
+	if reason == "" {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	record, err := r.adminRBACChangeRequestByID(changeRequestID)
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if record.Status != adminRBACChangeStatusPending {
+		writePlatformError(w, platform.ErrInvalidOrderState)
+		return
+	}
+	if record.RequestedByAdmin == principal.ID {
+		writePlatformError(w, platform.ErrInvalidOrderState)
+		return
+	}
+	audit, err := r.store.RecordAuditLog(platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.rbac.change_reviewed",
+		TargetType: "admin_rbac_change_request",
+		TargetID:   changeRequestID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+		Payload: map[string]any{
+			"change_request_id": changeRequestID,
+			"current_scopes":    record.CurrentScopes,
+			"decision":          decision,
+			"policy_version":    adminRBACPolicyVersion,
+			"reason":            reason,
+			"requested_scopes":  record.RequestedScopes,
+			"role":              record.Role,
+			"status":            status,
+		},
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	reviewedAt := audit.CreatedAt
+	record.Status = status
+	record.ReviewDecision = decision
+	record.ReviewReason = reason
+	record.ReviewedByRole = principal.Role
+	record.ReviewedByAdmin = principal.ID
+	record.ReviewedAt = &reviewedAt
+	record.ReviewAuditID = audit.ID
+	record.AutoApplied = false
+	writeSuccess(w, map[string]any{
+		"change_request": record,
+		"audit_log":      audit,
+		"auto_applied":   false,
 	})
 }
 
@@ -1388,6 +1566,186 @@ func includesAdminScope(scopes []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func isAdminRBACChangeStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case adminRBACChangeStatusPending, adminRBACChangeStatusApproved, adminRBACChangeStatusRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeAdminRBACReviewDecision(decision string) (string, string, bool) {
+	switch strings.TrimSpace(decision) {
+	case adminRBACReviewApprove, adminRBACChangeStatusApproved:
+		return adminRBACReviewApprove, adminRBACChangeStatusApproved, true
+	case adminRBACReviewReject, adminRBACChangeStatusRejected:
+		return adminRBACReviewReject, adminRBACChangeStatusRejected, true
+	default:
+		return "", "", false
+	}
+}
+
+func (r *Router) adminRBACChangeRequestByID(changeRequestID string) (adminRBACChangeRequestRecord, error) {
+	requests, err := r.adminRBACChangeRequestLedger()
+	if err != nil {
+		return adminRBACChangeRequestRecord{}, err
+	}
+	for _, item := range requests {
+		if item.ID == changeRequestID {
+			return item, nil
+		}
+	}
+	return adminRBACChangeRequestRecord{}, platform.ErrNotFound
+}
+
+func (r *Router) adminRBACChangeRequestLedger() ([]adminRBACChangeRequestRecord, error) {
+	requestLogs, err := r.store.AuditLogs(platform.AuditLogsRequest{
+		Action:     "admin.rbac.change_requested",
+		TargetType: "admin_rbac_role",
+		Limit:      500,
+	})
+	if err != nil {
+		return nil, err
+	}
+	reviewLogs, err := r.store.AuditLogs(platform.AuditLogsRequest{
+		Action:     "admin.rbac.change_reviewed",
+		TargetType: "admin_rbac_change_request",
+		Limit:      500,
+	})
+	if err != nil {
+		return nil, err
+	}
+	byID := map[string]*adminRBACChangeRequestRecord{}
+	for _, log := range requestLogs {
+		payload := log.Payload
+		id := auditPayloadString(payload, "change_request_id")
+		if id == "" {
+			continue
+		}
+		status := auditPayloadString(payload, "status")
+		if status == "" {
+			status = adminRBACChangeStatusPending
+		}
+		byID[id] = &adminRBACChangeRequestRecord{
+			ID:               id,
+			Role:             auditPayloadString(payload, "role"),
+			CurrentScopes:    auditPayloadStringSlice(payload, "current_scopes"),
+			RequestedScopes:  auditPayloadStringSlice(payload, "requested_scopes"),
+			RequestReason:    auditPayloadString(payload, "reason"),
+			Status:           status,
+			PolicyVersion:    auditPayloadString(payload, "policy_version"),
+			ApprovalRequired: true,
+			AutoApplied:      false,
+			RequestedByRole:  log.ActorType,
+			RequestedByAdmin: log.ActorID,
+			RequestedAt:      log.CreatedAt,
+			RequestAuditID:   log.ID,
+		}
+	}
+	for _, log := range reviewLogs {
+		id := auditPayloadString(log.Payload, "change_request_id")
+		if id == "" {
+			id = strings.TrimSpace(log.TargetID)
+		}
+		record := byID[id]
+		if record == nil {
+			continue
+		}
+		if record.ReviewedAt != nil && !log.CreatedAt.After(*record.ReviewedAt) {
+			continue
+		}
+		status := auditPayloadString(log.Payload, "status")
+		if !isAdminRBACChangeStatus(status) || status == adminRBACChangeStatusPending {
+			decision := auditPayloadString(log.Payload, "decision")
+			_, normalizedStatus, ok := normalizeAdminRBACReviewDecision(decision)
+			if ok {
+				status = normalizedStatus
+			}
+		}
+		if status != adminRBACChangeStatusApproved && status != adminRBACChangeStatusRejected {
+			continue
+		}
+		reviewedAt := log.CreatedAt
+		record.Status = status
+		record.ReviewDecision = auditPayloadString(log.Payload, "decision")
+		record.ReviewReason = auditPayloadString(log.Payload, "reason")
+		record.ReviewedByRole = log.ActorType
+		record.ReviewedByAdmin = log.ActorID
+		record.ReviewedAt = &reviewedAt
+		record.ReviewAuditID = log.ID
+		record.AutoApplied = false
+	}
+	output := make([]adminRBACChangeRequestRecord, 0, len(byID))
+	for _, item := range byID {
+		output = append(output, *item)
+	}
+	sort.SliceStable(output, func(i, j int) bool {
+		if !output[i].RequestedAt.Equal(output[j].RequestedAt) {
+			return output[i].RequestedAt.After(output[j].RequestedAt)
+		}
+		return output[i].ID > output[j].ID
+	})
+	return output, nil
+}
+
+func auditPayloadString(payload map[string]any, key string) string {
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(auditPayloadValueString(value))
+}
+
+func auditPayloadStringSlice(payload map[string]any, key string) []string {
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return []string{}
+	}
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		output := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text := strings.TrimSpace(auditPayloadValueString(item)); text != "" {
+				output = append(output, text)
+			}
+		}
+		return output
+	case string:
+		parts := strings.Split(typed, ",")
+		output := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if text := strings.TrimSpace(part); text != "" {
+				output = append(output, text)
+			}
+		}
+		return output
+	default:
+		return []string{}
+	}
+}
+
+func auditPayloadValueString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case json.Number:
+		return typed.String()
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(typed)
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return ""
+		}
+		return string(encoded)
+	}
 }
 
 func (r *Router) recordAuditLog(req *http.Request, principal Principal, action string, targetType string, targetID string, payload map[string]any) error {

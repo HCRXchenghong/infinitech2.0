@@ -42,7 +42,9 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
     "operations-snapshot",
     "audit-logs",
     "rbac-policy",
+    "rbac-change-requests",
     "rbac-change-request",
+    "rbac-review-request",
     "object-cleanup-stats",
     "object-cleanup-candidates",
     "outbox-stats",
@@ -73,6 +75,7 @@ test("admin web ships P0 business views with actions and safeguards", () => {
   assert.ok(ADMIN_WEB_VIEWS.riders.actions.includes("station-riders"));
   assert.ok(ADMIN_WEB_VIEWS.dispatch.actions.includes("station-orders"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-change-request"));
+  assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-review-request"));
 });
 
 test("admin request builder normalizes auth query path and body", () => {
@@ -96,6 +99,13 @@ test("admin request builder normalizes auth query path and body", () => {
   const rbacRequest = buildAdminRequest(getAdminOperation("rbac-change-request"), { role: "support_admin", requested_scopes: "after_sales:read, rbac:read, rbac:read", reason: "support recertification" }, "admin.token");
   assert.equal(rbacRequest.url, "/api/admin/rbac/change-requests");
   assert.deepEqual(JSON.parse(rbacRequest.body), { role: "support_admin", requested_scopes: ["after_sales:read", "rbac:read"], reason: "support recertification" });
+
+  const rbacList = buildAdminRequest(getAdminOperation("rbac-change-requests"), { status: "pending_approval", limit: 5 }, "admin.token");
+  assert.equal(rbacList.url, "/api/admin/rbac/change-requests?status=pending_approval&limit=5");
+
+  const rbacReview = buildAdminRequest(getAdminOperation("rbac-review-request"), { change_request_id: "rbac change 1", decision: "reject", reason: "scope too broad" }, "admin.token");
+  assert.equal(rbacReview.url, "/api/admin/rbac/change-requests/rbac%20change%201/review");
+  assert.deepEqual(JSON.parse(rbacReview.body), { decision: "reject", reason: "scope too broad" });
 
   const loginFields = fieldsForOperation(getAdminOperation("admin-login"));
   assert.deepEqual(loginFields.map((field) => field.key), ["account_id", "password"]);
@@ -191,6 +201,8 @@ test("admin audit filters normalize ranges presets and target routes", () => {
   assert.deepEqual(outboxRoute, { module: "dashboard", operation: "outbox-events", label: "Outbox 事件" });
   const rbacRoute = auditTargetRoute({ target_type: "admin_rbac_role", action: "admin.rbac.change_requested" });
   assert.deepEqual(rbacRoute, { module: "permissions", operation: "rbac-policy", label: "权限治理" });
+  const rbacReviewRoute = auditTargetRoute({ target_type: "admin_rbac_change_request", action: "admin.rbac.change_reviewed" });
+  assert.deepEqual(rbacReviewRoute, { module: "permissions", operation: "rbac-change-requests", label: "权限申请" });
   const fallbackRoute = auditTargetRoute({ target_type: "unknown", action: "admin.merchant_invite.created" });
   assert.equal(fallbackRoute.module, "merchants");
 });

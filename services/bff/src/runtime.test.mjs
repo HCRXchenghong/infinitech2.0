@@ -202,6 +202,18 @@ test("bff proxies user-facing api routes with authorization", async () => {
       }));
       return;
     }
+    if (req.method === "GET" && req.url === "/api/admin/rbac/change-requests?status=pending_approval&limit=5") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          items: [{ id: "rbac_change_1", role: "support_admin", status: "pending_approval" }],
+          pending_count: 1,
+          authorization: req.headers.authorization
+        }
+      }));
+      return;
+    }
     if (req.method === "POST" && req.url === "/api/admin/rbac/change-requests") {
       let body = "";
       req.on("data", (chunk) => {
@@ -215,6 +227,24 @@ test("bff proxies user-facing api routes with authorization", async () => {
             id: "rbac_change_1",
             status: "pending_approval",
             request: JSON.parse(body),
+            authorization: req.headers.authorization
+          }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/rbac/change-requests/rbac_change_1/review") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            change_request: { id: "rbac_change_1", status: "approved", review: JSON.parse(body) },
+            auto_applied: false,
             authorization: req.headers.authorization
           }
         }));
@@ -1066,7 +1096,9 @@ test("bff proxies user-facing api routes with authorization", async () => {
   const adminOperationsSnapshot = await getJSON(`${baseUrl}/api/admin/operations/snapshot?limit=5&lease_expiring_within_seconds=60&object_cleanup_grace_seconds=60`, "Bearer admin:admin_1");
   const adminAuditLogs = await getJSON(`${baseUrl}/api/admin/audit-logs?target_type=order&limit=1`, "Bearer admin:admin_1");
   const adminRBACPolicy = await getJSON(`${baseUrl}/api/admin/rbac/policy`, "Bearer admin:admin_1");
+  const adminRBACChanges = await getJSON(`${baseUrl}/api/admin/rbac/change-requests?status=pending_approval&limit=5`, "Bearer admin:admin_1");
   const adminRBACChange = await postJSON(`${baseUrl}/api/admin/rbac/change-requests`, "Bearer admin:admin_1", { role: "support_admin", requested_scopes: ["after_sales:read", "rbac:read"], reason: "support recertification" });
+  const adminRBACReview = await postJSON(`${baseUrl}/api/admin/rbac/change-requests/rbac_change_1/review`, "Bearer admin:admin_2", { decision: "approve", reason: "least privilege approved" });
   const objectCleanupCandidates = await getJSON(`${baseUrl}/api/admin/object-storage/cleanup-candidates?limit=1&grace_seconds=60`, "Bearer admin:admin_1");
   const objectCleanupStats = await getJSON(`${baseUrl}/api/admin/object-storage/cleanup-stats?grace_seconds=60`, "Bearer admin:admin_1");
   const failedObjectCleanup = await postJSON(`${baseUrl}/api/admin/object-storage/cleanup-failed`, "Bearer admin:admin_1", { ticket_id: "aset_1", object_key: "after-sales/asr_1/sig/evidence.jpg", reason: "expired_unconfirmed", error: "delete denied" });
@@ -1204,9 +1236,14 @@ test("bff proxies user-facing api routes with authorization", async () => {
   assert.equal(adminAuditLogs.data[0].action, "admin.order.refunded");
   assert.equal(adminRBACPolicy.data.authorization, "Bearer admin:admin_1");
   assert.equal(adminRBACPolicy.data.can_request_changes, true);
+  assert.equal(adminRBACChanges.data.authorization, "Bearer admin:admin_1");
+  assert.equal(adminRBACChanges.data.pending_count, 1);
   assert.equal(adminRBACChange.data.authorization, "Bearer admin:admin_1");
   assert.equal(adminRBACChange.data.status, "pending_approval");
   assert.equal(adminRBACChange.data.request.role, "support_admin");
+  assert.equal(adminRBACReview.data.authorization, "Bearer admin:admin_2");
+  assert.equal(adminRBACReview.data.change_request.status, "approved");
+  assert.equal(adminRBACReview.data.auto_applied, false);
   assert.equal(objectCleanupCandidates.data[0].authorization, "Bearer admin:admin_1");
   assert.equal(objectCleanupCandidates.data[0].reason, "expired_unconfirmed");
   assert.equal(objectCleanupStats.data.authorization, "Bearer admin:admin_1");

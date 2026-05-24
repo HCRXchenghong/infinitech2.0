@@ -194,6 +194,7 @@ func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {
 	if rbacData["status"] != "pending_approval" || rbacData["auto_applied"] != false || rbacData["policy_version"] == "" {
 		t.Fatalf("expected pending audited RBAC change request, got %+v", rbacChange)
 	}
+	changeRequestID := rbacData["id"].(string)
 	audit := rbacData["audit_log"].(map[string]any)
 	if audit["action"] != "admin.rbac.change_requested" || audit["target_type"] != "admin_rbac_role" || audit["target_id"] != RoleSupportAdmin {
 		t.Fatalf("expected RBAC change audit log, got %+v", audit)
@@ -202,6 +203,32 @@ func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {
 	if auditPayload["role"] != RoleSupportAdmin || auditPayload["status"] != "pending_approval" {
 		t.Fatalf("expected sanitized RBAC audit payload, got %+v", auditPayload)
 	}
+	pendingChanges := authGetJSON(t, server.URL+"/api/admin/rbac/change-requests?status=pending_approval&limit=5", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusOK)
+	pendingData := pendingChanges["data"].(map[string]any)
+	if pendingData["pending_count"] != float64(1) || pendingData["auto_apply"] != false {
+		t.Fatalf("expected pending RBAC change request list, got %+v", pendingChanges)
+	}
+	pendingItems := pendingData["items"].([]any)
+	if len(pendingItems) != 1 || pendingItems[0].(map[string]any)["id"] != changeRequestID {
+		t.Fatalf("expected pending list to include change request, got %+v", pendingItems)
+	}
+	authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/review", roleToken(RoleSuperAdmin, "super_1"), `{"decision":"approve","reason":"self approval must fail"}`, http.StatusConflict)
+	reviewed := authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/review", roleToken(RoleSuperAdmin, "super_2"), `{"decision":"approve","reason":"least privilege approved"}`, http.StatusOK)
+	reviewedData := reviewed["data"].(map[string]any)
+	reviewedRequest := reviewedData["change_request"].(map[string]any)
+	if reviewedRequest["status"] != "approved" || reviewedRequest["reviewed_by_admin"] != "super_2" || reviewedData["auto_applied"] != false {
+		t.Fatalf("expected approved but not auto-applied RBAC request, got %+v", reviewed)
+	}
+	reviewAudit := reviewedData["audit_log"].(map[string]any)
+	if reviewAudit["action"] != "admin.rbac.change_reviewed" || reviewAudit["target_type"] != "admin_rbac_change_request" || reviewAudit["target_id"] != changeRequestID {
+		t.Fatalf("expected RBAC review audit log, got %+v", reviewAudit)
+	}
+	approvedChanges := authGetJSON(t, server.URL+"/api/admin/rbac/change-requests?status=approved&limit=5", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusOK)
+	approvedItems := approvedChanges["data"].(map[string]any)["items"].([]any)
+	if len(approvedItems) != 1 || approvedItems[0].(map[string]any)["status"] != "approved" {
+		t.Fatalf("expected approved request in RBAC ledger, got %+v", approvedChanges)
+	}
+	authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/review", roleToken(RoleSuperAdmin, "super_3"), `{"decision":"reject","reason":"already reviewed"}`, http.StatusConflict)
 }
 
 func TestAdminRefundSettingsHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {

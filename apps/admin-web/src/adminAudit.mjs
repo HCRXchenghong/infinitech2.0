@@ -36,6 +36,7 @@ const AUDIT_TARGET_ROUTES = Object.freeze({
   merchant: { module: "merchants", operation: "merchant-invite", label: "商户资质" },
   merchant_invite: { module: "merchants", operation: "merchant-invite", label: "商户资质" },
   admin_rbac_role: { module: "permissions", operation: "rbac-policy", label: "权限治理" },
+  admin_rbac_change_request: { module: "permissions", operation: "rbac-change-requests", label: "权限申请" },
   object_storage_ticket: { module: "after-sales", operation: "object-cleanup-candidates", label: "对象清理" },
   order: { module: "orders", operation: "order-compensate", label: "订单监控" },
   outbox_event: { module: "dashboard", operation: "outbox-events", label: "Outbox 事件" },

@@ -121,6 +121,19 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     fields: []
   },
   {
+    key: "rbac-change-requests",
+    title: "权限申请列表",
+    method: "GET",
+    path: "/api/admin/rbac/change-requests",
+    authRequired: true,
+    area: "security",
+    queryFields: [
+      { key: "status", label: "状态", type: "select", defaultValue: "pending_approval", options: ["", "pending_approval", "approved", "rejected"] },
+      { key: "limit", label: "条数", type: "number", defaultValue: 20 }
+    ],
+    fields: []
+  },
+  {
     key: "rbac-change-request",
     title: "提交权限变更申请",
     method: "POST",
@@ -131,6 +144,21 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
       { key: "role", label: "目标角色", type: "select", defaultValue: "support_admin", options: ["ops_admin", "finance_admin", "dispatch_admin", "support_admin", "security_auditor"], required: true },
       { key: "requested_scopes", label: "申请 scopes", type: "csv", defaultValue: "after_sales:read,after_sales:event,rbac:read", required: true },
       { key: "reason", label: "申请原因", type: "text", defaultValue: "least privilege recertification", required: true }
+    ]
+  },
+  {
+    key: "rbac-review-request",
+    title: "审批权限申请",
+    method: "POST",
+    path: "/api/admin/rbac/change-requests/:change_request_id/review",
+    authRequired: true,
+    area: "security",
+    pathFields: [
+      { key: "change_request_id", label: "申请 ID", type: "text", defaultValue: "rbac_change_1", required: true }
+    ],
+    fields: [
+      { key: "decision", label: "审批结果", type: "select", defaultValue: "approve", options: ["approve", "reject"], required: true },
+      { key: "reason", label: "审批原因", type: "text", defaultValue: "least privilege reviewed", required: true }
     ]
   },
   {
