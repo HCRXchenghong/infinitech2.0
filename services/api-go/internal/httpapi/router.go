@@ -276,14 +276,16 @@ func (r *Router) handleCreateMerchantInvite(w http.ResponseWriter, req *http.Req
 	if strings.TrimSpace(payload.AdminID) == "" {
 		payload.AdminID = principal.ID
 	}
-	invite, err := r.store.CreateMerchantInvite(payload)
+	invite, _, err := r.store.CreateMerchantInviteWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.merchant_invite.created",
+		TargetType: "merchant_invite",
+		TargetID:   "pending",
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.merchant_invite.created", "merchant_invite", invite.Token, map[string]any{
-		"expires_at": invite.ExpiresAt,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -314,16 +316,16 @@ func (r *Router) handleCreateRiderInvite(w http.ResponseWriter, req *http.Reques
 	} else if strings.TrimSpace(payload.StationID) == "" {
 		payload.StationID = "station_1"
 	}
-	invite, err := r.store.CreateRiderInvite(payload)
+	invite, _, err := r.store.CreateRiderInviteWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.rider_invite.created",
+		TargetType: "rider_invite",
+		TargetID:   "pending",
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.rider_invite.created", "rider_invite", invite.Token, map[string]any{
-		"type":       invite.Type,
-		"station_id": invite.StationID,
-		"expires_at": invite.ExpiresAt,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}

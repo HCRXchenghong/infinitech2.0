@@ -205,40 +205,74 @@ func (s *Store) LoginWechatMini(req WechatMiniLoginRequest) (*WechatMiniLoginRes
 	}, nil
 }
 
-func (s *Store) CreateMerchantInvite(req CreateMerchantInviteRequest) (*MerchantOnboardingInvite, error) {
+func normalizeCreateMerchantInviteRequest(req CreateMerchantInviteRequest) (CreateMerchantInviteRequest, error) {
 	adminID := strings.TrimSpace(req.AdminID)
 	inviteType := strings.TrimSpace(req.Type)
 	if adminID == "" {
-		return nil, ErrInvalidArgument
+		return req, ErrInvalidArgument
 	}
 	if inviteType == "" {
 		inviteType = OnboardingInviteMerchant
 	}
 	if inviteType != OnboardingInviteMerchant {
-		return nil, ErrInvalidArgument
+		return req, ErrInvalidArgument
 	}
 	expiresAt := req.ExpiresAt
 	if expiresAt.IsZero() {
 		expiresAt = time.Now().UTC().Add(7 * 24 * time.Hour)
 	}
 	if !expiresAt.After(time.Now().UTC()) {
-		return nil, ErrInvalidArgument
+		return req, ErrInvalidArgument
+	}
+	req.AdminID = adminID
+	req.Type = inviteType
+	req.ExpiresAt = expiresAt.UTC()
+	return req, nil
+}
+
+func (s *Store) createMerchantInviteAlreadyLocked(req CreateMerchantInviteRequest) *MerchantOnboardingInvite {
+	token := "mi_" + shortHash(fmt.Sprintf("%s:%s:%d", req.AdminID, req.Type, len(s.merchantInvites)+1))
+	invite := &MerchantOnboardingInvite{
+		Token:                token,
+		Type:                 req.Type,
+		Status:               OnboardingInviteActive,
+		CreatedByAdminID:     req.AdminID,
+		CreatedBySubjectType: "admin",
+		CreatedBySubjectID:   req.AdminID,
+		ExpiresAt:            req.ExpiresAt.UTC(),
+	}
+	s.merchantInvites[token] = invite
+	return invite
+}
+
+func (s *Store) CreateMerchantInvite(req CreateMerchantInviteRequest) (*MerchantOnboardingInvite, error) {
+	normalized, err := normalizeCreateMerchantInviteRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	invite := s.createMerchantInviteAlreadyLocked(normalized)
+	return cloneMerchantInvite(invite), nil
+}
+
+func (s *Store) CreateMerchantInviteWithAudit(req CreateMerchantInviteRequest, audit RecordAuditLogRequest) (*MerchantOnboardingInvite, *AuditLog, error) {
+	normalized, err := normalizeCreateMerchantInviteRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	log, err := inviteAuditLogFromRequest(audit, "admin.merchant_invite.created", "merchant_invite")
+	if err != nil {
+		return nil, nil, err
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	token := "mi_" + shortHash(fmt.Sprintf("%s:%s:%d", adminID, inviteType, len(s.merchantInvites)+1))
-	invite := &MerchantOnboardingInvite{
-		Token:                token,
-		Type:                 inviteType,
-		Status:               OnboardingInviteActive,
-		CreatedByAdminID:     adminID,
-		CreatedBySubjectType: "admin",
-		CreatedBySubjectID:   adminID,
-		ExpiresAt:            expiresAt.UTC(),
-	}
-	s.merchantInvites[token] = invite
-	return cloneMerchantInvite(invite), nil
+	invite := s.createMerchantInviteAlreadyLocked(normalized)
+	log.TargetID = invite.Token
+	log.Payload = merchantInviteAuditPayload(invite)
+	auditLog := s.appendAuditLogLocked(log)
+	return cloneMerchantInvite(invite), auditLog, nil
 }
 
 func (s *Store) AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error) {
@@ -302,49 +336,123 @@ func (s *Store) LoginMerchant(req MerchantLoginRequest) (*MerchantProfile, error
 	return profile, nil
 }
 
-func (s *Store) CreateRiderInvite(req CreateRiderInviteRequest) (*MerchantOnboardingInvite, error) {
+func normalizeCreateRiderInviteRequest(req CreateRiderInviteRequest) (CreateRiderInviteRequest, error) {
 	createdByID := strings.TrimSpace(req.CreatedByID)
 	createdByRole := strings.TrimSpace(req.CreatedByRole)
 	inviteType := strings.TrimSpace(req.Type)
 	stationID := strings.TrimSpace(req.StationID)
 	if createdByID == "" || createdByRole == "" || stationID == "" {
-		return nil, ErrInvalidArgument
+		return req, ErrInvalidArgument
 	}
 	if inviteType != RiderAccountRider && inviteType != RiderAccountStationManager {
-		return nil, ErrInvalidArgument
+		return req, ErrInvalidArgument
 	}
 	if createdByRole == RiderAccountStationManager && inviteType != RiderAccountRider {
-		return nil, ErrInvalidArgument
+		return req, ErrInvalidArgument
 	}
 	expiresAt := req.ExpiresAt
 	if expiresAt.IsZero() {
 		expiresAt = time.Now().UTC().Add(7 * 24 * time.Hour)
 	}
 	if !expiresAt.After(time.Now().UTC()) {
-		return nil, ErrInvalidArgument
+		return req, ErrInvalidArgument
+	}
+	req.CreatedByID = createdByID
+	req.CreatedByRole = createdByRole
+	req.Type = inviteType
+	req.StationID = stationID
+	req.ExpiresAt = expiresAt.UTC()
+	return req, nil
+}
+
+func (s *Store) createRiderInviteAlreadyLocked(req CreateRiderInviteRequest) (*MerchantOnboardingInvite, error) {
+	if req.CreatedByRole == RiderAccountStationManager {
+		manager := s.riders[req.CreatedByID]
+		if manager == nil || manager.Type != RiderAccountStationManager || manager.Status != "active" || manager.StationID != req.StationID {
+			return nil, ErrInvalidArgument
+		}
+	}
+	token := "ri_" + shortHash(fmt.Sprintf("%s:%s:%s:%d", req.CreatedByID, req.Type, req.StationID, len(s.merchantInvites)+1))
+	invite := &MerchantOnboardingInvite{
+		Token:                token,
+		Type:                 req.Type,
+		Status:               OnboardingInviteActive,
+		CreatedByAdminID:     req.CreatedByID,
+		CreatedBySubjectType: req.CreatedByRole,
+		CreatedBySubjectID:   req.CreatedByID,
+		StationID:            req.StationID,
+		ExpiresAt:            req.ExpiresAt.UTC(),
+	}
+	s.merchantInvites[token] = invite
+	return invite, nil
+}
+
+func (s *Store) CreateRiderInvite(req CreateRiderInviteRequest) (*MerchantOnboardingInvite, error) {
+	normalized, err := normalizeCreateRiderInviteRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	invite, err := s.createRiderInviteAlreadyLocked(normalized)
+	if err != nil {
+		return nil, err
+	}
+	return cloneMerchantInvite(invite), nil
+}
+
+func (s *Store) CreateRiderInviteWithAudit(req CreateRiderInviteRequest, audit RecordAuditLogRequest) (*MerchantOnboardingInvite, *AuditLog, error) {
+	normalized, err := normalizeCreateRiderInviteRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	log, err := inviteAuditLogFromRequest(audit, "admin.rider_invite.created", "rider_invite")
+	if err != nil {
+		return nil, nil, err
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if createdByRole == RiderAccountStationManager {
-		manager := s.riders[createdByID]
-		if manager == nil || manager.Type != RiderAccountStationManager || manager.Status != "active" || manager.StationID != stationID {
-			return nil, ErrInvalidArgument
-		}
+	invite, err := s.createRiderInviteAlreadyLocked(normalized)
+	if err != nil {
+		return nil, nil, err
 	}
-	token := "ri_" + shortHash(fmt.Sprintf("%s:%s:%s:%d", createdByID, inviteType, stationID, len(s.merchantInvites)+1))
-	invite := &MerchantOnboardingInvite{
-		Token:                token,
-		Type:                 inviteType,
-		Status:               OnboardingInviteActive,
-		CreatedByAdminID:     createdByID,
-		CreatedBySubjectType: createdByRole,
-		CreatedBySubjectID:   createdByID,
-		StationID:            stationID,
-		ExpiresAt:            expiresAt.UTC(),
+	log.TargetID = invite.Token
+	log.Payload = riderInviteAuditPayload(invite)
+	auditLog := s.appendAuditLogLocked(log)
+	return cloneMerchantInvite(invite), auditLog, nil
+}
+
+func inviteAuditLogFromRequest(req RecordAuditLogRequest, action string, targetType string) (*AuditLog, error) {
+	log, err := auditLogFromRequest(req, "")
+	if err != nil {
+		return nil, err
 	}
-	s.merchantInvites[token] = invite
-	return cloneMerchantInvite(invite), nil
+	if log.Action != action || log.TargetType != targetType {
+		return nil, ErrInvalidArgument
+	}
+	return log, nil
+}
+
+func merchantInviteAuditPayload(invite *MerchantOnboardingInvite) map[string]any {
+	if invite == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"type":       strings.TrimSpace(invite.Type),
+		"expires_at": invite.ExpiresAt,
+	}
+}
+
+func riderInviteAuditPayload(invite *MerchantOnboardingInvite) map[string]any {
+	if invite == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"type":       strings.TrimSpace(invite.Type),
+		"station_id": strings.TrimSpace(invite.StationID),
+		"expires_at": invite.ExpiresAt,
+	}
 }
 
 func (s *Store) AcceptRiderInvite(req AcceptRiderInviteRequest) (*RiderAccount, error) {

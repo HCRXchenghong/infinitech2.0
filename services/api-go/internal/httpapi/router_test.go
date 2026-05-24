@@ -214,6 +214,64 @@ func TestAdminRefundOrderHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
 	}
 }
 
+func TestCreateMerchantInviteHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
+	store := &merchantInviteAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	body := authPostJSON(t, server.URL+"/api/admin/merchant-invites", adminToken("admin_1"), `{}`, http.StatusCreated)
+	if body["data"].(map[string]any)["token"] != "mi_atomic_http" {
+		t.Fatalf("expected atomic merchant invite response, got %+v", body)
+	}
+	if !store.atomicAuditCalled {
+		t.Fatal("expected merchant invite HTTP handler to call atomic audit repository path")
+	}
+	if store.createMerchantInviteCalled {
+		t.Fatal("merchant invite HTTP handler must not call standalone CreateMerchantInvite before audit write")
+	}
+	if store.recordAuditCalled {
+		t.Fatal("merchant invite HTTP handler must not call standalone RecordAuditLog after invite write")
+	}
+	if store.atomicReq.AdminID != "admin_1" {
+		t.Fatalf("expected admin principal to create merchant invite, got %+v", store.atomicReq)
+	}
+	if store.atomicAudit.Action != "admin.merchant_invite.created" || store.atomicAudit.TargetType != "merchant_invite" || store.atomicAudit.TargetID != "pending" {
+		t.Fatalf("expected pending merchant invite audit target from HTTP handler, got %+v", store.atomicAudit)
+	}
+	if store.atomicAudit.ActorType != RoleAdmin || store.atomicAudit.ActorID != "admin_1" {
+		t.Fatalf("expected admin principal in merchant invite audit request, got %+v", store.atomicAudit)
+	}
+}
+
+func TestCreateRiderInviteHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
+	store := &riderInviteAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	body := authPostJSON(t, server.URL+"/api/station-manager/rider-invites", stationManagerToken("station_manager_1"), `{"type":"rider","station_id":"station_1"}`, http.StatusCreated)
+	if body["data"].(map[string]any)["token"] != "ri_atomic_http" {
+		t.Fatalf("expected atomic rider invite response, got %+v", body)
+	}
+	if !store.atomicAuditCalled {
+		t.Fatal("expected rider invite HTTP handler to call atomic audit repository path")
+	}
+	if store.createRiderInviteCalled {
+		t.Fatal("rider invite HTTP handler must not call standalone CreateRiderInvite before audit write")
+	}
+	if store.recordAuditCalled {
+		t.Fatal("rider invite HTTP handler must not call standalone RecordAuditLog after invite write")
+	}
+	if store.atomicReq.CreatedByID != "station_manager_1" || store.atomicReq.CreatedByRole != RoleStationManager || store.atomicReq.Type != platform.RiderAccountRider || store.atomicReq.StationID != "station_1" {
+		t.Fatalf("expected station manager principal and station scope in atomic rider invite request, got %+v", store.atomicReq)
+	}
+	if store.atomicAudit.Action != "admin.rider_invite.created" || store.atomicAudit.TargetType != "rider_invite" || store.atomicAudit.TargetID != "pending" {
+		t.Fatalf("expected pending rider invite audit target from HTTP handler, got %+v", store.atomicAudit)
+	}
+	if store.atomicAudit.ActorType != RoleStationManager || store.atomicAudit.ActorID != "station_manager_1" {
+		t.Fatalf("expected station manager principal in rider invite audit request, got %+v", store.atomicAudit)
+	}
+}
+
 func TestReviewAfterSalesHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
 	store := &reviewAfterSalesAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
 	server := httptest.NewServer(NewRouter(store))
@@ -1487,6 +1545,79 @@ type refundSettingsAtomicAuditStore struct {
 	atomicAuditCalled bool
 	recordAuditCalled bool
 	atomicAudit       platform.RecordAuditLogRequest
+}
+
+type merchantInviteAtomicAuditStore struct {
+	*platform.Store
+	atomicAuditCalled          bool
+	createMerchantInviteCalled bool
+	recordAuditCalled          bool
+	atomicReq                  platform.CreateMerchantInviteRequest
+	atomicAudit                platform.RecordAuditLogRequest
+}
+
+func (store *merchantInviteAtomicAuditStore) CreateMerchantInviteWithAudit(req platform.CreateMerchantInviteRequest, audit platform.RecordAuditLogRequest) (*platform.MerchantOnboardingInvite, *platform.AuditLog, error) {
+	store.atomicAuditCalled = true
+	store.atomicReq = req
+	store.atomicAudit = audit
+	invite := &platform.MerchantOnboardingInvite{
+		Token:                "mi_atomic_http",
+		Type:                 platform.OnboardingInviteMerchant,
+		Status:               platform.OnboardingInviteActive,
+		CreatedByAdminID:     req.AdminID,
+		CreatedBySubjectType: RoleAdmin,
+		CreatedBySubjectID:   req.AdminID,
+		ExpiresAt:            time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC),
+	}
+	auditLog := &platform.AuditLog{ID: "aud_merchant_invite_atomic_http", Action: audit.Action, TargetType: audit.TargetType, TargetID: "mi_atomic_http"}
+	return invite, auditLog, nil
+}
+
+func (store *merchantInviteAtomicAuditStore) CreateMerchantInvite(req platform.CreateMerchantInviteRequest) (*platform.MerchantOnboardingInvite, error) {
+	store.createMerchantInviteCalled = true
+	return nil, platform.ErrInvalidArgument
+}
+
+func (store *merchantInviteAtomicAuditStore) RecordAuditLog(req platform.RecordAuditLogRequest) (*platform.AuditLog, error) {
+	store.recordAuditCalled = true
+	return nil, platform.ErrInvalidArgument
+}
+
+type riderInviteAtomicAuditStore struct {
+	*platform.Store
+	atomicAuditCalled       bool
+	createRiderInviteCalled bool
+	recordAuditCalled       bool
+	atomicReq               platform.CreateRiderInviteRequest
+	atomicAudit             platform.RecordAuditLogRequest
+}
+
+func (store *riderInviteAtomicAuditStore) CreateRiderInviteWithAudit(req platform.CreateRiderInviteRequest, audit platform.RecordAuditLogRequest) (*platform.MerchantOnboardingInvite, *platform.AuditLog, error) {
+	store.atomicAuditCalled = true
+	store.atomicReq = req
+	store.atomicAudit = audit
+	invite := &platform.MerchantOnboardingInvite{
+		Token:                "ri_atomic_http",
+		Type:                 req.Type,
+		Status:               platform.OnboardingInviteActive,
+		CreatedByAdminID:     req.CreatedByID,
+		CreatedBySubjectType: req.CreatedByRole,
+		CreatedBySubjectID:   req.CreatedByID,
+		StationID:            req.StationID,
+		ExpiresAt:            time.Date(2026, 6, 1, 11, 0, 0, 0, time.UTC),
+	}
+	auditLog := &platform.AuditLog{ID: "aud_rider_invite_atomic_http", Action: audit.Action, TargetType: audit.TargetType, TargetID: "ri_atomic_http"}
+	return invite, auditLog, nil
+}
+
+func (store *riderInviteAtomicAuditStore) CreateRiderInvite(req platform.CreateRiderInviteRequest) (*platform.MerchantOnboardingInvite, error) {
+	store.createRiderInviteCalled = true
+	return nil, platform.ErrInvalidArgument
+}
+
+func (store *riderInviteAtomicAuditStore) RecordAuditLog(req platform.RecordAuditLogRequest) (*platform.AuditLog, error) {
+	store.recordAuditCalled = true
+	return nil, platform.ErrInvalidArgument
 }
 
 func (store *refundSettingsAtomicAuditStore) SaveRefundSettingsWithAudit(req platform.SaveRefundSettingsRequest, audit platform.RecordAuditLogRequest) (*platform.RefundSettings, *platform.AuditLog, error) {

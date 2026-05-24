@@ -7,9 +7,11 @@ type Repository interface {
 	HomeCards() []HomeCard
 	LoginWechatMini(req WechatMiniLoginRequest) (*WechatMiniLoginResult, error)
 	CreateMerchantInvite(req CreateMerchantInviteRequest) (*MerchantOnboardingInvite, error)
+	CreateMerchantInviteWithAudit(req CreateMerchantInviteRequest, audit RecordAuditLogRequest) (*MerchantOnboardingInvite, *AuditLog, error)
 	AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error)
 	LoginMerchant(req MerchantLoginRequest) (*MerchantProfile, error)
 	CreateRiderInvite(req CreateRiderInviteRequest) (*MerchantOnboardingInvite, error)
+	CreateRiderInviteWithAudit(req CreateRiderInviteRequest, audit RecordAuditLogRequest) (*MerchantOnboardingInvite, *AuditLog, error)
 	AcceptRiderInvite(req AcceptRiderInviteRequest) (*RiderAccount, error)
 	LoginRider(req RiderLoginRequest) (*RiderAccount, error)
 	SaveMerchantQualification(req UploadMerchantQualificationRequest) (*MerchantProfile, error)

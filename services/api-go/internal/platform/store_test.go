@@ -1642,6 +1642,99 @@ func TestRiderAndStationManagerInviteRegistration(t *testing.T) {
 	}
 }
 
+func TestCreateMerchantInviteWithAuditRecordsVerifiedAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("invite-admin-audit-secret")
+	expiresAt := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+
+	invite, audit, err := store.CreateMerchantInviteWithAudit(
+		CreateMerchantInviteRequest{AdminID: "admin_1", ExpiresAt: expiresAt},
+		RecordAuditLogRequest{
+			ActorType:  "admin",
+			ActorID:    "admin_1",
+			Action:     "admin.merchant_invite.created",
+			TargetType: "merchant_invite",
+			TargetID:   "pending",
+			RequestID:  "req_merchant_invite",
+			IPHash:     "ip_hash",
+			Payload: map[string]any{
+				"expires_at": time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC),
+				"token":      "caller-token-must-not-persist",
+			},
+			CreatedAt: time.Date(2026, 5, 24, 9, 0, 0, 0, time.UTC),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invite.Token == "" || audit.TargetID != invite.Token || audit.TargetType != "merchant_invite" {
+		t.Fatalf("expected merchant invite audit to target generated token, invite=%+v audit=%+v", invite, audit)
+	}
+	if audit.Payload["type"] != OnboardingInviteMerchant || audit.Payload["expires_at"] != invite.ExpiresAt.Format(time.RFC3339Nano) || audit.Payload["token"] != nil {
+		t.Fatalf("expected server-generated merchant invite audit payload, got %+v", audit.Payload)
+	}
+	if audit.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || audit.IntegrityHash == "" || !audit.IntegrityVerified {
+		t.Fatalf("expected verified merchant invite audit proof, got %+v", audit)
+	}
+	logs, err := store.AuditLogs(AuditLogsRequest{TargetType: "merchant_invite", TargetID: invite.Token, Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].Action != "admin.merchant_invite.created" || !logs[0].IntegrityVerified {
+		t.Fatalf("expected queryable merchant invite audit log, got %+v", logs)
+	}
+}
+
+func TestCreateRiderInviteWithAuditRecordsVerifiedAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("invite-rider-audit-secret")
+	expiresAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+
+	invite, audit, err := store.CreateRiderInviteWithAudit(
+		CreateRiderInviteRequest{
+			CreatedByID:   "station_manager_1",
+			CreatedByRole: RiderAccountStationManager,
+			Type:          RiderAccountRider,
+			StationID:     "station_1",
+			ExpiresAt:     expiresAt,
+		},
+		RecordAuditLogRequest{
+			ActorType:  RiderAccountStationManager,
+			ActorID:    "station_manager_1",
+			Action:     "admin.rider_invite.created",
+			TargetType: "rider_invite",
+			TargetID:   "pending",
+			RequestID:  "req_rider_invite",
+			IPHash:     "ip_hash",
+			Payload: map[string]any{
+				"type":       RiderAccountStationManager,
+				"station_id": "station_9",
+				"token":      "caller-token-must-not-persist",
+			},
+			CreatedAt: time.Date(2026, 5, 24, 9, 10, 0, 0, time.UTC),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invite.Token == "" || audit.TargetID != invite.Token || audit.TargetType != "rider_invite" {
+		t.Fatalf("expected rider invite audit to target generated token, invite=%+v audit=%+v", invite, audit)
+	}
+	if audit.Payload["type"] != RiderAccountRider || audit.Payload["station_id"] != "station_1" || audit.Payload["expires_at"] != invite.ExpiresAt.Format(time.RFC3339Nano) || audit.Payload["token"] != nil {
+		t.Fatalf("expected server-generated rider invite audit payload, got %+v", audit.Payload)
+	}
+	if audit.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || audit.IntegrityHash == "" || !audit.IntegrityVerified {
+		t.Fatalf("expected verified rider invite audit proof, got %+v", audit)
+	}
+	logs, err := store.AuditLogs(AuditLogsRequest{TargetType: "rider_invite", TargetID: invite.Token, Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].Action != "admin.rider_invite.created" || !logs[0].IntegrityVerified {
+		t.Fatalf("expected queryable rider invite audit log, got %+v", logs)
+	}
+}
+
 func TestMerchantProductManagementScopesToOwnedShop(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	products, err := store.MerchantProducts("merchant_1", "shop_1")

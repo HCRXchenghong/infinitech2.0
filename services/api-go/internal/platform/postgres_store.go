@@ -320,6 +320,19 @@ SET payload = EXCLUDED.payload, updated_at = now()`, s.storeKey, payload)
 	return err
 }
 
+func (s *PostgresStore) saveSnapshotInTx(ctx context.Context, tx *sql.Tx) error {
+	payload, err := s.Store.snapshotPayload()
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO platform_store_snapshots (store_key, payload, updated_at)
+VALUES ($1, $2, now())
+ON CONFLICT (store_key) DO UPDATE
+SET payload = EXCLUDED.payload, updated_at = now()`, s.storeKey, payload)
+	return err
+}
+
 func (s *PostgresStore) persistAfter(err error) error {
 	if err != nil {
 		return err
@@ -6476,6 +6489,39 @@ func (s *PostgresStore) CreateMerchantInvite(req CreateMerchantInviteRequest) (*
 	return invite, s.persistAfter(err)
 }
 
+func (s *PostgresStore) CreateMerchantInviteWithAudit(req CreateMerchantInviteRequest, audit RecordAuditLogRequest) (*MerchantOnboardingInvite, *AuditLog, error) {
+	log, err := inviteAuditLogFromRequest(audit, "admin.merchant_invite.created", "merchant_invite")
+	if err != nil {
+		return nil, log, err
+	}
+	invite, err := s.Store.CreateMerchantInvite(req)
+	if err != nil {
+		return nil, log, err
+	}
+	log.TargetID = invite.Token
+	log.Payload = merchantInviteAuditPayload(invite)
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, log, err
+	}
+	if err := s.saveSnapshotInTx(ctx, tx); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	return invite, cloneAuditLog(log), nil
+}
+
 func (s *PostgresStore) RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error) {
 	log, err := auditLogFromRequest(req, "")
 	if err != nil {
@@ -6542,6 +6588,39 @@ func (s *PostgresStore) LoginMerchant(req MerchantLoginRequest) (*MerchantProfil
 func (s *PostgresStore) CreateRiderInvite(req CreateRiderInviteRequest) (*MerchantOnboardingInvite, error) {
 	invite, err := s.Store.CreateRiderInvite(req)
 	return invite, s.persistAfter(err)
+}
+
+func (s *PostgresStore) CreateRiderInviteWithAudit(req CreateRiderInviteRequest, audit RecordAuditLogRequest) (*MerchantOnboardingInvite, *AuditLog, error) {
+	log, err := inviteAuditLogFromRequest(audit, "admin.rider_invite.created", "rider_invite")
+	if err != nil {
+		return nil, log, err
+	}
+	invite, err := s.Store.CreateRiderInvite(req)
+	if err != nil {
+		return nil, log, err
+	}
+	log.TargetID = invite.Token
+	log.Payload = riderInviteAuditPayload(invite)
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, log, err
+	}
+	if err := s.saveSnapshotInTx(ctx, tx); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	return invite, cloneAuditLog(log), nil
 }
 
 func (s *PostgresStore) AcceptRiderInvite(req AcceptRiderInviteRequest) (*RiderAccount, error) {
