@@ -121,7 +121,7 @@ func (store *PostgresAuthSessionStore) ensureTable(ctx context.Context) error {
 	_, err = store.db.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS auth_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'merchant', 'rider', 'station_manager', 'admin', 'security_auditor')),
+  subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'merchant', 'rider', 'station_manager', 'admin', 'super_admin', 'ops_admin', 'finance_admin', 'dispatch_admin', 'support_admin', 'security_auditor')),
   subject_id TEXT NOT NULL,
   token_hash TEXT NOT NULL UNIQUE,
   device_id TEXT NOT NULL DEFAULT '',
@@ -131,6 +131,13 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   revoked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )`)
+	if err != nil {
+		return err
+	}
+	_, err = store.db.ExecContext(ctx, `
+ALTER TABLE auth_sessions DROP CONSTRAINT IF EXISTS auth_sessions_subject_type_check;
+ALTER TABLE auth_sessions ADD CONSTRAINT auth_sessions_subject_type_check
+  CHECK (subject_type IN ('user', 'merchant', 'rider', 'station_manager', 'admin', 'super_admin', 'ops_admin', 'finance_admin', 'dispatch_admin', 'support_admin', 'security_auditor'))`)
 	if err != nil {
 		return err
 	}

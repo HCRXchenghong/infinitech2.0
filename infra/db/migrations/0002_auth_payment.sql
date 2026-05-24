@@ -2,7 +2,7 @@
 
 CREATE TABLE auth_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'merchant', 'rider', 'station_manager', 'admin', 'security_auditor')),
+  subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'merchant', 'rider', 'station_manager', 'admin', 'super_admin', 'ops_admin', 'finance_admin', 'dispatch_admin', 'support_admin', 'security_auditor')),
   subject_id TEXT NOT NULL,
   token_hash TEXT NOT NULL UNIQUE,
   device_id TEXT NOT NULL DEFAULT '',

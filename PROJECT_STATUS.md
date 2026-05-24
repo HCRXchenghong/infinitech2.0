@@ -2,7 +2,7 @@
 
 更新时间：2026-05-24
 目标仓库：`https://github.com/HCRXchenghong/infinitech2.0`  
-当前结论：项目已经完成架构基线、monorepo 骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化与 outbox/对象存储等多条商业化底座链路；但还没有完成真实生产支付、真实 IM/RTC、完整管理端、真实高可用基础设施、10 万在线压测和容灾演练，所以不能宣称已经商业级可上线，只能说正在按商业级标准推进。
+当前结论：项目已经完成架构基线、monorepo 骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化、outbox/对象存储、管理端审计和服务端 RBAC 策略矩阵首版等多条商业化底座链路；但还没有完成真实生产支付、真实 IM/RTC、完整管理端、真实高可用基础设施、10 万在线压测和容灾演练，所以不能宣称已经商业级可上线，只能说正在按商业级标准推进。
 
 最近完成、当前未完成和下一批优先级已汇总到 `docs/product/recent-progress-roadmap.md`。这份文档用于快速查看最近提交后的项目状态、商业级阻塞项和后续推进顺序。
 
@@ -19,11 +19,12 @@
 - 管理端审计中心增强首版，支持 actor/action/target/after/before/limit 筛选、before 游标翻页、保存筛选、详情抽屉、跨模块跳转和脱敏 payload 摘要。
 - 管理端审计服务端安全边界首版，新增 `security_auditor` 只读审计角色，并把 audit payload 白名单/敏感字段掩码下沉到 Store 与 PostgreSQL 路径。
 - 管理端审计完整性证明首版，审计日志返回 `integrity_algorithm`、`integrity_hash`、`integrity_verified`，本地默认 `sha256:v1`，生产配置 `AUDIT_LOG_SIGNING_SECRET` 后使用 `hmac-sha256:v1` 检测审计字段或白名单 payload 篡改。
+- 管理端服务端 RBAC 策略矩阵首版，新增 `super_admin`、`ops_admin`、`finance_admin`、`dispatch_admin`、`support_admin` 等后台角色和服务端 scope，邀约、退款、售后、对象清理、outbox、调度、运营快照和审计入口已按权限边界守护。
 - 退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维与商户/骑手邀约审计同事务首版，`PUT /api/admin/refund-settings` 通过 `SaveRefundSettingsWithAudit` 同事务更新退款策略并写入审计，`POST /api/orders/{orderID}/refund` 通过 `RefundOrderWithAudit` 同事务写入退款业务账本和 `admin.order.refunded` 审计，`POST /api/after-sales/{requestID}/review` 通过 `ReviewAfterSalesWithAudit` 同事务写入售后审核、必要退款和 `after_sales.reviewed` 审计，`POST /api/admin/orders/{orderID}/state/compensate` 通过 `CompensateOrderStateWithAudit` 同事务写入状态补偿结果和 `admin.order_state.compensated` 审计，`POST /api/admin/object-storage/cleanup-complete` 与 `POST /api/admin/object-storage/cleanup-failed` 分别通过 `CompleteObjectStorageCleanupWithAudit`、`RecordObjectStorageCleanupFailureWithAudit` 同事务写入对象清理结果和审计，outbox claim/lease renew/publish/fail/replay/batch replay 分别通过 `ClaimOutboxEventsWithAudit`、`RenewOutboxEventLeaseWithAudit`、`MarkOutboxEventPublishedWithAudit`、`MarkOutboxEventFailedWithAudit`、`ReplayOutboxEventWithAudit`、`ReplayOutboxEventsWithAudit` 同事务更新 `platform_outbox_events` 和 `audit_logs`；商户/骑手/站长邀约创建通过 `CreateMerchantInviteWithAudit`、`CreateRiderInviteWithAudit` 同事务写入最终邀约和审计。
 
 当前最重要的未完成项：
 
-- 管理端全域细分 RBAC、审计导出、留存、异常告警、KMS/链式不可抵赖签名和审计策略治理。
+- 管理端角色/权限配置 UI、字段级/租户级 RBAC、权限变更审计、审计导出、留存、异常告警、KMS/链式不可抵赖签名和审计策略治理。
 - 剩余关键业务写操作与审计写入同事务强制提交，继续扫描后台配置、运营处置、资金和风控写路径。
 - 真实微信支付、微信原路退款、对账、提现、商户结算和骑手收入。
 - 真实 IM、客服工作台、RTC 信令与通话审计。
@@ -31,7 +32,7 @@
 
 下一批计划：
 
-- 第一批补后台审计中心和 RBAC。
+- 第一批补后台审计中心、RBAC 治理和权限配置 UI。
 - 第二批补管理端订单/售后/商户资质/骑手站长详情页。
 - 第三批补真实资金链路。
 - 第四批补 IM 与 RTC。
@@ -91,7 +92,7 @@
 - 已完成美团/旧版能力对标矩阵：`docs/product/meituan-legacy-parity-matrix.md`。
 - 已完成商业级验收清单：`docs/product/commercial-readiness-checklist.md`。
 - 已完成容量与容灾规划：`docs/operations/capacity-and-dr.md`。
-- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260524-096`。
+- 已持续记录执行台账：`EXECUTION_LEDGER.md`，当前记录到 `DONE-20260524-097`。
 - 已完成 GitHub 协作与质量门禁首版：`verify.yml` 会在 `push`/`pull_request` 跑 `npm run verify` 和 uncached Go 测试；PR 模板要求商业影响、验证和回滚说明；Issue 模板区分 bug、feature、commercial readiness gap；CODEOWNERS 和 Dependabot 已建立。
 
 ### 3.2 品牌和 UI 基线
@@ -190,7 +191,7 @@
 
 已完成：
 
-- `apps/admin-web` 最小运营控制台首版：静态入口、运营导航、P0 指标位、今日必盯队列、模块状态、RBAC 草案和接口操作台。
+- `apps/admin-web` 最小运营控制台首版：静态入口、运营导航、P0 指标位、今日必盯队列、模块状态、RBAC 首版矩阵和接口操作台。
 - `apps/admin-web` 接口操作台已接入管理员登录、商户/站长/骑手邀约、退款策略、售后列表、对象清理、outbox 运维和订单状态补偿等现有 BFF/API。
 - `apps/admin-web` 已补 P0 业务视图首版：订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略均有独立页面结构、指标、表格、操作入口和安全约束。
 - 管理端已新增 `/api/admin/operations/snapshot` 运营快照首版，按后台视角聚合订单、商户资质/保证金、骑手/站长、骑手绩效、售后、派单审计、退款策略、outbox 健康和对象清理统计；BFF 与管理端操作台已接入该入口。
@@ -200,6 +201,7 @@
 - 管理端已新增审计服务端安全边界首版，`security_auditor` 可只读审计账本但不能执行后台写操作；`auth_sessions` 与身份迁移允许该主体类型；审计 payload 在服务端白名单过滤后才写入或返回，`object_key` 等敏感允许字段会被掩码，password、token、phone、nested/raw_request 等非白名单或敏感字段会被丢弃。
 - 管理端已新增审计完整性证明首版，`audit_logs` 表和 API 返回 `integrity_algorithm`、`integrity_hash`、`integrity_verified`；内存 Store 与 PostgreSQL 写入会签封规范化审计字段和服务端白名单 payload，查询时验证是否被篡改；Admin Web 审计中心可展示完整性状态、算法和哈希。
 - 管理端已新增退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维与商户/骑手邀约审计同事务首版，HTTP 退款策略保存入口改走 `SaveRefundSettingsWithAudit`，管理端订单退款入口改走 `RefundOrderWithAudit`，售后审核入口改走 `ReviewAfterSalesWithAudit`，订单状态补偿入口改走 `CompensateOrderStateWithAudit`，对象清理完成/失败入口改走 `CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit`，outbox 运维入口改走 `ClaimOutboxEventsWithAudit`、`RenewOutboxEventLeaseWithAudit`、`MarkOutboxEventPublishedWithAudit`、`MarkOutboxEventFailedWithAudit`、`ReplayOutboxEventWithAudit` 和 `ReplayOutboxEventsWithAudit`，商户/骑手邀约入口改走 `CreateMerchantInviteWithAudit` 与 `CreateRiderInviteWithAudit`；PostgreSQL-backed Store 分别使用单个数据库事务同时写入业务表、`platform_outbox_events` 或邀约快照与 `audit_logs`，并由 HTTP 防回退测试、Store 原子审计测试和架构守卫固定路径。
+- 管理端已新增服务端 RBAC 策略矩阵首版，后台角色包含兼容 `admin`、`super_admin`、`ops_admin`、`finance_admin`、`dispatch_admin`、`support_admin` 和 `security_auditor`；邀约、退款、运营快照、售后、对象清理、outbox、订单状态补偿、派单读写和审计读取已改为服务端 scope 判断，Admin Web RBAC 配置与后端 scope 命名保持一致。
 - BFF 已补浏览器来源 CORS 白名单和 `OPTIONS` 预检处理，默认覆盖本地管理端/uni 调试来源，并可通过 `BFF_ALLOWED_ORIGINS` 配置部署来源。
 - `apps/admin-uni` 骨架。
 - `packages/admin-core` 已定义关键运营模块。
@@ -208,9 +210,9 @@
 未完成：
 
 - 桌面管理端完整业务页面和详情页。
-- 管理端 P0 视图已能读取运营快照生成首批表格/指标，关键写操作已有审计账本、审计检索页、服务端只读审计角色和完整性证明首版；仍需补订单/售后/资质详情抽屉、审核表单、全域服务端细分 RBAC、审计导出/留存/告警、KMS/链式不可抵赖签名。
+- 管理端 P0 视图已能读取运营快照生成首批表格/指标，关键写操作已有审计账本、审计检索页、服务端 RBAC 策略矩阵和完整性证明首版；仍需补订单/售后/资质详情抽屉、审核表单、角色/权限配置 UI、字段级/租户级权限、审计导出/留存/告警、KMS/链式不可抵赖签名。
 - 移动管理端实际页面。
-- 全域 RBAC 细分权限、审计导出留存、异常告警、KMS/链式不可抵赖签名和审计策略治理。
+- 角色/权限配置 UI、字段级/租户级 RBAC、权限变更审计、审计导出留存、异常告警、KMS/链式不可抵赖签名和审计策略治理。
 - 订单、售后、用户、商户、骑手、首页卡片、优惠券、圈子/饭搭、团购、买药、跑腿、客服、RTC、OAuth/API、对象存储告警等后台面板。
 
 ### 3.7 核心 API 和数据链路
@@ -265,6 +267,7 @@
 - 审计日志 PostgreSQL 规范化表首版：`PostgresStore` 确保 `audit_logs` 表/索引存在，把旧快照审计幂等补入表，通过 `platform_sequences` 行级锁生成审计 `aud_N`，PostgreSQL 查询路径直接读取规范化表。
 - 管理端审计完整性证明首版：审计日志签封规范化字段和白名单 payload，返回 `integrity_algorithm`、`integrity_hash`、`integrity_verified`，本地默认 SHA256，生产可用 `AUDIT_LOG_SIGNING_SECRET` 启用 HMAC。
 - 退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维与商户/骑手邀约审计同事务首版：`SaveRefundSettingsWithAudit` 将退款策略配置写入和 `admin.refund_settings.updated` 审计写入收敛到仓储级原子路径；`RefundOrderWithAudit` 将管理端订单退款业务账本和 `admin.order.refunded` 审计写入收敛到仓储级原子路径；`ReviewAfterSalesWithAudit` 将售后审核、必要退款和 `after_sales.reviewed` 审计写入收敛到仓储级原子路径；`CompensateOrderStateWithAudit` 将订单状态补偿和 `admin.order_state.compensated` 审计写入收敛到仓储级原子路径；`CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit` 将对象清理完成/失败票据状态和 `admin.object_cleanup.completed`/`admin.object_cleanup.failed` 审计写入收敛到仓储级原子路径；outbox claim/lease renew/publish/fail/replay/batch replay 通过对应 `WithAudit` 仓储方法在同一事务内更新 `platform_outbox_events` 与 `audit_logs`；商户/骑手/站长邀约通过 `CreateMerchantInviteWithAudit` 与 `CreateRiderInviteWithAudit` 把最终生成 token 的邀约和审计写入收敛到仓储级原子路径。
+- 管理端服务端 RBAC 策略矩阵首版：新增后台角色和 scope 常量，核心后台路由已按 `CanManageInvites`、`CanManageRefunds`、`CanReadAdminAfterSales`、`CanManageDispatch`、`CanReadOutbox`、`CanManageOutbox` 等服务端策略守护，`auth_sessions` 和迁移允许新增后台主体类型。
 - 对象生命周期清理 worker 首版。
 - 对象清理失败账本首版。
 - 对象清理统计接口首版。
@@ -297,7 +300,7 @@
 - 用户邀请页和邀请奖励闭环。
 - 优惠券、红包、群聊资金闭环的 API 实装。
 - 评价、收藏、积分会员、推送、风控完整闭环。
-- 管理端细分 RBAC、剩余业务写操作与审计写入同事务强制提交、审计导出/留存/告警、KMS/链式签名和完整审计后台。
+- 角色/权限配置 UI、字段级/租户级 RBAC、剩余业务写操作与审计写入同事务强制提交、审计导出/留存/告警、KMS/链式签名和完整审计后台。
 
 ### 3.8 BFF
 
@@ -439,7 +442,7 @@ npm run verify:architecture
 - 邀请用户页和奖励闭环。
 - 优惠券、群聊、红包、平台补贴、商户承担活动结算。
 - 评价、内容审核、举报、风控、隐私合规。
-- 后台 RBAC、操作审计、敏感字段脱敏。
+- 后台权限配置 UI、字段级/租户级 RBAC、操作审计导出留存和敏感字段脱敏治理。
 - 真实 Kafka/Redis/PostgreSQL HA/MinIO/Vault 生产部署。
 - Prometheus/Grafana/Loki/Tempo 告警和仪表盘。
 - 10k/30k/60k/100k 在线压测报告。
@@ -480,7 +483,8 @@ npm run verify:architecture
 - 已做审计服务端安全边界首版：`security_auditor` 只读审计角色、审计 payload 服务端白名单和敏感字段掩码。
 - 已做审计完整性证明首版：`sha256:v1`/`hmac-sha256:v1` 签封审计规范化字段和白名单 payload，Admin Web 可展示验证状态。
 - 已做退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维与商户/骑手邀约审计同事务首版：后台退款策略保存会在仓储级原子路径内同时更新配置和写入审计，管理端订单退款会在仓储级原子路径内同时写入退款业务账本和审计，售后审核会在仓储级原子路径内同时写入审核结果、必要退款和审计，订单状态补偿会在仓储级原子路径内同时写入修复结果和审计，对象清理完成/失败会在仓储级原子路径内同时写入上传票据清理状态和审计，outbox 运维会在仓储级原子路径内同时更新 outbox 事件状态和审计，商户/骑手邀约会在仓储级原子路径内同时生成最终邀约和审计。
-- 下一步：把订单/售后/商户/骑手视图继续拆详情页与审核表单，并补全域服务端细分 RBAC、剩余后台配置/运营处置/资金风控写路径审计同事务、审计导出留存、异常告警和 KMS/链式不可抵赖签名。
+- 已做管理端服务端 RBAC 策略矩阵首版：`ops_admin`、`finance_admin`、`dispatch_admin`、`support_admin`、`security_auditor` 等角色已由服务端 scope 守护关键后台路由。
+- 下一步：把订单/售后/商户/骑手视图继续拆详情页与审核表单，并补角色/权限配置 UI、字段级/租户级 RBAC、剩余后台配置/运营处置/资金风控写路径审计同事务、审计导出留存、异常告警和 KMS/链式不可抵赖签名。
 
 ### 第 3 优先级：微信支付生产链路
 

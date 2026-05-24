@@ -269,7 +269,7 @@ func (r *Router) handleCreateMerchantInvite(w http.ResponseWriter, req *http.Req
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageInvites() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -301,7 +301,7 @@ func (r *Router) handleCreateRiderInvite(w http.ResponseWriter, req *http.Reques
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleStationManager {
+	if !principal.CanManageInvites() && principal.Role != RoleStationManager {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1094,7 +1094,7 @@ func (r *Router) handleAdminCompensateOrderState(w http.ResponseWriter, req *htt
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanCompensateOrders() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1121,7 +1121,7 @@ func (r *Router) handleAdminRefundSettings(w http.ResponseWriter, req *http.Requ
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanReadRefundSettings() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1142,7 +1142,7 @@ func (r *Router) handleAdminSaveRefundSettings(w http.ResponseWriter, req *http.
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageRefunds() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1167,7 +1167,7 @@ func (r *Router) handleAdminAfterSales(w http.ResponseWriter, req *http.Request)
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanReadAdminAfterSales() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1184,7 +1184,7 @@ func (r *Router) handleAdminOperationsSnapshot(w http.ResponseWriter, req *http.
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanReadOperationsSnapshot() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1333,7 +1333,7 @@ func (r *Router) handleAdminRefundOrder(w http.ResponseWriter, req *http.Request
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageRefunds() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1365,13 +1365,13 @@ func (r *Router) handleReviewAfterSales(w http.ResponseWriter, req *http.Request
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleMerchant {
+	if !principal.CanReviewAfterSales() && principal.Role != RoleMerchant {
 		writeAuthError(w, errForbidden)
 		return
 	}
 	payload.RequestID = req.PathValue("requestID")
 	payload.ActorID = principal.ID
-	payload.ActorRole = principal.Role
+	payload.ActorRole = principal.PlatformActorRole()
 	request, refund, order, account, _, err := r.store.ReviewAfterSalesWithAudit(payload, platform.RecordAuditLogRequest{
 		ActorType:  principal.Role,
 		ActorID:    principal.ID,
@@ -1393,7 +1393,11 @@ func (r *Router) handleAfterSalesEvents(w http.ResponseWriter, req *http.Request
 	if !ok {
 		return
 	}
-	events, err := r.store.AfterSalesEvents(req.PathValue("requestID"), principal.ID, principal.Role)
+	if principal.IsBackofficeRole() && !principal.CanReadAdminAfterSales() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	events, err := r.store.AfterSalesEvents(req.PathValue("requestID"), principal.ID, principal.PlatformActorRole())
 	if err != nil {
 		writePlatformError(w, err)
 		return
@@ -1410,9 +1414,13 @@ func (r *Router) handleAddAfterSalesEvent(w http.ResponseWriter, req *http.Reque
 	if !ok {
 		return
 	}
+	if principal.IsBackofficeRole() && !principal.CanAddAdminAfterSalesEvent() {
+		writeAuthError(w, errForbidden)
+		return
+	}
 	payload.RequestID = req.PathValue("requestID")
 	payload.ActorID = principal.ID
-	payload.ActorRole = principal.Role
+	payload.ActorRole = principal.PlatformActorRole()
 	event, request, err := r.store.AddAfterSalesEvent(payload)
 	if err != nil {
 		writePlatformError(w, err)
@@ -1430,9 +1438,13 @@ func (r *Router) handleCreateAfterSalesEvidenceUpload(w http.ResponseWriter, req
 	if !ok {
 		return
 	}
+	if principal.IsBackofficeRole() && !principal.CanAddAdminAfterSalesEvent() {
+		writeAuthError(w, errForbidden)
+		return
+	}
 	payload.RequestID = req.PathValue("requestID")
 	payload.ActorID = principal.ID
-	payload.ActorRole = principal.Role
+	payload.ActorRole = principal.PlatformActorRole()
 	ticket, err := r.store.CreateAfterSalesEvidenceUpload(payload)
 	if err != nil {
 		writePlatformError(w, err)
@@ -1450,9 +1462,13 @@ func (r *Router) handleConfirmAfterSalesEvidenceUpload(w http.ResponseWriter, re
 	if !ok {
 		return
 	}
+	if principal.IsBackofficeRole() && !principal.CanAddAdminAfterSalesEvent() {
+		writeAuthError(w, errForbidden)
+		return
+	}
 	payload.RequestID = req.PathValue("requestID")
 	payload.ActorID = principal.ID
-	payload.ActorRole = principal.Role
+	payload.ActorRole = principal.PlatformActorRole()
 	evidence, event, request, err := r.store.ConfirmAfterSalesEvidenceUpload(payload)
 	if err != nil {
 		writePlatformError(w, err)
@@ -1498,7 +1514,11 @@ func (r *Router) handleAfterSalesEvidence(w http.ResponseWriter, req *http.Reque
 	if !ok {
 		return
 	}
-	evidence, err := r.store.AfterSalesEvidence(req.PathValue("requestID"), principal.ID, principal.Role)
+	if principal.IsBackofficeRole() && !principal.CanReadAdminAfterSales() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	evidence, err := r.store.AfterSalesEvidence(req.PathValue("requestID"), principal.ID, principal.PlatformActorRole())
 	if err != nil {
 		writePlatformError(w, err)
 		return
@@ -1511,7 +1531,7 @@ func (r *Router) handleAdminObjectStorageCleanupCandidates(w http.ResponseWriter
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanReadObjectCleanup() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1532,7 +1552,7 @@ func (r *Router) handleAdminObjectStorageCleanupStats(w http.ResponseWriter, req
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanReadObjectCleanup() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1592,7 +1612,7 @@ func (r *Router) handleAdminObjectStorageCleanupComplete(w http.ResponseWriter, 
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageObjectCleanup() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1621,7 +1641,7 @@ func (r *Router) handleAdminObjectStorageCleanupFailed(w http.ResponseWriter, re
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageObjectCleanup() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1646,7 +1666,7 @@ func (r *Router) handleAdminOutboxEvents(w http.ResponseWriter, req *http.Reques
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanReadOutbox() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1686,7 +1706,7 @@ func (r *Router) handleAdminOutboxStats(w http.ResponseWriter, req *http.Request
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanReadOutbox() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1729,7 +1749,7 @@ func (r *Router) handleAdminClaimOutboxEvents(w http.ResponseWriter, req *http.R
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageOutbox() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1758,7 +1778,7 @@ func (r *Router) handleAdminRenewOutboxEventLease(w http.ResponseWriter, req *ht
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageOutbox() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1788,7 +1808,7 @@ func (r *Router) handleAdminMarkOutboxEventPublished(w http.ResponseWriter, req 
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageOutbox() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1818,7 +1838,7 @@ func (r *Router) handleAdminMarkOutboxEventFailed(w http.ResponseWriter, req *ht
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageOutbox() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1848,7 +1868,7 @@ func (r *Router) handleAdminReplayOutboxEvent(w http.ResponseWriter, req *http.R
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageOutbox() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1878,7 +1898,7 @@ func (r *Router) handleAdminReplayOutboxEvents(w http.ResponseWriter, req *http.
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanManageOutbox() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -2165,7 +2185,7 @@ func (r *Router) handleAutoAssignOrder(w http.ResponseWriter, req *http.Request)
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleStationManager {
+	if !principal.CanManageDispatch() && principal.Role != RoleStationManager {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -2212,7 +2232,7 @@ func (r *Router) handleTimeoutReassignOrder(w http.ResponseWriter, req *http.Req
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleStationManager {
+	if !principal.CanManageDispatch() && principal.Role != RoleStationManager {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -2235,7 +2255,7 @@ func (r *Router) handleDispatchEvents(w http.ResponseWriter, req *http.Request) 
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleStationManager {
+	if !principal.CanReadDispatch() && principal.Role != RoleStationManager {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -2252,7 +2272,7 @@ func (r *Router) handleStationManagerRiders(w http.ResponseWriter, req *http.Req
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleStationManager {
+	if !principal.CanReadDispatch() && principal.Role != RoleStationManager {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -2269,7 +2289,7 @@ func (r *Router) handleStationManagerOrders(w http.ResponseWriter, req *http.Req
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleStationManager {
+	if !principal.CanReadDispatch() && principal.Role != RoleStationManager {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -2290,7 +2310,7 @@ func (r *Router) handleStationManagerManualAssign(w http.ResponseWriter, req *ht
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleStationManager {
+	if !principal.CanManageDispatch() && principal.Role != RoleStationManager {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -2313,7 +2333,7 @@ func (r *Router) handleStationManagerTaskConfig(w http.ResponseWriter, req *http
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleStationManager {
+	if !principal.CanReadDispatch() && principal.Role != RoleStationManager {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -2334,7 +2354,7 @@ func (r *Router) handleSaveStationManagerTaskConfig(w http.ResponseWriter, req *
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleStationManager {
+	if !principal.CanManageDispatch() && principal.Role != RoleStationManager {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -2356,7 +2376,7 @@ func (r *Router) handleStationManagerRiderPerformance(w http.ResponseWriter, req
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() && principal.Role != RoleStationManager {
+	if !principal.CanReadDispatch() && principal.Role != RoleStationManager {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -2477,7 +2497,7 @@ func merchantIDFromPrincipal(req *http.Request, principal Principal) string {
 }
 
 func stationManagerIDFromPrincipal(req *http.Request, principal Principal) string {
-	if principal.IsAdmin() {
+	if principal.IsAdmin() || principal.CanReadDispatch() || principal.CanManageDispatch() {
 		return req.URL.Query().Get("station_manager_id")
 	}
 	if principal.Role == RoleStationManager {
@@ -2487,7 +2507,7 @@ func stationManagerIDFromPrincipal(req *http.Request, principal Principal) strin
 }
 
 func riderIDFromPrincipal(req *http.Request, principal Principal) string {
-	if principal.IsAdmin() || principal.Role == RoleStationManager {
+	if principal.IsAdmin() || principal.Role == RoleStationManager || principal.CanReadDispatch() || principal.CanManageDispatch() {
 		return req.URL.Query().Get("rider_id")
 	}
 	if principal.Role == RoleRider {

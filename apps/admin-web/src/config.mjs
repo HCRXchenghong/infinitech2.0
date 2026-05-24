@@ -71,11 +71,12 @@ export const ADMIN_WEB_QUEUES = Object.freeze([
 ]);
 
 export const ADMIN_WEB_RBAC = Object.freeze([
+  { role: "admin", name: "兼容管理员", scopes: ["*"] },
   { role: "super_admin", name: "超级管理员", scopes: ["*"] },
-  { role: "ops_admin", name: "运营管理员", scopes: ["orders:read", "after_sales:review", "merchant:review", "home:write"] },
-  { role: "finance_admin", name: "财务管理员", scopes: ["refund:write", "wallet:read", "settlement:read"] },
-  { role: "dispatch_admin", name: "调度管理员", scopes: ["dispatch:read", "dispatch:manual_assign", "rider:read"] },
-  { role: "support_admin", name: "客服管理员", scopes: ["support:read", "after_sales:event", "rtc:audit"] },
+  { role: "ops_admin", name: "运营管理员", scopes: ["operations:read", "invite:write", "after_sales:read", "after_sales:review", "order:compensate", "object_cleanup:read", "object_cleanup:write", "outbox:read", "outbox:write", "dispatch:read", "rider:read"] },
+  { role: "finance_admin", name: "财务管理员", scopes: ["operations:read", "refund:read", "refund:write", "wallet:read", "settlement:read"] },
+  { role: "dispatch_admin", name: "调度管理员", scopes: ["operations:read", "dispatch:read", "dispatch:write", "rider:read"] },
+  { role: "support_admin", name: "客服管理员", scopes: ["operations:read", "after_sales:read", "after_sales:event", "support:read", "rtc:audit"] },
   { role: "security_auditor", name: "安全审计员", scopes: ["audit:read", "risk:read", "system_logs:read"] }
 ]);
 

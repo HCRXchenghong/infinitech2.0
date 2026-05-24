@@ -23,7 +23,7 @@ CREATE TABLE app_users (
 
 CREATE TABLE auth_identities (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'merchant', 'rider', 'station_manager', 'admin', 'security_auditor')),
+  subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'merchant', 'rider', 'station_manager', 'admin', 'super_admin', 'ops_admin', 'finance_admin', 'dispatch_admin', 'support_admin', 'security_auditor')),
   subject_id TEXT NOT NULL,
   provider TEXT NOT NULL,
   provider_open_id TEXT NOT NULL,

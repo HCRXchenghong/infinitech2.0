@@ -13,11 +13,39 @@ import (
 
 const (
 	RoleAdmin           = "admin"
+	RoleDispatchAdmin   = "dispatch_admin"
+	RoleFinanceAdmin    = "finance_admin"
 	RoleMerchant        = "merchant"
+	RoleOpsAdmin        = "ops_admin"
 	RoleRider           = "rider"
 	RoleSecurityAuditor = "security_auditor"
 	RoleStationManager  = "station_manager"
+	RoleSuperAdmin      = "super_admin"
+	RoleSupportAdmin    = "support_admin"
 	RoleUser            = "user"
+)
+
+const (
+	AdminScopeAll                = "*"
+	AdminScopeAfterSalesEvent    = "after_sales:event"
+	AdminScopeAfterSalesRead     = "after_sales:read"
+	AdminScopeAfterSalesReview   = "after_sales:review"
+	AdminScopeAuditRead          = "audit:read"
+	AdminScopeDispatchRead       = "dispatch:read"
+	AdminScopeDispatchWrite      = "dispatch:write"
+	AdminScopeInviteWrite        = "invite:write"
+	AdminScopeObjectCleanupRead  = "object_cleanup:read"
+	AdminScopeObjectCleanupWrite = "object_cleanup:write"
+	AdminScopeOperationsRead     = "operations:read"
+	AdminScopeOrderCompensate    = "order:compensate"
+	AdminScopeOutboxRead         = "outbox:read"
+	AdminScopeOutboxWrite        = "outbox:write"
+	AdminScopeRefundRead         = "refund:read"
+	AdminScopeRefundWrite        = "refund:write"
+	AdminScopeRiderRead          = "rider:read"
+	AdminScopeSettlementRead     = "settlement:read"
+	AdminScopeSystemLogsRead     = "system_logs:read"
+	AdminScopeWalletRead         = "wallet:read"
 )
 
 var (
@@ -35,11 +63,99 @@ func (p Principal) IsZero() bool {
 }
 
 func (p Principal) IsAdmin() bool {
-	return p.Role == RoleAdmin
+	return p.Role == RoleAdmin || p.Role == RoleSuperAdmin
+}
+
+func (p Principal) IsBackofficeRole() bool {
+	switch p.Role {
+	case RoleAdmin, RoleSuperAdmin, RoleOpsAdmin, RoleFinanceAdmin, RoleDispatchAdmin, RoleSupportAdmin, RoleSecurityAuditor:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p Principal) PlatformActorRole() string {
+	if p.IsBackofficeRole() {
+		return RoleAdmin
+	}
+	return p.Role
+}
+
+func (p Principal) HasAdminScope(scope string) bool {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return false
+	}
+	scopes, ok := adminRoleScopes[p.Role]
+	if !ok {
+		return false
+	}
+	if _, ok := scopes[AdminScopeAll]; ok {
+		return true
+	}
+	_, ok = scopes[scope]
+	return ok
 }
 
 func (p Principal) CanReadAuditLogs() bool {
-	return p.Role == RoleAdmin || p.Role == RoleSecurityAuditor
+	return p.HasAdminScope(AdminScopeAuditRead)
+}
+
+func (p Principal) CanManageInvites() bool {
+	return p.HasAdminScope(AdminScopeInviteWrite)
+}
+
+func (p Principal) CanReadRefundSettings() bool {
+	return p.HasAdminScope(AdminScopeRefundRead) || p.HasAdminScope(AdminScopeRefundWrite)
+}
+
+func (p Principal) CanManageRefunds() bool {
+	return p.HasAdminScope(AdminScopeRefundWrite)
+}
+
+func (p Principal) CanReadOperationsSnapshot() bool {
+	return p.HasAdminScope(AdminScopeOperationsRead)
+}
+
+func (p Principal) CanReadAdminAfterSales() bool {
+	return p.HasAdminScope(AdminScopeAfterSalesRead) || p.HasAdminScope(AdminScopeAfterSalesReview)
+}
+
+func (p Principal) CanReviewAfterSales() bool {
+	return p.HasAdminScope(AdminScopeAfterSalesReview)
+}
+
+func (p Principal) CanAddAdminAfterSalesEvent() bool {
+	return p.HasAdminScope(AdminScopeAfterSalesEvent) || p.HasAdminScope(AdminScopeAfterSalesReview)
+}
+
+func (p Principal) CanReadObjectCleanup() bool {
+	return p.HasAdminScope(AdminScopeObjectCleanupRead) || p.HasAdminScope(AdminScopeObjectCleanupWrite)
+}
+
+func (p Principal) CanManageObjectCleanup() bool {
+	return p.HasAdminScope(AdminScopeObjectCleanupWrite)
+}
+
+func (p Principal) CanReadOutbox() bool {
+	return p.HasAdminScope(AdminScopeOutboxRead) || p.HasAdminScope(AdminScopeOutboxWrite)
+}
+
+func (p Principal) CanManageOutbox() bool {
+	return p.HasAdminScope(AdminScopeOutboxWrite)
+}
+
+func (p Principal) CanCompensateOrders() bool {
+	return p.HasAdminScope(AdminScopeOrderCompensate)
+}
+
+func (p Principal) CanReadDispatch() bool {
+	return p.HasAdminScope(AdminScopeDispatchRead) || p.HasAdminScope(AdminScopeDispatchWrite)
+}
+
+func (p Principal) CanManageDispatch() bool {
+	return p.HasAdminScope(AdminScopeDispatchWrite)
 }
 
 func (p Principal) CanActAsUser(userID string) bool {
@@ -225,9 +341,60 @@ func bearerToken(req *http.Request) (string, error) {
 
 func isKnownRole(role string) bool {
 	switch role {
-	case RoleAdmin, RoleMerchant, RoleRider, RoleSecurityAuditor, RoleStationManager, RoleUser:
+	case RoleAdmin, RoleDispatchAdmin, RoleFinanceAdmin, RoleMerchant, RoleOpsAdmin, RoleRider, RoleSecurityAuditor, RoleStationManager, RoleSuperAdmin, RoleSupportAdmin, RoleUser:
 		return true
 	default:
 		return false
 	}
+}
+
+func scopeSet(scopes ...string) map[string]struct{} {
+	output := make(map[string]struct{}, len(scopes))
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope != "" {
+			output[scope] = struct{}{}
+		}
+	}
+	return output
+}
+
+var adminRoleScopes = map[string]map[string]struct{}{
+	RoleAdmin:      scopeSet(AdminScopeAll),
+	RoleSuperAdmin: scopeSet(AdminScopeAll),
+	RoleOpsAdmin: scopeSet(
+		AdminScopeAfterSalesRead,
+		AdminScopeAfterSalesReview,
+		AdminScopeDispatchRead,
+		AdminScopeInviteWrite,
+		AdminScopeObjectCleanupRead,
+		AdminScopeObjectCleanupWrite,
+		AdminScopeOperationsRead,
+		AdminScopeOrderCompensate,
+		AdminScopeOutboxRead,
+		AdminScopeOutboxWrite,
+		AdminScopeRiderRead,
+	),
+	RoleFinanceAdmin: scopeSet(
+		AdminScopeOperationsRead,
+		AdminScopeRefundRead,
+		AdminScopeRefundWrite,
+		AdminScopeSettlementRead,
+		AdminScopeWalletRead,
+	),
+	RoleDispatchAdmin: scopeSet(
+		AdminScopeDispatchRead,
+		AdminScopeDispatchWrite,
+		AdminScopeOperationsRead,
+		AdminScopeRiderRead,
+	),
+	RoleSupportAdmin: scopeSet(
+		AdminScopeAfterSalesEvent,
+		AdminScopeAfterSalesRead,
+		AdminScopeOperationsRead,
+	),
+	RoleSecurityAuditor: scopeSet(
+		AdminScopeAuditRead,
+		AdminScopeSystemLogsRead,
+	),
 }

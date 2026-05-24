@@ -161,6 +161,30 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	}
 }
 
+func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	authGetJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_1"), http.StatusOK)
+	authPutJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_1"), `{"default_refund_strategy":"balance_first"}`, http.StatusOK)
+	authPostJSON(t, server.URL+"/api/admin/merchant-invites", roleToken(RoleFinanceAdmin, "finance_1"), `{}`, http.StatusForbidden)
+
+	opsInvite := authPostJSON(t, server.URL+"/api/admin/merchant-invites", roleToken(RoleOpsAdmin, "ops_1"), `{}`, http.StatusCreated)
+	if opsInvite["data"].(map[string]any)["created_by_subject_id"] != "ops_1" {
+		t.Fatalf("expected ops admin to create merchant invite with own subject, got %+v", opsInvite)
+	}
+	authGetJSON(t, server.URL+"/api/admin/audit-logs", roleToken(RoleOpsAdmin, "ops_1"), http.StatusForbidden)
+
+	authGetJSON(t, server.URL+"/api/admin/audit-logs?limit=5", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusOK)
+	authGetJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusForbidden)
+
+	authGetJSON(t, server.URL+"/api/admin/after-sales", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	authPutJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleSupportAdmin, "support_1"), `{"default_refund_strategy":"original_route_first"}`, http.StatusForbidden)
+
+	authGetJSON(t, server.URL+"/api/station-manager/riders", roleToken(RoleDispatchAdmin, "dispatch_1"), http.StatusOK)
+	authPostJSON(t, server.URL+"/api/admin/outbox/events/claim", roleToken(RoleDispatchAdmin, "dispatch_1"), `{"topic":"order.paid","limit":1,"lease_owner":"dispatch","lease_seconds":30}`, http.StatusForbidden)
+}
+
 func TestAdminRefundSettingsHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
 	store := &refundSettingsAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
 	server := httptest.NewServer(NewRouter(store))
@@ -1506,6 +1530,10 @@ func merchantToken(merchantID string) string {
 
 func adminToken(adminID string) string {
 	return RoleAdmin + ":" + adminID
+}
+
+func roleToken(role string, subjectID string) string {
+	return role + ":" + subjectID
 }
 
 func securityAuditorToken(auditorID string) string {
