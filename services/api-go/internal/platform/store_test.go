@@ -3678,6 +3678,73 @@ func TestRequestAuditArchiveBuildsManifestOutboxAndAudit(t *testing.T) {
 	if len(events) != 1 || events[0].ID != event.ID || events[0].Payload["manifest_hash"] != archive.ManifestHash {
 		t.Fatalf("expected archive request outbox event to be queryable, got %+v", events)
 	}
+	completion, completionAudit, err := store.CompleteAuditArchive(AuditArchiveCompletionRequest{
+		ArchiveID:         archive.ArchiveID,
+		StorageKey:        archive.StorageKey,
+		ManifestAlgorithm: archive.ManifestAlgorithm,
+		ManifestHash:      archive.ManifestHash,
+		ContentHash:       "content_hash_archive",
+		Bytes:             512,
+		ObjectLockMode:    "COMPLIANCE",
+		RetainUntil:       now.AddDate(7, 0, 0),
+		OutboxEventID:     event.ID,
+		UploadedAt:        now.Add(time.Minute),
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "archive_worker",
+		Action:     "admin.audit_archive.completed",
+		TargetType: "audit_archive",
+		TargetID:   archive.ArchiveID,
+		CreatedAt:  now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completion.Status != "archived" || completion.ArchiveID != archive.ArchiveID || completion.ContentHash != "content_hash_archive" || completion.Bytes != 512 {
+		t.Fatalf("expected completed archive evidence, got %+v", completion)
+	}
+	if completionAudit == nil || completionAudit.Action != "admin.audit_archive.completed" || completionAudit.TargetID != archive.ArchiveID || completionAudit.Payload["content_hash"] != "content_hash_archive" {
+		t.Fatalf("expected audit log for archive completion, got %+v", completionAudit)
+	}
+	archives, err := store.AuditArchives(AuditArchiveListRequest{ArchiveID: archive.ArchiveID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archives) != 1 || archives[0].ArchiveID != archive.ArchiveID || archives[0].OutboxEventID != event.ID || archives[0].ManifestHash != archive.ManifestHash {
+		t.Fatalf("expected archive completion to be queryable, got %+v", archives)
+	}
+	replayedCompletion, replayedAudit, err := store.CompleteAuditArchive(AuditArchiveCompletionRequest{
+		ArchiveID:         archive.ArchiveID,
+		StorageKey:        archive.StorageKey,
+		ManifestAlgorithm: archive.ManifestAlgorithm,
+		ManifestHash:      archive.ManifestHash,
+		ContentHash:       "content_hash_archive",
+		Bytes:             512,
+		ObjectLockMode:    "COMPLIANCE",
+		RetainUntil:       now.AddDate(7, 0, 0),
+		OutboxEventID:     event.ID,
+		UploadedAt:        now.Add(2 * time.Minute),
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "archive_worker",
+		Action:     "admin.audit_archive.completed",
+		TargetType: "audit_archive",
+		TargetID:   archive.ArchiveID,
+		CreatedAt:  now.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayedCompletion.CompletedAt != completion.CompletedAt || replayedAudit.ID != completionAudit.ID {
+		t.Fatalf("expected duplicate archive completion callback to be idempotent, got %+v audit %+v", replayedCompletion, replayedAudit)
+	}
+	archivesAfterReplay, err := store.AuditArchives(AuditArchiveListRequest{ArchiveID: archive.ArchiveID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archivesAfterReplay) != 1 {
+		t.Fatalf("expected duplicate completion to keep one archive record, got %+v", archivesAfterReplay)
+	}
 }
 
 func mustPaidDispatchOrder(t *testing.T, store *Store, suffix string) *Order {

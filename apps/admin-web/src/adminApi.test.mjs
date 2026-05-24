@@ -4,6 +4,7 @@ import { ADMIN_API_OPERATIONS, buildAdminRequest, executeAdminOperation, fieldsF
 import {
   auditDataFromResult,
   auditArchiveRequestFromResult,
+  auditArchiveRecordsFromResult,
   auditExportDataFromResult,
   auditRetentionAlertEmissionFromResult,
   auditRetentionReportFromResult,
@@ -130,6 +131,10 @@ test("admin request builder normalizes auth query path and body", () => {
   assert.equal(auditArchiveRequest.url, "/api/admin/audit-logs/archive/request");
   assert.deepEqual(JSON.parse(auditArchiveRequest.body), { hot_days: 180, limit: 500, storage_prefix: "worm://audit-logs" });
 
+  const auditArchiveRecordsRequest = buildAdminRequest(getAdminOperation("audit-archive-records"), { archive_id: "audit_archive_1", limit: 5 }, "Bearer admin.token");
+  assert.equal(auditArchiveRecordsRequest.method, "GET");
+  assert.equal(auditArchiveRecordsRequest.url, "/api/admin/audit-logs/archive/records?archive_id=audit_archive_1&limit=5");
+
   const rbacRequest = buildAdminRequest(getAdminOperation("rbac-change-request"), { role: "support_admin", requested_scopes: "after_sales:read, rbac:read, rbac:read", reason: "support recertification" }, "admin.token");
   assert.equal(rbacRequest.url, "/api/admin/rbac/change-requests");
   assert.deepEqual(JSON.parse(rbacRequest.body), { role: "support_admin", requested_scopes: ["after_sales:read", "rbac:read"], reason: "support recertification" });
@@ -251,6 +256,32 @@ test("admin audit adapter redacts sensitive payload and builds cursor rows", () 
     auditLogId: "aud_archive_1"
   });
   assert.equal(auditArchiveRequestFromResult({ payload: { data: { archive: [] } } }), null);
+  assert.deepEqual(auditArchiveRecordsFromResult({ payload: { data: [{
+    archive_id: "audit_archive_1",
+    status: "archived",
+    storage_key: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl",
+    manifest_hash: "abc",
+    content_hash: "content",
+    bytes: 1024,
+    object_lock_mode: "COMPLIANCE",
+    retain_until: "2033-05-24T00:00:00Z",
+    uploaded_at: "2026-05-24T00:00:01Z",
+    completed_at: "2026-05-24T00:00:02Z",
+    outbox_event_id: "obe_archive_1"
+  }] } }), [{
+    archiveId: "audit_archive_1",
+    status: "archived",
+    storageKey: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl",
+    manifestHash: "abc",
+    contentHash: "content",
+    bytes: 1024,
+    objectLockMode: "COMPLIANCE",
+    retainUntil: "2033-05-24T00:00:00Z",
+    uploadedAt: "2026-05-24T00:00:01Z",
+    completedAt: "2026-05-24T00:00:02Z",
+    outboxEventId: "obe_archive_1"
+  }]);
+  assert.deepEqual(auditArchiveRecordsFromResult({ payload: { data: {} } }), []);
 
   const tamperedRows = buildAuditRows([{ ...logs[0], integrity_verified: false }]);
   assert.equal(tamperedRows[0].integrityLabel, "未通过");

@@ -217,9 +217,26 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	if archiveAudit["action"] != "admin.audit_archive.requested" || archiveAudit["target_type"] != "audit_archive" {
 		t.Fatalf("expected audit archive request to be audited, got %+v", archiveAudit)
 	}
+	archiveCompleteBody := authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/complete", adminToken("admin_1"), `{"archive_id":"`+archive["archive_id"].(string)+`","storage_key":"`+archive["storage_key"].(string)+`","manifest_algorithm":"sha256:v1","manifest_hash":"`+archive["manifest_hash"].(string)+`","content_hash":"content_hash_http","bytes":1024,"object_lock_mode":"COMPLIANCE","retain_until":"2034-05-24T12:00:00Z","outbox_event_id":"`+archive["outbox_event_id"].(string)+`","uploaded_at":"2027-05-24T12:01:00Z"}`, http.StatusOK)
+	archiveCompleteData := archiveCompleteBody["data"].(map[string]any)
+	archiveCompletion := archiveCompleteData["archive"].(map[string]any)
+	if archiveCompletion["status"] != "archived" || archiveCompletion["content_hash"] != "content_hash_http" || archiveCompletion["bytes"].(float64) != 1024 {
+		t.Fatalf("expected completed archive evidence, got %+v", archiveCompleteBody)
+	}
+	archiveCompletionAudit := archiveCompleteData["audit_log"].(map[string]any)
+	if archiveCompletionAudit["action"] != "admin.audit_archive.completed" || archiveCompletionAudit["target_id"] != archive["archive_id"] {
+		t.Fatalf("expected archive completion audit, got %+v", archiveCompletionAudit)
+	}
+	archiveRecordsBody := authGetJSON(t, server.URL+"/api/admin/audit-logs/archive/records?archive_id="+archive["archive_id"].(string)+"&limit=5", adminToken("admin_1"), http.StatusOK)
+	archiveRecords := archiveRecordsBody["data"].([]any)
+	if len(archiveRecords) != 1 || archiveRecords[0].(map[string]any)["archive_id"] != archive["archive_id"] {
+		t.Fatalf("expected archive completion records, got %+v", archiveRecordsBody)
+	}
 	authGetJSON(t, server.URL+"/api/admin/audit-logs/retention-report", userToken("user_1"), http.StatusForbidden)
 	authPostJSON(t, server.URL+"/api/admin/audit-logs/retention-alerts/emit", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
 	authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/request", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
+	authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/complete", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
+	authGetJSON(t, server.URL+"/api/admin/audit-logs/archive/records?limit=5", securityAuditorToken("auditor_1"), http.StatusOK)
 }
 
 func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {

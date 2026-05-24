@@ -124,6 +124,8 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("GET /api/admin/audit-logs/retention-report", r.handleAdminAuditRetentionReport)
 	r.mux.HandleFunc("POST /api/admin/audit-logs/retention-alerts/emit", r.handleAdminEmitAuditRetentionAlerts)
 	r.mux.HandleFunc("POST /api/admin/audit-logs/archive/request", r.handleAdminRequestAuditArchive)
+	r.mux.HandleFunc("GET /api/admin/audit-logs/archive/records", r.handleAdminAuditArchiveRecords)
+	r.mux.HandleFunc("POST /api/admin/audit-logs/archive/complete", r.handleAdminCompleteAuditArchive)
 	r.mux.HandleFunc("GET /api/admin/rbac/policy", r.handleAdminRBACPolicy)
 	r.mux.HandleFunc("GET /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequests)
 	r.mux.HandleFunc("POST /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequest)
@@ -1578,6 +1580,74 @@ func (r *Router) handleAdminRequestAuditArchive(w http.ResponseWriter, req *http
 		"archive":      archive,
 		"outbox_event": event,
 		"audit_log":    audit,
+	})
+}
+
+func (r *Router) handleAdminAuditArchiveRecords(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanReadAuditLogs() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	query := req.URL.Query()
+	limit, ok := parseOptionalIntQuery(w, query.Get("limit"))
+	if !ok {
+		return
+	}
+	after, ok := parseOptionalTimeQuery(w, query.Get("after"))
+	if !ok {
+		return
+	}
+	before, ok := parseOptionalTimeQuery(w, query.Get("before"))
+	if !ok {
+		return
+	}
+	archives, err := r.store.AuditArchives(platform.AuditArchiveListRequest{
+		ArchiveID: query.Get("archive_id"),
+		Limit:     limit,
+		After:     after,
+		Before:    before,
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccess(w, archives)
+}
+
+func (r *Router) handleAdminCompleteAuditArchive(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanManageAuditLogs() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	var payload platform.AuditArchiveCompletionRequest
+	if !decodeJSON(w, req, &payload) {
+		return
+	}
+	archive, audit, err := r.store.CompleteAuditArchive(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.audit_archive.completed",
+		TargetType: "audit_archive",
+		TargetID:   payload.ArchiveID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+		CreatedAt:  payload.UploadedAt,
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccess(w, map[string]any{
+		"archive":   archive,
+		"audit_log": audit,
 	})
 }
 

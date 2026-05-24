@@ -204,6 +204,8 @@ export function createAuditArchiveUploader(options = {}) {
       upload_url: uploadURL,
       manifest_hash: normalized.manifest_hash,
       content_hash: contentHash,
+      object_lock_mode: objectLockMode,
+      retain_until: retainUntil,
       bytes: Buffer.byteLength(body)
     };
   };
@@ -281,6 +283,23 @@ export function createAuditArchiveApiClient(options = {}) {
         body: { published_at: publishedAt instanceof Date ? publishedAt.toISOString() : publishedAt }
       });
     },
+    async completeArchive(completion = {}) {
+      return request("/api/admin/audit-logs/archive/complete", {
+        method: "POST",
+        body: {
+          archive_id: clean(completion.archive_id || completion.archiveId),
+          storage_key: clean(completion.storage_key || completion.storageKey),
+          manifest_algorithm: clean(completion.manifest_algorithm || completion.manifestAlgorithm || "sha256:v1"),
+          manifest_hash: clean(completion.manifest_hash || completion.manifestHash),
+          content_hash: clean(completion.content_hash || completion.contentHash),
+          bytes: Number(completion.bytes || 0),
+          object_lock_mode: clean(completion.object_lock_mode || completion.objectLockMode),
+          retain_until: clean(completion.retain_until || completion.retainUntil),
+          outbox_event_id: clean(completion.outbox_event_id || completion.outboxEventId),
+          uploaded_at: completion.uploaded_at instanceof Date ? completion.uploaded_at.toISOString() : clean(completion.uploaded_at || completion.uploadedAt)
+        }
+      });
+    },
     async markFailed(eventID, error, retryAfterSeconds = defaultRetryAfterSeconds, now = new Date(), maxAttempts = defaultMaxAttempts) {
       const body = {
         error: clean(error).slice(0, 500),
@@ -295,6 +314,23 @@ export function createAuditArchiveApiClient(options = {}) {
         body
       });
     }
+  };
+}
+
+export function buildAuditArchiveCompletion(event = {}, archived = {}, options = {}) {
+  const archive = normalizeArchiveRequest(event);
+  const uploadedAt = options.uploadedAt || options.publishedAt || options.now || new Date();
+  return {
+    archive_id: archive.archive_id,
+    storage_key: archive.storage_key,
+    manifest_algorithm: archive.manifest_algorithm,
+    manifest_hash: archive.manifest_hash,
+    content_hash: clean(archived.content_hash || archived.contentHash),
+    bytes: Number(archived.bytes || 0),
+    object_lock_mode: clean(archived.object_lock_mode || archived.objectLockMode || options.objectLockMode || process.env.AUDIT_ARCHIVE_OBJECT_LOCK_MODE || defaultObjectLockMode),
+    retain_until: clean(archived.retain_until || archived.retainUntil || options.retainUntil || process.env.AUDIT_ARCHIVE_RETAIN_UNTIL_DATE),
+    outbox_event_id: clean(event.id || event.outbox_event_id || event.outboxEventId || archive.outbox_event_id),
+    uploaded_at: uploadedAt instanceof Date ? uploadedAt.toISOString() : clean(uploadedAt)
   };
 }
 
@@ -326,6 +362,12 @@ export async function archiveOutboxBatch(options = {}) {
       const eventID = clean(event.id);
       try {
         const archived = await archiveAuditEvent(event, options);
+        if (typeof client.completeArchive === "function") {
+          await client.completeArchive(buildAuditArchiveCompletion(event, archived, {
+            ...options,
+            uploadedAt: options.uploadedAt || publishedAt
+          }));
+        }
         await client.markPublished(eventID, publishedAt);
         result.archived++;
         result.results.push({ event_id: eventID, archived });

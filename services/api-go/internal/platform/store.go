@@ -3768,6 +3768,52 @@ func (s *Store) RequestAuditArchive(req AuditArchiveRequest, audit RecordAuditLo
 	return result, eventCopy, auditLog, nil
 }
 
+func (s *Store) CompleteAuditArchive(req AuditArchiveCompletionRequest, audit RecordAuditLogRequest) (*AuditArchiveCompletion, *AuditLog, error) {
+	normalized, err := normalizeAuditArchiveCompletionRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = normalized.UploadedAt
+	}
+	if strings.TrimSpace(audit.TargetID) == "" || strings.TrimSpace(audit.TargetID) == "pending" {
+		audit.TargetID = normalized.ArchiveID
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, log, err
+	}
+	if log.Action != auditArchiveCompletedAction || log.TargetType != "audit_archive" || log.TargetID != normalized.ArchiveID {
+		return nil, log, ErrInvalidArgument
+	}
+	completion := auditArchiveCompletionFromRequest(normalized, log.CreatedAt)
+	log.Payload = auditArchiveCompletionAuditPayload(completion)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, existingLog, ok := s.auditArchiveCompletionLocked(normalized); ok {
+		return &existing, existingLog, nil
+	}
+	auditLog := s.appendAuditLogLocked(log)
+	return completion, auditLog, nil
+}
+
+func (s *Store) AuditArchives(req AuditArchiveListRequest) ([]AuditArchiveCompletion, error) {
+	req = normalizeAuditArchiveListRequest(req)
+	logs, err := s.AuditLogs(AuditLogsRequest{
+		Action:     auditArchiveCompletedAction,
+		TargetType: "audit_archive",
+		TargetID:   req.ArchiveID,
+		Limit:      req.Limit,
+		After:      req.After,
+		Before:     req.Before,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return auditArchiveCompletionsFromLogs(logs), nil
+}
+
 func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 	req.ActorType = strings.TrimSpace(req.ActorType)
 	req.ActorID = strings.TrimSpace(req.ActorID)
@@ -3797,9 +3843,12 @@ const (
 	auditRetentionAlertTopic         = "audit.retention_alerts"
 	defaultAuditArchiveLimit         = 500
 	maxAuditArchiveLimit             = 5000
+	defaultAuditArchiveListLimit     = 100
+	maxAuditArchiveListLimit         = 1000
 	defaultAuditArchiveStoragePrefix = "worm://audit-logs"
 	auditArchiveManifestAlgorithm    = "sha256:v1"
 	auditArchiveRequestedTopic       = "audit.archive_requested"
+	auditArchiveCompletedAction      = "admin.audit_archive.completed"
 )
 
 var defaultCriticalAuditActions = []string{
@@ -4296,6 +4345,213 @@ func auditArchiveRequestAuditPayload(result *AuditArchiveRequestResult) map[stri
 	}
 }
 
+func normalizeAuditArchiveCompletionRequest(req AuditArchiveCompletionRequest) (AuditArchiveCompletionRequest, error) {
+	req.ArchiveID = strings.TrimSpace(req.ArchiveID)
+	req.StorageKey = strings.TrimSpace(req.StorageKey)
+	req.ManifestAlgorithm = strings.TrimSpace(req.ManifestAlgorithm)
+	if req.ManifestAlgorithm == "" {
+		req.ManifestAlgorithm = auditArchiveManifestAlgorithm
+	}
+	req.ManifestHash = strings.TrimSpace(req.ManifestHash)
+	req.ContentHash = strings.TrimSpace(req.ContentHash)
+	req.ObjectLockMode = strings.ToUpper(strings.TrimSpace(req.ObjectLockMode))
+	req.OutboxEventID = strings.TrimSpace(req.OutboxEventID)
+	if req.UploadedAt.IsZero() {
+		req.UploadedAt = time.Now().UTC()
+	} else {
+		req.UploadedAt = req.UploadedAt.UTC()
+	}
+	if !req.RetainUntil.IsZero() {
+		req.RetainUntil = req.RetainUntil.UTC()
+	}
+	if req.ArchiveID == "" || req.StorageKey == "" || req.ManifestHash == "" || req.ContentHash == "" || req.Bytes <= 0 {
+		return req, ErrInvalidArgument
+	}
+	return req, nil
+}
+
+func auditArchiveCompletionFromRequest(req AuditArchiveCompletionRequest, completedAt time.Time) *AuditArchiveCompletion {
+	if completedAt.IsZero() {
+		completedAt = req.UploadedAt
+	}
+	return &AuditArchiveCompletion{
+		ArchiveID:         req.ArchiveID,
+		Status:            "archived",
+		StorageKey:        req.StorageKey,
+		ManifestAlgorithm: req.ManifestAlgorithm,
+		ManifestHash:      req.ManifestHash,
+		ContentHash:       req.ContentHash,
+		Bytes:             req.Bytes,
+		ObjectLockMode:    req.ObjectLockMode,
+		RetainUntil:       req.RetainUntil,
+		OutboxEventID:     req.OutboxEventID,
+		UploadedAt:        req.UploadedAt,
+		CompletedAt:       normalizeAuditLogTime(completedAt),
+	}
+}
+
+func auditArchiveCompletionAuditPayload(completion *AuditArchiveCompletion) map[string]any {
+	if completion == nil {
+		return map[string]any{}
+	}
+	payload := map[string]any{
+		"archive_id":         completion.ArchiveID,
+		"status":             completion.Status,
+		"storage_key":        completion.StorageKey,
+		"manifest_algorithm": completion.ManifestAlgorithm,
+		"manifest_hash":      completion.ManifestHash,
+		"content_hash":       completion.ContentHash,
+		"bytes":              completion.Bytes,
+		"object_lock_mode":   completion.ObjectLockMode,
+		"outbox_event_id":    completion.OutboxEventID,
+		"uploaded_at":        completion.UploadedAt.Format(time.RFC3339Nano),
+	}
+	if !completion.RetainUntil.IsZero() {
+		payload["retain_until"] = completion.RetainUntil.Format(time.RFC3339Nano)
+	}
+	return payload
+}
+
+func normalizeAuditArchiveListRequest(req AuditArchiveListRequest) AuditArchiveListRequest {
+	req.ArchiveID = strings.TrimSpace(req.ArchiveID)
+	if req.Limit <= 0 {
+		req.Limit = defaultAuditArchiveListLimit
+	}
+	if req.Limit > maxAuditArchiveListLimit {
+		req.Limit = maxAuditArchiveListLimit
+	}
+	if !req.After.IsZero() {
+		req.After = req.After.UTC()
+	}
+	if !req.Before.IsZero() {
+		req.Before = req.Before.UTC()
+	}
+	return req
+}
+
+func auditArchiveCompletionsFromLogs(logs []AuditLog) []AuditArchiveCompletion {
+	completions := make([]AuditArchiveCompletion, 0, len(logs))
+	for _, log := range logs {
+		completion, ok := auditArchiveCompletionFromAuditLog(log)
+		if ok {
+			completions = append(completions, completion)
+		}
+	}
+	return completions
+}
+
+func auditArchiveCompletionFromAuditLog(log AuditLog) (AuditArchiveCompletion, bool) {
+	if log.Action != auditArchiveCompletedAction || log.TargetType != "audit_archive" {
+		return AuditArchiveCompletion{}, false
+	}
+	archiveID := strings.TrimSpace(log.TargetID)
+	if archiveID == "" {
+		archiveID = auditPayloadString(log.Payload, "archive_id")
+	}
+	if archiveID == "" {
+		return AuditArchiveCompletion{}, false
+	}
+	completion := AuditArchiveCompletion{
+		ArchiveID:         archiveID,
+		Status:            auditPayloadStringWithDefault(log.Payload, "status", "archived"),
+		StorageKey:        auditPayloadString(log.Payload, "storage_key"),
+		ManifestAlgorithm: auditPayloadString(log.Payload, "manifest_algorithm"),
+		ManifestHash:      auditPayloadString(log.Payload, "manifest_hash"),
+		ContentHash:       auditPayloadString(log.Payload, "content_hash"),
+		Bytes:             auditPayloadInt64(log.Payload, "bytes"),
+		ObjectLockMode:    auditPayloadString(log.Payload, "object_lock_mode"),
+		OutboxEventID:     auditPayloadString(log.Payload, "outbox_event_id"),
+		UploadedAt:        auditPayloadTime(log.Payload, "uploaded_at"),
+		RetainUntil:       auditPayloadTime(log.Payload, "retain_until"),
+		CompletedAt:       log.CreatedAt,
+	}
+	return completion, true
+}
+
+func (s *Store) auditArchiveCompletionLocked(req AuditArchiveCompletionRequest) (AuditArchiveCompletion, *AuditLog, bool) {
+	for _, log := range s.auditLogs {
+		if log == nil || log.Action != auditArchiveCompletedAction || log.TargetType != "audit_archive" || log.TargetID != req.ArchiveID {
+			continue
+		}
+		completion, ok := auditArchiveCompletionFromAuditLog(*log)
+		if !ok {
+			continue
+		}
+		if completion.ManifestHash == req.ManifestHash && completion.ContentHash == req.ContentHash {
+			return completion, cloneAuditLog(log), true
+		}
+	}
+	return AuditArchiveCompletion{}, nil, false
+}
+
+func auditPayloadString(payload map[string]any, key string) string {
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case json.Number:
+		return strings.TrimSpace(typed.String())
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(encoded))
+	}
+}
+
+func auditPayloadStringWithDefault(payload map[string]any, key string, fallback string) string {
+	value := auditPayloadString(payload, key)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func auditPayloadInt64(payload map[string]any, key string) int64 {
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return 0
+	}
+	switch typed := value.(type) {
+	case int:
+		return int64(typed)
+	case int64:
+		return typed
+	case int32:
+		return int64(typed)
+	case float64:
+		return int64(typed)
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return parsed
+		}
+		floatParsed, err := typed.Float64()
+		if err != nil {
+			return 0
+		}
+		return int64(floatParsed)
+	default:
+		return 0
+	}
+}
+
+func auditPayloadTime(payload map[string]any, key string) time.Time {
+	value := auditPayloadString(payload, key)
+	if value == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed.UTC()
+}
+
 var auditPayloadAllowlist = map[string]struct{}{
 	"action_filter":           {},
 	"alert_count":             {},
@@ -4314,6 +4570,8 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"cold_archive_cutoff":     {},
 	"cold_archive_due_logs":   {},
 	"compensation_type":       {},
+	"bytes":                   {},
+	"content_hash":            {},
 	"critical_count":          {},
 	"current_scopes":          {},
 	"decision":                {},
@@ -4336,6 +4594,7 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"manifest_algorithm":      {},
 	"manifest_hash":           {},
 	"object_key":              {},
+	"object_lock_mode":        {},
 	"outbox_event_id":         {},
 	"previous_scopes":         {},
 	"previous_rider_id":       {},
@@ -4347,6 +4606,7 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"replayed":                {},
 	"requested_scopes":        {},
 	"retry_after_seconds":     {},
+	"retain_until":            {},
 	"role":                    {},
 	"rollback_from_scopes":    {},
 	"rollback_to_scopes":      {},
@@ -4357,6 +4617,7 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"storage_prefix":          {},
 	"topic":                   {},
 	"type":                    {},
+	"uploaded_at":             {},
 	"warning_count":           {},
 }
 

@@ -369,3 +369,25 @@ export function auditArchiveRequestFromResult(result) {
     auditLogId: compact(data.audit_log?.id, "")
   };
 }
+
+export function auditArchiveRecordsFromResult(result) {
+  const data = result?.payload?.data;
+  if (!Array.isArray(data)) {
+    return [];
+  }
+  return data
+    .filter((item) => item && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({
+      archiveId: compact(item.archive_id, ""),
+      status: compact(item.status, "unknown"),
+      storageKey: compact(item.storage_key, ""),
+      manifestHash: compact(item.manifest_hash, ""),
+      contentHash: compact(item.content_hash, ""),
+      bytes: Number(item.bytes || 0),
+      objectLockMode: compact(item.object_lock_mode, ""),
+      retainUntil: compact(item.retain_until, ""),
+      uploadedAt: compact(item.uploaded_at, ""),
+      completedAt: compact(item.completed_at, ""),
+      outboxEventId: compact(item.outbox_event_id, "")
+    }));
+}

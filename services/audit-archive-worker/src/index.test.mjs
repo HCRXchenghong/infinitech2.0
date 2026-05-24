@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   archiveAuditEvent,
   archiveOutboxBatch,
+  buildAuditArchiveCompletion,
   buildAuditArchiveUploadURL,
   computeArchiveManifestHash,
   createArchiveLoop,
@@ -112,6 +113,8 @@ test("archive event verifies manifest hash and uploads immutable JSONL", async (
   assert.match(calls[0].request.body, /audit_archive_manifest/);
   assert.equal(result.archive_id, archive.archive_id);
   assert.equal(result.manifest_hash, archive.manifest_hash);
+  assert.equal(result.object_lock_mode, "COMPLIANCE");
+  assert.equal(result.retain_until, "2026-05-31T00:00:00.000Z");
   assert.ok(result.content_hash);
 });
 
@@ -155,6 +158,32 @@ test("audit archive consumer reports duplicates once", async () => {
   assert.deepEqual(handled, ["obe_archive_1"]);
 });
 
+test("archive completion payload preserves storage proof fields", () => {
+  const archive = sampleArchive();
+  const completion = buildAuditArchiveCompletion(
+    { id: "obe_archive_1", payload: archive },
+    {
+      content_hash: "content_hash_1",
+      bytes: 512,
+      object_lock_mode: "COMPLIANCE",
+      retain_until: "2033-05-24T00:00:00Z"
+    },
+    { uploadedAt: new Date("2026-05-24T00:00:01Z") }
+  );
+  assert.deepEqual(completion, {
+    archive_id: archive.archive_id,
+    storage_key: archive.storage_key,
+    manifest_algorithm: archive.manifest_algorithm,
+    manifest_hash: archive.manifest_hash,
+    content_hash: "content_hash_1",
+    bytes: 512,
+    object_lock_mode: "COMPLIANCE",
+    retain_until: "2033-05-24T00:00:00Z",
+    outbox_event_id: "obe_archive_1",
+    uploaded_at: "2026-05-24T00:00:01.000Z"
+  });
+});
+
 test("archive outbox batch publishes success and marks failures for retry", async () => {
   const okArchive = sampleArchive();
   const badArchive = sampleArchive({ manifest_hash: "wrong" });
@@ -172,6 +201,9 @@ test("archive outbox batch publishes success and marks failures for retry", asyn
     async markPublished(eventID, publishedAt) {
       calls.push(["published", eventID, publishedAt.toISOString()]);
     },
+    async completeArchive(completion) {
+      calls.push(["complete", completion]);
+    },
     async markFailed(eventID, error, retryAfterSeconds, now, maxAttempts) {
       calls.push(["failed", eventID, error, retryAfterSeconds, now.toISOString(), maxAttempts]);
     }
@@ -179,7 +211,13 @@ test("archive outbox batch publishes success and marks failures for retry", asyn
 
   const result = await archiveOutboxBatch({
     client,
-    uploader: async (archive) => ({ archive_id: archive.archive_id, uploaded: true }),
+    uploader: async (archive) => ({
+      archive_id: archive.archive_id,
+      content_hash: "content_hash_ok",
+      bytes: 256,
+      object_lock_mode: "COMPLIANCE",
+      retain_until: "2033-05-24T00:00:00Z"
+    }),
     now: new Date("2026-05-24T00:00:00Z"),
     publishedAt: new Date("2026-05-24T00:00:01Z"),
     retryAfterSeconds: 120,
@@ -194,12 +232,15 @@ test("archive outbox batch publishes success and marks failures for retry", asyn
   assert.equal(calls[0][0], "claim");
   assert.equal(calls[0][1].topic, "audit.archive_requested");
   assert.equal(calls[0][1].leaseOwner, "archive-a");
-  assert.deepEqual(calls[1], ["published", "obe_ok", "2026-05-24T00:00:01.000Z"]);
-  assert.equal(calls[2][0], "failed");
-  assert.equal(calls[2][1], "obe_bad");
-  assert.match(calls[2][2], /manifest hash mismatch/);
-  assert.equal(calls[2][3], 120);
-  assert.equal(calls[2][5], 4);
+  assert.equal(calls[1][0], "complete");
+  assert.equal(calls[1][1].archive_id, okArchive.archive_id);
+  assert.equal(calls[1][1].content_hash, "content_hash_ok");
+  assert.deepEqual(calls[2], ["published", "obe_ok", "2026-05-24T00:00:01.000Z"]);
+  assert.equal(calls[3][0], "failed");
+  assert.equal(calls[3][1], "obe_bad");
+  assert.match(calls[3][2], /manifest hash mismatch/);
+  assert.equal(calls[3][3], 120);
+  assert.equal(calls[3][5], 4);
 });
 
 test("audit archive api client claims events with worker authorization", async () => {
@@ -230,6 +271,46 @@ test("audit archive api client claims events with worker authorization", async (
     lease_owner: "archive-a",
     lease_seconds: 90,
     now: "2026-05-24T00:00:00.000Z"
+  });
+});
+
+test("audit archive api client records completion evidence", async () => {
+  const calls = [];
+  const client = createAuditArchiveApiClient({
+    apiBaseUrl: "https://api.example.test",
+    token: "worker-token",
+    fetchImpl: async (url, request) => {
+      calls.push({ url, request });
+      return { ok: true, text: async () => JSON.stringify({ success: true, data: { archive_id: "audit_archive_demo" } }) };
+    }
+  });
+
+  await client.completeArchive({
+    archive_id: "audit_archive_demo",
+    storage_key: "worm://audit-logs/2026/05/24/audit_archive_demo.jsonl",
+    manifest_algorithm: "sha256:v1",
+    manifest_hash: "manifest_hash_1",
+    content_hash: "content_hash_1",
+    bytes: 1024,
+    object_lock_mode: "COMPLIANCE",
+    retain_until: "2033-05-24T00:00:00Z",
+    outbox_event_id: "obe_archive_1",
+    uploaded_at: "2026-05-24T00:00:01Z"
+  });
+
+  assert.equal(calls[0].url, "https://api.example.test/api/admin/audit-logs/archive/complete");
+  assert.equal(calls[0].request.headers.Authorization, "Bearer worker-token");
+  assert.deepEqual(JSON.parse(calls[0].request.body), {
+    archive_id: "audit_archive_demo",
+    storage_key: "worm://audit-logs/2026/05/24/audit_archive_demo.jsonl",
+    manifest_algorithm: "sha256:v1",
+    manifest_hash: "manifest_hash_1",
+    content_hash: "content_hash_1",
+    bytes: 1024,
+    object_lock_mode: "COMPLIANCE",
+    retain_until: "2033-05-24T00:00:00Z",
+    outbox_event_id: "obe_archive_1",
+    uploaded_at: "2026-05-24T00:00:01Z"
   });
 });
 

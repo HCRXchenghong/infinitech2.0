@@ -171,6 +171,19 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     ]
   },
   {
+    key: "audit-archive-records",
+    title: "归档完成记录",
+    method: "GET",
+    path: "/api/admin/audit-logs/archive/records",
+    authRequired: true,
+    area: "ops",
+    queryFields: [
+      { key: "archive_id", label: "归档 ID", type: "text", defaultValue: "" },
+      { key: "limit", label: "条数", type: "number", defaultValue: 50 }
+    ],
+    fields: []
+  },
+  {
     key: "rbac-policy",
     title: "RBAC 策略矩阵",
     method: "GET",

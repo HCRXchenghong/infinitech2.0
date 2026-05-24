@@ -1481,6 +1481,41 @@ type AuditArchiveRequestResult struct {
 	RequestedAt       time.Time                   `json:"requested_at"`
 }
 
+type AuditArchiveCompletionRequest struct {
+	ArchiveID         string    `json:"archive_id"`
+	StorageKey        string    `json:"storage_key"`
+	ManifestAlgorithm string    `json:"manifest_algorithm"`
+	ManifestHash      string    `json:"manifest_hash"`
+	ContentHash       string    `json:"content_hash"`
+	Bytes             int64     `json:"bytes"`
+	ObjectLockMode    string    `json:"object_lock_mode"`
+	RetainUntil       time.Time `json:"retain_until"`
+	OutboxEventID     string    `json:"outbox_event_id"`
+	UploadedAt        time.Time `json:"uploaded_at"`
+}
+
+type AuditArchiveCompletion struct {
+	ArchiveID         string    `json:"archive_id"`
+	Status            string    `json:"status"`
+	StorageKey        string    `json:"storage_key"`
+	ManifestAlgorithm string    `json:"manifest_algorithm"`
+	ManifestHash      string    `json:"manifest_hash"`
+	ContentHash       string    `json:"content_hash"`
+	Bytes             int64     `json:"bytes"`
+	ObjectLockMode    string    `json:"object_lock_mode"`
+	RetainUntil       time.Time `json:"retain_until,omitempty"`
+	OutboxEventID     string    `json:"outbox_event_id"`
+	UploadedAt        time.Time `json:"uploaded_at"`
+	CompletedAt       time.Time `json:"completed_at"`
+}
+
+type AuditArchiveListRequest struct {
+	ArchiveID string    `json:"archive_id"`
+	Limit     int       `json:"limit"`
+	After     time.Time `json:"after"`
+	Before    time.Time `json:"before"`
+}
+
 func DefaultHomeModules() []HomeModule {
 	return []HomeModule{
 		{Key: "takeout", Title: "外卖", Route: "/pages/shop/list/index", Icon: "takeout", Enabled: true, SortOrder: 10, Scene: "home"},

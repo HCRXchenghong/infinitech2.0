@@ -6819,6 +6819,76 @@ func (s *PostgresStore) RequestAuditArchive(req AuditArchiveRequest, audit Recor
 	return result, cloneOutboxEvent(event), cloneAuditLog(log), nil
 }
 
+func (s *PostgresStore) CompleteAuditArchive(req AuditArchiveCompletionRequest, audit RecordAuditLogRequest) (*AuditArchiveCompletion, *AuditLog, error) {
+	normalized, err := normalizeAuditArchiveCompletionRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = normalized.UploadedAt
+	}
+	if strings.TrimSpace(audit.TargetID) == "" || strings.TrimSpace(audit.TargetID) == "pending" {
+		audit.TargetID = normalized.ArchiveID
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, log, err
+	}
+	if log.Action != auditArchiveCompletedAction || log.TargetType != "audit_archive" || log.TargetID != normalized.ArchiveID {
+		return nil, log, ErrInvalidArgument
+	}
+	existingLogs, err := s.AuditLogs(AuditLogsRequest{
+		Action:     auditArchiveCompletedAction,
+		TargetType: "audit_archive",
+		TargetID:   normalized.ArchiveID,
+		Limit:      10,
+	})
+	if err != nil {
+		return nil, log, err
+	}
+	for _, existingLog := range existingLogs {
+		existingCompletion, ok := auditArchiveCompletionFromAuditLog(existingLog)
+		if ok && existingCompletion.ManifestHash == normalized.ManifestHash && existingCompletion.ContentHash == normalized.ContentHash {
+			return &existingCompletion, cloneAuditLog(&existingLog), nil
+		}
+	}
+	completion := auditArchiveCompletionFromRequest(normalized, log.CreatedAt)
+	log.Payload = auditArchiveCompletionAuditPayload(completion)
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	return completion, cloneAuditLog(log), nil
+}
+
+func (s *PostgresStore) AuditArchives(req AuditArchiveListRequest) ([]AuditArchiveCompletion, error) {
+	req = normalizeAuditArchiveListRequest(req)
+	logs, err := s.AuditLogs(AuditLogsRequest{
+		Action:     auditArchiveCompletedAction,
+		TargetType: "audit_archive",
+		TargetID:   req.ArchiveID,
+		Limit:      req.Limit,
+		After:      req.After,
+		Before:     req.Before,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return auditArchiveCompletionsFromLogs(logs), nil
+}
+
 func (s *PostgresStore) AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error) {
 	profile, err := s.Store.AcceptMerchantInvite(req)
 	return profile, s.persistAfter(err)
