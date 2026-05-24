@@ -1048,6 +1048,21 @@ func TestAdminOutboxHTTPFlow(t *testing.T) {
 	if publishedStats["total"] != float64(1) || publishedStats["published"] != float64(1) || publishedStats["ready"] != float64(0) || publishedStats["blocked"] != float64(0) {
 		t.Fatalf("expected published outbox stats after ack, got %+v", publishedStatsBody)
 	}
+	auditBody := authGetJSON(t, server.URL+"/api/admin/audit-logs?target_type=outbox_event&target_id="+eventID+"&limit=10", adminToken("admin_1"), http.StatusOK)
+	auditLogs := auditBody["data"].([]any)
+	seenActions := map[string]bool{}
+	for _, rawLog := range auditLogs {
+		log := rawLog.(map[string]any)
+		seenActions[log["action"].(string)] = true
+		if log["integrity_verified"] != true {
+			t.Fatalf("expected verified outbox audit log, got %+v", log)
+		}
+	}
+	for _, action := range []string{"admin.outbox.lease_renewed", "admin.outbox.failed", "admin.outbox.replayed", "admin.outbox.published"} {
+		if !seenActions[action] {
+			t.Fatalf("expected outbox audit action %s, got %+v", action, auditBody)
+		}
+	}
 }
 
 func TestAdminOutboxDeadLetterHTTPFlow(t *testing.T) {

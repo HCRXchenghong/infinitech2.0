@@ -1,12 +1,12 @@
 # Infinitech 2.0 最近进展与路线图
 
-更新时间：2026-05-23
+更新时间：2026-05-24
 目标仓库：`https://github.com/HCRXchenghong/infinitech2.0`  
 当前最新提交：待提交
 
 ## 当前结论
 
-项目已经完成架构基线、monorepo 工程骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化账本、outbox relay、对象扫描/清理、管理端 P0 运营视图、管理端审计账本、审计中心增强首版、审计服务端安全边界首版、审计完整性证明首版，以及退款策略配置、管理端订单退款、售后审核、订单状态补偿与对象清理完成/失败审计同事务首版。
+项目已经完成架构基线、monorepo 工程骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化账本、outbox relay、对象扫描/清理、管理端 P0 运营视图、管理端审计账本、审计中心增强首版、审计服务端安全边界首版、审计完整性证明首版，以及退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败和 outbox 运维审计同事务首版。
 
 但项目仍未达到商业级可上线状态。真实生产支付、微信原路退款、提现结算、真实 IM/RTC、完整后台页面、全域细分 RBAC、真实高可用基础设施、10 万在线压测和容灾演练还没完成。未完成这些验收前，只能说“按商业级目标推进中”，不能说“已经商业级上线”。
 
@@ -81,17 +81,19 @@
 - 旧快照或旧 SQL 行缺少完整性字段时，可在业务字段完全一致的前提下回填证明；Admin Web 审计中心已展示完整性状态、算法和哈希。
 - 这仍不是最终法律级不可抵赖方案，后续还要补 KMS/Vault 密钥轮换、链式账本、WORM/冷归档、导出留存和告警。
 
-### 11. 退款策略配置、管理端订单退款、售后审核、订单状态补偿与对象清理审计同事务首版
+### 11. 后台关键写路径审计同事务首版
 
 - `PUT /api/admin/refund-settings` 已从 HTTP 层“先写业务、再补审计”迁移到仓储级 `SaveRefundSettingsWithAudit` 原子路径。
 - `POST /api/orders/{orderID}/refund` 已从 HTTP 层“先退款、再补审计”迁移到仓储级 `RefundOrderWithAudit` 原子路径。
 - `POST /api/after-sales/{requestID}/review` 已从 HTTP 层“先审核售后、再补审计”迁移到仓储级 `ReviewAfterSalesWithAudit` 原子路径。
 - `POST /api/admin/orders/{orderID}/state/compensate` 已从 HTTP 层“先补偿状态、再补审计”迁移到仓储级 `CompensateOrderStateWithAudit` 原子路径。
 - `POST /api/admin/object-storage/cleanup-complete` 与 `POST /api/admin/object-storage/cleanup-failed` 已从 HTTP 层“先回写清理结果、再补审计”迁移到仓储级 `CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit` 原子路径。
-- 内存 Store 在同一把业务锁内完成退款策略保存、订单退款、售后审核、订单状态补偿或对象清理票据状态更新并写入对应审计；PostgreSQL-backed Store 在同一个数据库事务内写入业务表与 `audit_logs`，审计 ID 继续走 `platform_sequences` 行级锁。
+- `POST /api/admin/outbox/events/claim`、`/lease/renew`、`/published`、`/failed`、`/{eventID}/replay` 和 `/api/admin/outbox/events/replay` 已从 HTTP 层“先改 outbox、再补审计”迁移到仓储级 `ClaimOutboxEventsWithAudit`、`RenewOutboxEventLeaseWithAudit`、`MarkOutboxEventPublishedWithAudit`、`MarkOutboxEventFailedWithAudit`、`ReplayOutboxEventWithAudit` 和 `ReplayOutboxEventsWithAudit` 原子路径。
+- 内存 Store 在同一把业务锁内完成退款策略保存、订单退款、售后审核、订单状态补偿、对象清理票据状态更新或 outbox 运维状态变更并写入对应审计；PostgreSQL-backed Store 在同一个数据库事务内写入业务表或 `platform_outbox_events` 与 `audit_logs`，审计 ID 继续走 `platform_sequences` 行级锁。
 - 退款策略审计 payload 以服务端规范化后的 `default_refund_strategy` 为准；订单退款审计 payload 以最终退款交易为准，只保留 `refund_id`、`destination`、`status`、`amount_fen` 和 `idempotency_key`；售后审核审计 payload 以最终审核结果和退款交易为准，只保留 `decision`、`status`、`refund_id`、`amount_fen`、`destination` 和 `idempotency_key`；订单状态补偿审计 payload 以最终补偿结果为准，只保留 `changed`、`previous_status`、`expected_status`、`compensation_type`、`evidence_count` 和必要 rider 字段；对象清理审计 payload 以最终票据状态为准，只保留脱敏 `object_key`、`reason`、`status` 和失败时的 `cleanup_attempts`。
-- HTTP 防回退测试和架构守卫已固定这些路径，避免未来退回到业务写成功后再单独调用 `RecordAuditLog`。
-- 当前只是首批后台写路径与审计同事务首版，outbox 运维和商户/骑手邀约等写路径仍需继续迁移。
+- outbox 运维审计 payload 以最终 outbox 事件或批量结果为准，只保留 `topic`、`status`、`attempts`、`lease_owner`、`lease_seconds`、`retry_after_seconds`、`claimed`、`replayed` 和 `limit` 等白名单字段。
+- HTTP 防回退测试、Store 原子审计测试和架构守卫已固定这些路径，避免未来退回到业务写成功后再单独调用 `RecordAuditLog`。
+- 当前只是后台关键写路径与审计同事务首版，商户/骑手邀约等剩余后台写路径仍需继续迁移。
 
 ## 当前未完成
 
@@ -101,7 +103,7 @@
 - 微信原路退款 API 真调用、退款回调、对账和差错处理。
 - 钱包提现、商户结算、骑手收入、平台抽佣和财务报表。
 - 管理端全域细分 RBAC、审计导出/留存/告警、KMS/链式不可抵赖签名、冷热归档和审计策略治理。
-- 剩余关键业务写操作与审计写入同事务强制提交，优先迁移 outbox 运维和商户/骑手邀约写路径。
+- 剩余关键业务写操作与审计写入同事务强制提交，优先迁移商户/骑手邀约写路径。
 - 真实 IM 消息落库、离线补偿、客服工作台和消息风控。
 - RTC 语音通话信令、通话审计和订单/会话关联。
 - PostgreSQL HA、Redis Cluster、Kafka 多 Broker、MinIO 生产权限、Vault/KMS 密钥治理。
@@ -130,7 +132,7 @@
 
 ### 第一批：后台审计中心补全
 
-- 继续把剩余关键业务写操作和 `audit_logs` 写入推进到同一业务事务内强制提交，退款策略配置、管理端订单退款、售后审核、订单状态补偿和对象清理完成/失败已完成首版。
+- 继续把剩余关键业务写操作和 `audit_logs` 写入推进到同一业务事务内强制提交，退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败和 outbox 运维已完成首版，下一步优先处理商户/骑手邀约。
 - 把安全审计员从审计只读扩展为全域服务端 RBAC 策略矩阵。
 - 补导出、留存策略、异常告警、KMS/链式不可抵赖签名和冷热归档设计。
 

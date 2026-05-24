@@ -6024,6 +6024,19 @@ func (s *PostgresStore) applyOutboxEventsAndSaveSnapshot(ctx context.Context, ev
 	return nil
 }
 
+func (s *PostgresStore) applyOutboxEventsAndAuditAfterCommit(ctx context.Context, events []OutboxEvent, log *AuditLog) error {
+	if len(events) > 0 {
+		s.Store.applyOutboxEvents(events)
+	}
+	if log != nil {
+		s.Store.applyAuditLogFromSQL(*log)
+	}
+	if err := s.saveSnapshot(ctx); err != nil {
+		return errors.Join(ErrPersistence, err)
+	}
+	return nil
+}
+
 func (s *Store) applyOutboxEvents(events []OutboxEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -6490,6 +6503,23 @@ func (s *PostgresStore) RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, er
 	}
 	s.Store.applyAuditLogFromSQL(*log)
 	return cloneAuditLog(log), nil
+}
+
+func (s *PostgresStore) insertAuditLogInTx(ctx context.Context, tx *sql.Tx, log *AuditLog) error {
+	if log == nil {
+		return ErrInvalidArgument
+	}
+	auditLogNumber, err := nextSQLAuditLogNumber(ctx, tx)
+	if err != nil {
+		return errors.Join(ErrPersistence, err)
+	}
+	log.ID = fmt.Sprintf("aud_%d", auditLogNumber)
+	signingSecret := s.Store.auditLogSigningSecretSnapshot()
+	ensureAuditLogIntegrity(log, signingSecret)
+	if err := insertSQLAuditLog(ctx, tx, *log, signingSecret); err != nil {
+		return errors.Join(ErrPersistence, err)
+	}
+	return nil
 }
 
 func (s *PostgresStore) AuditLogs(req AuditLogsRequest) ([]AuditLog, error) {
@@ -7332,6 +7362,52 @@ RETURNING `+postgresOutboxEventReturningColumns, eventID, publishedAt))
 	return event, nil
 }
 
+func (s *PostgresStore) MarkOutboxEventPublishedWithAudit(req MarkOutboxEventPublishedRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.published", "outbox_event", eventID)
+	if err != nil {
+		return nil, log, err
+	}
+	publishedAt := normalizeOutboxNow(req.PublishedAt)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	event, err := scanOutboxEvent(tx.QueryRowContext(ctx, `UPDATE platform_outbox_events event
+SET status = 'published',
+    last_error = '',
+    lease_owner = '',
+    lease_expires_at = NULL,
+    published_at = $2,
+    updated_at = $2
+WHERE event.id = $1
+RETURNING `+postgresOutboxEventReturningColumns, eventID, publishedAt))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, log, ErrNotFound
+	}
+	if err != nil {
+		return nil, log, err
+	}
+	log.Payload = outboxEventAuditPayload(event)
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := s.applyOutboxEventsAndAuditAfterCommit(ctx, []OutboxEvent{*event}, log); err != nil {
+		return event, log, err
+	}
+	return event, cloneAuditLog(log), nil
+}
+
 func (s *PostgresStore) MarkOutboxEventFailed(req MarkOutboxEventFailedRequest) (*OutboxEvent, error) {
 	eventID := strings.TrimSpace(req.EventID)
 	if eventID == "" {
@@ -7365,6 +7441,61 @@ RETURNING `+postgresOutboxEventReturningColumns, eventID, message, now, retryAt,
 		return nil, err
 	}
 	return event, nil
+}
+
+func (s *PostgresStore) MarkOutboxEventFailedWithAudit(req MarkOutboxEventFailedRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.failed", "outbox_event", eventID)
+	if err != nil {
+		return nil, log, err
+	}
+	now := normalizeOutboxNow(req.Now)
+	retryAfterSeconds := req.RetryAfterSeconds
+	if retryAfterSeconds <= 0 {
+		retryAfterSeconds = 60
+	}
+	maxAttempts := req.MaxAttempts
+	message := strings.TrimSpace(req.Error)
+	retryAt := now.Add(time.Duration(retryAfterSeconds) * time.Second)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	event, err := scanOutboxEvent(tx.QueryRowContext(ctx, `UPDATE platform_outbox_events event
+SET attempts = attempts + 1,
+    status = CASE WHEN $5 > 0 AND attempts + 1 >= $5 THEN 'dead_letter' ELSE 'failed' END,
+    last_error = $2,
+    lease_owner = '',
+    lease_expires_at = NULL,
+    available_at = CASE WHEN $5 > 0 AND attempts + 1 >= $5 THEN $3 ELSE $4 END,
+    updated_at = $3
+WHERE event.id = $1
+RETURNING `+postgresOutboxEventReturningColumns, eventID, message, now, retryAt, maxAttempts))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, log, ErrNotFound
+	}
+	if err != nil {
+		return nil, log, err
+	}
+	log.Payload = outboxEventAuditPayload(event)
+	log.Payload["retry_after_seconds"] = retryAfterSeconds
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := s.applyOutboxEventsAndAuditAfterCommit(ctx, []OutboxEvent{*event}, log); err != nil {
+		return event, log, err
+	}
+	return event, cloneAuditLog(log), nil
 }
 
 func (s *PostgresStore) ClaimOutboxEvents(req ClaimOutboxEventsRequest) (*ClaimOutboxEventsResult, error) {
@@ -7417,6 +7548,75 @@ RETURNING `+postgresOutboxEventReturningColumns, topic, now, limit, leaseOwner, 
 	return result, nil
 }
 
+func (s *PostgresStore) ClaimOutboxEventsWithAudit(req ClaimOutboxEventsRequest, audit RecordAuditLogRequest) (*ClaimOutboxEventsResult, *AuditLog, error) {
+	topic := strings.TrimSpace(req.Topic)
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.claimed", "outbox_topic", outboxTopicAuditTarget(topic))
+	if err != nil {
+		return nil, log, err
+	}
+	limit := normalizeOutboxLimit(req.Limit)
+	leaseOwner := strings.TrimSpace(req.LeaseOwner)
+	if leaseOwner == "" {
+		leaseOwner = "outbox-relay"
+	}
+	leaseSeconds := normalizeOutboxLeaseSeconds(req.LeaseSeconds)
+	now := normalizeOutboxNow(req.Now)
+	leaseExpiresAt := now.Add(time.Duration(leaseSeconds) * time.Second)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	rows, err := tx.QueryContext(ctx, `WITH candidates AS (
+  SELECT id
+  FROM platform_outbox_events
+  WHERE ($1 = '' OR topic = $1)
+    AND status IN ('pending', 'failed')
+    AND available_at <= $2
+    AND (lease_owner = '' OR lease_expires_at IS NULL OR lease_expires_at <= $2)
+  ORDER BY available_at, created_at, id
+  LIMIT $3
+  FOR UPDATE SKIP LOCKED
+)
+UPDATE platform_outbox_events event
+SET lease_owner = $4,
+    lease_expires_at = $5,
+    updated_at = $2
+FROM candidates
+WHERE event.id = candidates.id
+RETURNING `+postgresOutboxEventReturningColumns, topic, now, limit, leaseOwner, leaseExpiresAt)
+	if err != nil {
+		return nil, log, err
+	}
+	events, err := scanOutboxEventRows(rows)
+	if err != nil {
+		return nil, log, err
+	}
+	sortOutboxEvents(events)
+	result := &ClaimOutboxEventsResult{
+		Topic:          topic,
+		Limit:          limit,
+		LeaseOwner:     leaseOwner,
+		LeaseExpiresAt: leaseExpiresAt,
+		Claimed:        len(events),
+		Events:         events,
+	}
+	log.Payload = outboxClaimAuditPayload(result, leaseSeconds)
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := s.applyOutboxEventsAndAuditAfterCommit(ctx, events, log); err != nil {
+		return result, log, err
+	}
+	return result, cloneAuditLog(log), nil
+}
+
 func (s *PostgresStore) RenewOutboxEventLease(req RenewOutboxEventLeaseRequest) (*OutboxEvent, error) {
 	eventID := strings.TrimSpace(req.EventID)
 	leaseOwner := strings.TrimSpace(req.LeaseOwner)
@@ -7451,6 +7651,62 @@ RETURNING `+postgresOutboxEventReturningColumns, eventID, leaseOwner, now, lease
 		return nil, err
 	}
 	return event, nil
+}
+
+func (s *PostgresStore) RenewOutboxEventLeaseWithAudit(req RenewOutboxEventLeaseRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	leaseOwner := strings.TrimSpace(req.LeaseOwner)
+	if eventID == "" || leaseOwner == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.lease_renewed", "outbox_event", eventID)
+	if err != nil {
+		return nil, log, err
+	}
+	leaseSeconds := normalizeOutboxLeaseSeconds(req.LeaseSeconds)
+	now := normalizeOutboxNow(req.Now)
+	leaseExpiresAt := now.Add(time.Duration(leaseSeconds) * time.Second)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	event, err := scanOutboxEvent(tx.QueryRowContext(ctx, `UPDATE platform_outbox_events event
+SET lease_expires_at = $4,
+    updated_at = $3
+WHERE event.id = $1
+  AND event.status IN ('pending', 'failed')
+  AND event.lease_owner = $2
+  AND event.lease_expires_at > $3
+RETURNING `+postgresOutboxEventReturningColumns, eventID, leaseOwner, now, leaseExpiresAt))
+	if errors.Is(err, sql.ErrNoRows) {
+		var exists bool
+		if existsErr := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM platform_outbox_events WHERE id = $1)", eventID).Scan(&exists); existsErr != nil {
+			return nil, log, existsErr
+		}
+		if !exists {
+			return nil, log, ErrNotFound
+		}
+		return nil, log, ErrInvalidOrderState
+	}
+	if err != nil {
+		return nil, log, err
+	}
+	log.Payload = outboxEventAuditPayload(event)
+	log.Payload["lease_seconds"] = leaseSeconds
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := s.applyOutboxEventsAndAuditAfterCommit(ctx, []OutboxEvent{*event}, log); err != nil {
+		return event, log, err
+	}
+	return event, cloneAuditLog(log), nil
 }
 
 func (s *PostgresStore) ReplayOutboxEvent(req ReplayOutboxEventRequest) (*OutboxEvent, error) {
@@ -7490,6 +7746,64 @@ RETURNING `+postgresOutboxEventReturningColumns, eventID, now))
 		return nil, err
 	}
 	return event, nil
+}
+
+func (s *PostgresStore) ReplayOutboxEventWithAudit(req ReplayOutboxEventRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.replayed", "outbox_event", eventID)
+	if err != nil {
+		return nil, log, err
+	}
+	now := normalizeOutboxNow(req.Now)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	event, err := scanOutboxEvent(tx.QueryRowContext(ctx, `UPDATE platform_outbox_events event
+SET status = 'pending',
+    last_error = '',
+    lease_owner = '',
+    lease_expires_at = NULL,
+    available_at = $2,
+    updated_at = $2
+WHERE event.id = $1
+  AND event.status IN ('pending', 'failed', 'dead_letter')
+RETURNING `+postgresOutboxEventReturningColumns, eventID, now))
+	if errors.Is(err, sql.ErrNoRows) {
+		var status string
+		statusErr := tx.QueryRowContext(ctx, "SELECT status FROM platform_outbox_events WHERE id = $1", eventID).Scan(&status)
+		if errors.Is(statusErr, sql.ErrNoRows) {
+			return nil, log, ErrNotFound
+		}
+		if statusErr != nil {
+			return nil, log, statusErr
+		}
+		if status == OutboxStatusPublished {
+			return nil, log, ErrInvalidOrderState
+		}
+		return nil, log, ErrInvalidArgument
+	}
+	if err != nil {
+		return nil, log, err
+	}
+	log.Payload = outboxEventAuditPayload(event)
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := s.applyOutboxEventsAndAuditAfterCommit(ctx, []OutboxEvent{*event}, log); err != nil {
+		return event, log, err
+	}
+	return event, cloneAuditLog(log), nil
 }
 
 func (s *PostgresStore) ReplayOutboxEvents(req ReplayOutboxEventsRequest) (*ReplayOutboxEventsResult, error) {
@@ -7535,6 +7849,70 @@ RETURNING `+postgresOutboxEventReturningColumns, topic, now, limit)
 		return nil, err
 	}
 	return result, nil
+}
+
+func (s *PostgresStore) ReplayOutboxEventsWithAudit(req ReplayOutboxEventsRequest, audit RecordAuditLogRequest) (*ReplayOutboxEventsResult, *AuditLog, error) {
+	topic := strings.TrimSpace(req.Topic)
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.batch_replayed", "outbox_topic", outboxTopicAuditTarget(topic))
+	if err != nil {
+		return nil, log, err
+	}
+	limit := normalizeOutboxLimit(req.Limit)
+	now := normalizeOutboxNow(req.Now)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	rows, err := tx.QueryContext(ctx, `WITH candidates AS (
+  SELECT id
+  FROM platform_outbox_events
+  WHERE ($1 = '' OR topic = $1)
+    AND status IN ('pending', 'failed')
+    AND available_at > $2
+    AND (lease_owner = '' OR lease_expires_at IS NULL OR lease_expires_at <= $2)
+  ORDER BY available_at, created_at, id
+  LIMIT $3
+  FOR UPDATE SKIP LOCKED
+)
+UPDATE platform_outbox_events event
+SET status = 'pending',
+    last_error = '',
+    lease_owner = '',
+    lease_expires_at = NULL,
+    available_at = $2,
+    updated_at = $2
+FROM candidates
+WHERE event.id = candidates.id
+RETURNING `+postgresOutboxEventReturningColumns, topic, now, limit)
+	if err != nil {
+		return nil, log, err
+	}
+	events, err := scanOutboxEventRows(rows)
+	if err != nil {
+		return nil, log, err
+	}
+	sortOutboxEvents(events)
+	result := &ReplayOutboxEventsResult{
+		Topic:    topic,
+		Limit:    limit,
+		Replayed: len(events),
+		Events:   events,
+	}
+	log.Payload = outboxReplayBatchAuditPayload(result)
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := s.applyOutboxEventsAndAuditAfterCommit(ctx, events, log); err != nil {
+		return result, log, err
+	}
+	return result, cloneAuditLog(log), nil
 }
 
 func (s *PostgresStore) GrabOrder(orderID string, riderID string) (*Order, error) {

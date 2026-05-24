@@ -1305,6 +1305,14 @@ func (r *Router) recordAuditLog(req *http.Request, principal Principal, action s
 	return err
 }
 
+func outboxTopicAuditTargetID(topic string) string {
+	topic = strings.TrimSpace(topic)
+	if topic == "" {
+		return "all"
+	}
+	return topic
+}
+
 func requestID(req *http.Request) string {
 	for _, header := range []string{"X-Request-Id", "X-Request-ID", "X-Correlation-Id"} {
 		if value := strings.TrimSpace(req.Header.Get(header)); value != "" {
@@ -1723,16 +1731,16 @@ func (r *Router) handleAdminClaimOutboxEvents(w http.ResponseWriter, req *http.R
 		writeAuthError(w, errForbidden)
 		return
 	}
-	result, err := r.store.ClaimOutboxEvents(payload)
+	result, _, err := r.store.ClaimOutboxEventsWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.outbox.claimed",
+		TargetType: "outbox_topic",
+		TargetID:   outboxTopicAuditTargetID(payload.Topic),
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.outbox.claimed", "outbox_topic", result.Topic, map[string]any{
-		"claimed":       result.Claimed,
-		"lease_owner":   result.LeaseOwner,
-		"lease_seconds": payload.LeaseSeconds,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1753,16 +1761,16 @@ func (r *Router) handleAdminRenewOutboxEventLease(w http.ResponseWriter, req *ht
 		return
 	}
 	payload.EventID = req.PathValue("eventID")
-	event, err := r.store.RenewOutboxEventLease(payload)
+	event, _, err := r.store.RenewOutboxEventLeaseWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.outbox.lease_renewed",
+		TargetType: "outbox_event",
+		TargetID:   payload.EventID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.outbox.lease_renewed", "outbox_event", payload.EventID, map[string]any{
-		"lease_owner":   payload.LeaseOwner,
-		"lease_seconds": payload.LeaseSeconds,
-		"status":        event.Status,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1783,15 +1791,16 @@ func (r *Router) handleAdminMarkOutboxEventPublished(w http.ResponseWriter, req 
 		return
 	}
 	payload.EventID = req.PathValue("eventID")
-	event, err := r.store.MarkOutboxEventPublished(payload)
+	event, _, err := r.store.MarkOutboxEventPublishedWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.outbox.published",
+		TargetType: "outbox_event",
+		TargetID:   payload.EventID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.outbox.published", "outbox_event", payload.EventID, map[string]any{
-		"topic":  event.Topic,
-		"status": event.Status,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1812,16 +1821,16 @@ func (r *Router) handleAdminMarkOutboxEventFailed(w http.ResponseWriter, req *ht
 		return
 	}
 	payload.EventID = req.PathValue("eventID")
-	event, err := r.store.MarkOutboxEventFailed(payload)
+	event, _, err := r.store.MarkOutboxEventFailedWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.outbox.failed",
+		TargetType: "outbox_event",
+		TargetID:   payload.EventID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.outbox.failed", "outbox_event", payload.EventID, map[string]any{
-		"topic":    event.Topic,
-		"status":   event.Status,
-		"attempts": event.Attempts,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1842,15 +1851,16 @@ func (r *Router) handleAdminReplayOutboxEvent(w http.ResponseWriter, req *http.R
 		return
 	}
 	payload.EventID = req.PathValue("eventID")
-	event, err := r.store.ReplayOutboxEvent(payload)
+	event, _, err := r.store.ReplayOutboxEventWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.outbox.replayed",
+		TargetType: "outbox_event",
+		TargetID:   payload.EventID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.outbox.replayed", "outbox_event", payload.EventID, map[string]any{
-		"topic":  event.Topic,
-		"status": event.Status,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1870,15 +1880,16 @@ func (r *Router) handleAdminReplayOutboxEvents(w http.ResponseWriter, req *http.
 		writeAuthError(w, errForbidden)
 		return
 	}
-	result, err := r.store.ReplayOutboxEvents(payload)
+	result, _, err := r.store.ReplayOutboxEventsWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.outbox.batch_replayed",
+		TargetType: "outbox_topic",
+		TargetID:   outboxTopicAuditTargetID(payload.Topic),
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.outbox.batch_replayed", "outbox_topic", result.Topic, map[string]any{
-		"replayed": result.Replayed,
-		"limit":    result.Limit,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}

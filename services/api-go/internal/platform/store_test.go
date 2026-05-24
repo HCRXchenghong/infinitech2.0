@@ -3088,6 +3088,154 @@ func TestReplayOutboxEventsOnlyRestoresBlockedEvents(t *testing.T) {
 	}
 }
 
+func TestOutboxAdminOperationsWithAuditRecordsVerifiedAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("outbox-admin-audit-secret")
+	mustPaidDispatchOrder(t, store, "outbox_admin_audit")
+	events, err := store.OutboxEvents(OutboxEventsRequest{Topic: "order.paid", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected one order.paid event, got %+v", events)
+	}
+	now := events[0].AvailableAt.Add(time.Minute)
+	if now.IsZero() {
+		now = events[0].CreatedAt.Add(time.Minute)
+	}
+	auditRequest := func(action string, targetType string, targetID string, at time.Time) RecordAuditLogRequest {
+		return RecordAuditLogRequest{
+			ActorType:  "admin",
+			ActorID:    "admin_1",
+			Action:     action,
+			TargetType: targetType,
+			TargetID:   targetID,
+			RequestID:  "req_" + action,
+			IPHash:     "ip_hash",
+			Payload: map[string]any{
+				"topic":  "caller-supplied-topic",
+				"status": "caller-supplied-status",
+				"token":  "must-not-persist",
+			},
+			CreatedAt: at,
+		}
+	}
+
+	claim, claimAudit, err := store.ClaimOutboxEventsWithAudit(
+		ClaimOutboxEventsRequest{Topic: "order.paid", Limit: 1, LeaseOwner: "relay-a", LeaseSeconds: 30, Now: now},
+		auditRequest("admin.outbox.claimed", "outbox_topic", outboxTopicAuditTarget("order.paid"), now.Add(time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claim.Claimed != 1 || len(claim.Events) != 1 || claim.Events[0].LeaseOwner != "relay-a" {
+		t.Fatalf("expected audited claim to lease one event, got %+v", claim)
+	}
+	if claimAudit.Payload["claimed"] != 1 || claimAudit.Payload["lease_owner"] != "relay-a" || claimAudit.Payload["lease_seconds"] != 30 || claimAudit.Payload["token"] != nil {
+		t.Fatalf("expected server-generated claim audit payload, got %+v", claimAudit.Payload)
+	}
+	if claimAudit.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || claimAudit.IntegrityHash == "" || !claimAudit.IntegrityVerified {
+		t.Fatalf("expected verified claim audit integrity proof, got %+v", claimAudit)
+	}
+	eventID := claim.Events[0].ID
+
+	renewed, renewAudit, err := store.RenewOutboxEventLeaseWithAudit(
+		RenewOutboxEventLeaseRequest{EventID: eventID, LeaseOwner: "relay-a", LeaseSeconds: 90, Now: now.Add(10 * time.Second)},
+		auditRequest("admin.outbox.lease_renewed", "outbox_event", eventID, now.Add(11*time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renewed.LeaseOwner != "relay-a" || renewAudit.Payload["lease_seconds"] != 90 || renewAudit.Payload["status"] != OutboxStatusPending {
+		t.Fatalf("expected audited lease renewal payload, event=%+v audit=%+v", renewed, renewAudit.Payload)
+	}
+
+	failed, failedAudit, err := store.MarkOutboxEventFailedWithAudit(
+		MarkOutboxEventFailedRequest{EventID: eventID, Error: "relay down", RetryAfterSeconds: 120, Now: now.Add(20 * time.Second)},
+		auditRequest("admin.outbox.failed", "outbox_event", eventID, now.Add(21*time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != OutboxStatusFailed || failed.Attempts != 1 || failedAudit.Payload["attempts"] != 1 || failedAudit.Payload["retry_after_seconds"] != 120 {
+		t.Fatalf("expected audited failure payload, event=%+v audit=%+v", failed, failedAudit.Payload)
+	}
+
+	replayed, replayAudit, err := store.ReplayOutboxEventWithAudit(
+		ReplayOutboxEventRequest{EventID: eventID, Now: now.Add(30 * time.Second)},
+		auditRequest("admin.outbox.replayed", "outbox_event", eventID, now.Add(31*time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.Status != OutboxStatusPending || replayAudit.Payload["status"] != OutboxStatusPending || replayAudit.Payload["topic"] != "order.paid" {
+		t.Fatalf("expected audited replay payload, event=%+v audit=%+v", replayed, replayAudit.Payload)
+	}
+
+	published, publishedAudit, err := store.MarkOutboxEventPublishedWithAudit(
+		MarkOutboxEventPublishedRequest{EventID: eventID, PublishedAt: now.Add(40 * time.Second)},
+		auditRequest("admin.outbox.published", "outbox_event", eventID, now.Add(41*time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Status != OutboxStatusPublished || publishedAudit.Payload["status"] != OutboxStatusPublished || !publishedAudit.IntegrityVerified {
+		t.Fatalf("expected audited publish payload, event=%+v audit=%+v", published, publishedAudit)
+	}
+
+	blockedOrder := mustPaidDispatchOrder(t, store, "outbox_admin_batch_audit")
+	pendingEvents, err := store.OutboxEvents(OutboxEventsRequest{Topic: "order.paid", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var blockedEvent OutboxEvent
+	for _, event := range pendingEvents {
+		if event.AggregateID == blockedOrder.ID {
+			blockedEvent = event
+			break
+		}
+	}
+	if blockedEvent.ID == "" {
+		t.Fatalf("expected second order outbox event, got %+v", pendingEvents)
+	}
+	if _, err := store.MarkOutboxEventFailed(MarkOutboxEventFailedRequest{EventID: blockedEvent.ID, Error: "kafka down", RetryAfterSeconds: 300, Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	batch, batchAudit, err := store.ReplayOutboxEventsWithAudit(
+		ReplayOutboxEventsRequest{Topic: "order.paid", Limit: 5, Now: now.Add(time.Minute)},
+		auditRequest("admin.outbox.batch_replayed", "outbox_topic", outboxTopicAuditTarget("order.paid"), now.Add(61*time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if batch.Replayed != 1 || len(batch.Events) != 1 || batch.Events[0].ID != blockedEvent.ID {
+		t.Fatalf("expected audited batch replay for blocked event, got %+v", batch)
+	}
+	if batchAudit.Payload["replayed"] != 1 || batchAudit.Payload["limit"] != 5 || batchAudit.Payload["topic"] != "order.paid" || !batchAudit.IntegrityVerified {
+		t.Fatalf("expected audited batch replay payload, got %+v", batchAudit)
+	}
+
+	logs, err := store.AuditLogs(AuditLogsRequest{TargetType: "outbox_event", TargetID: eventID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 4 {
+		t.Fatalf("expected four outbox event audit logs for event %s, got %+v", eventID, logs)
+	}
+	for _, log := range logs {
+		if !log.IntegrityVerified || log.Payload["token"] != nil {
+			t.Fatalf("expected verified sanitized outbox audit log, got %+v", log)
+		}
+	}
+	topicLogs, err := store.AuditLogs(AuditLogsRequest{TargetType: "outbox_topic", TargetID: outboxTopicAuditTarget("order.paid"), Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(topicLogs) != 2 || topicLogs[0].Action != "admin.outbox.batch_replayed" || topicLogs[1].Action != "admin.outbox.claimed" {
+		t.Fatalf("expected claim and batch replay outbox topic audit logs, got %+v", topicLogs)
+	}
+}
+
 func TestOutboxStatsBacklogReadiness(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	mustPaidDispatchOrder(t, store, "outbox_stats")

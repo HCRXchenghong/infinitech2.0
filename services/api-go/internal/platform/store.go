@@ -3515,6 +3515,14 @@ func (s *Store) RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error) {
 	return cloneAuditLog(log), nil
 }
 
+func (s *Store) appendAuditLogLocked(log *AuditLog) *AuditLog {
+	s.nextAuditLogID++
+	log.ID = fmt.Sprintf("aud_%d", s.nextAuditLogID)
+	sealAuditLogIntegrity(log, s.auditLogSigningSecret)
+	s.auditLogs[log.ID] = log
+	return cloneAuditLog(log)
+}
+
 func (s *Store) AuditLogs(req AuditLogsRequest) ([]AuditLog, error) {
 	req = normalizeAuditLogsRequest(req)
 
@@ -3567,6 +3575,7 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"amount_fen":              {},
 	"attempts":                {},
 	"changed":                 {},
+	"claimed":                 {},
 	"cleanup_attempts":        {},
 	"compensation_type":       {},
 	"decision":                {},
@@ -3875,6 +3884,60 @@ func (s *Store) OutboxStats(req OutboxStatsRequest) (*OutboxStats, error) {
 	return buildOutboxStats(events, topic, now, req.LeaseExpiringWithinSeconds), nil
 }
 
+func outboxTopicAuditTarget(topic string) string {
+	topic = strings.TrimSpace(topic)
+	if topic == "" {
+		return "all"
+	}
+	return topic
+}
+
+func outboxAuditLogFromRequest(req RecordAuditLogRequest, action string, targetType string, targetID string) (*AuditLog, error) {
+	log, err := auditLogFromRequest(req, "")
+	if err != nil {
+		return nil, err
+	}
+	if log.Action != action || log.TargetType != targetType || log.TargetID != targetID {
+		return nil, ErrInvalidArgument
+	}
+	return log, nil
+}
+
+func outboxEventAuditPayload(event *OutboxEvent) map[string]any {
+	if event == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"topic":       strings.TrimSpace(event.Topic),
+		"status":      strings.TrimSpace(event.Status),
+		"attempts":    event.Attempts,
+		"lease_owner": strings.TrimSpace(event.LeaseOwner),
+	}
+}
+
+func outboxClaimAuditPayload(result *ClaimOutboxEventsResult, leaseSeconds int) map[string]any {
+	if result == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"topic":         outboxTopicAuditTarget(result.Topic),
+		"claimed":       result.Claimed,
+		"lease_owner":   strings.TrimSpace(result.LeaseOwner),
+		"lease_seconds": leaseSeconds,
+	}
+}
+
+func outboxReplayBatchAuditPayload(result *ReplayOutboxEventsResult) map[string]any {
+	if result == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"topic":    outboxTopicAuditTarget(result.Topic),
+		"replayed": result.Replayed,
+		"limit":    result.Limit,
+	}
+}
+
 func (s *Store) MarkOutboxEventPublished(req MarkOutboxEventPublishedRequest) (*OutboxEvent, error) {
 	eventID := strings.TrimSpace(req.EventID)
 	if eventID == "" {
@@ -3900,6 +3963,40 @@ func (s *Store) MarkOutboxEventPublished(req MarkOutboxEventPublishedRequest) (*
 	event.PublishedAt = publishedAt
 	event.UpdatedAt = publishedAt
 	return cloneOutboxEvent(event), nil
+}
+
+func (s *Store) MarkOutboxEventPublishedWithAudit(req MarkOutboxEventPublishedRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.published", "outbox_event", eventID)
+	if err != nil {
+		return nil, nil, err
+	}
+	publishedAt := req.PublishedAt
+	if publishedAt.IsZero() {
+		publishedAt = time.Now().UTC()
+	}
+	publishedAt = publishedAt.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	event := s.outboxEvents[eventID]
+	if event == nil {
+		return nil, nil, ErrNotFound
+	}
+	event.Status = OutboxStatusPublished
+	event.LastError = ""
+	event.LeaseOwner = ""
+	event.LeaseExpiresAt = time.Time{}
+	event.PublishedAt = publishedAt
+	event.UpdatedAt = publishedAt
+	eventCopy := cloneOutboxEvent(event)
+	log.Payload = outboxEventAuditPayload(eventCopy)
+	auditLog := s.appendAuditLogLocked(log)
+	return eventCopy, auditLog, nil
 }
 
 func (s *Store) MarkOutboxEventFailed(req MarkOutboxEventFailedRequest) (*OutboxEvent, error) {
@@ -3938,6 +4035,52 @@ func (s *Store) MarkOutboxEventFailed(req MarkOutboxEventFailedRequest) (*Outbox
 	}
 	event.UpdatedAt = now
 	return cloneOutboxEvent(event), nil
+}
+
+func (s *Store) MarkOutboxEventFailedWithAudit(req MarkOutboxEventFailedRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.failed", "outbox_event", eventID)
+	if err != nil {
+		return nil, nil, err
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	retryAfterSeconds := req.RetryAfterSeconds
+	if retryAfterSeconds <= 0 {
+		retryAfterSeconds = 60
+	}
+	maxAttempts := req.MaxAttempts
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	event := s.outboxEvents[eventID]
+	if event == nil {
+		return nil, nil, ErrNotFound
+	}
+	event.Attempts++
+	event.Status = OutboxStatusFailed
+	event.LastError = strings.TrimSpace(req.Error)
+	event.LeaseOwner = ""
+	event.LeaseExpiresAt = time.Time{}
+	if maxAttempts > 0 && event.Attempts >= maxAttempts {
+		event.Status = OutboxStatusDeadLetter
+		event.AvailableAt = now
+	} else {
+		event.AvailableAt = now.Add(time.Duration(retryAfterSeconds) * time.Second)
+	}
+	event.UpdatedAt = now
+	eventCopy := cloneOutboxEvent(event)
+	log.Payload = outboxEventAuditPayload(eventCopy)
+	log.Payload["retry_after_seconds"] = retryAfterSeconds
+	auditLog := s.appendAuditLogLocked(log)
+	return eventCopy, auditLog, nil
 }
 
 func (s *Store) ClaimOutboxEvents(req ClaimOutboxEventsRequest) (*ClaimOutboxEventsResult, error) {
@@ -4031,6 +4174,103 @@ func (s *Store) ClaimOutboxEvents(req ClaimOutboxEventsRequest) (*ClaimOutboxEve
 	return result, nil
 }
 
+func (s *Store) ClaimOutboxEventsWithAudit(req ClaimOutboxEventsRequest, audit RecordAuditLogRequest) (*ClaimOutboxEventsResult, *AuditLog, error) {
+	topic := strings.TrimSpace(req.Topic)
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.claimed", "outbox_topic", outboxTopicAuditTarget(topic))
+	if err != nil {
+		return nil, nil, err
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	leaseOwner := strings.TrimSpace(req.LeaseOwner)
+	if leaseOwner == "" {
+		leaseOwner = "outbox-relay"
+	}
+	leaseSeconds := req.LeaseSeconds
+	if leaseSeconds <= 0 {
+		leaseSeconds = 60
+	}
+	if leaseSeconds > 3600 {
+		leaseSeconds = 3600
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+	leaseExpiresAt := now.Add(time.Duration(leaseSeconds) * time.Second)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	candidates := make([]*OutboxEvent, 0)
+	for _, event := range s.outboxEvents {
+		if event == nil {
+			continue
+		}
+		if topic != "" && event.Topic != topic {
+			continue
+		}
+		if event.Status != OutboxStatusPending && event.Status != OutboxStatusFailed {
+			continue
+		}
+		if outboxLeaseActive(event, now) {
+			continue
+		}
+		availableAt := event.AvailableAt
+		if availableAt.IsZero() {
+			availableAt = event.CreatedAt
+		}
+		if availableAt.UTC().After(now) {
+			continue
+		}
+		candidates = append(candidates, event)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		leftAvailableAt := candidates[i].AvailableAt
+		if leftAvailableAt.IsZero() {
+			leftAvailableAt = candidates[i].CreatedAt
+		}
+		rightAvailableAt := candidates[j].AvailableAt
+		if rightAvailableAt.IsZero() {
+			rightAvailableAt = candidates[j].CreatedAt
+		}
+		if !leftAvailableAt.Equal(rightAvailableAt) {
+			return leftAvailableAt.Before(rightAvailableAt)
+		}
+		if !candidates[i].CreatedAt.Equal(candidates[j].CreatedAt) {
+			return candidates[i].CreatedAt.Before(candidates[j].CreatedAt)
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	result := &ClaimOutboxEventsResult{
+		Topic:          topic,
+		Limit:          limit,
+		LeaseOwner:     leaseOwner,
+		LeaseExpiresAt: leaseExpiresAt,
+		Events:         []OutboxEvent{},
+	}
+	for _, event := range candidates {
+		event.LeaseOwner = leaseOwner
+		event.LeaseExpiresAt = leaseExpiresAt
+		event.UpdatedAt = now
+		result.Events = append(result.Events, *cloneOutboxEvent(event))
+	}
+	result.Claimed = len(result.Events)
+	log.Payload = outboxClaimAuditPayload(result, leaseSeconds)
+	auditLog := s.appendAuditLogLocked(log)
+	return result, auditLog, nil
+}
+
 func (s *Store) RenewOutboxEventLease(req RenewOutboxEventLeaseRequest) (*OutboxEvent, error) {
 	eventID := strings.TrimSpace(req.EventID)
 	leaseOwner := strings.TrimSpace(req.LeaseOwner)
@@ -4068,6 +4308,51 @@ func (s *Store) RenewOutboxEventLease(req RenewOutboxEventLeaseRequest) (*Outbox
 	return cloneOutboxEvent(event), nil
 }
 
+func (s *Store) RenewOutboxEventLeaseWithAudit(req RenewOutboxEventLeaseRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	leaseOwner := strings.TrimSpace(req.LeaseOwner)
+	if eventID == "" || leaseOwner == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.lease_renewed", "outbox_event", eventID)
+	if err != nil {
+		return nil, nil, err
+	}
+	leaseSeconds := req.LeaseSeconds
+	if leaseSeconds <= 0 {
+		leaseSeconds = 60
+	}
+	if leaseSeconds > 3600 {
+		leaseSeconds = 3600
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	event := s.outboxEvents[eventID]
+	if event == nil {
+		return nil, nil, ErrNotFound
+	}
+	if event.Status != OutboxStatusPending && event.Status != OutboxStatusFailed {
+		return nil, nil, ErrInvalidOrderState
+	}
+	if !outboxLeaseActive(event, now) || event.LeaseOwner != leaseOwner {
+		return nil, nil, ErrInvalidOrderState
+	}
+	event.LeaseExpiresAt = now.Add(time.Duration(leaseSeconds) * time.Second)
+	event.UpdatedAt = now
+	eventCopy := cloneOutboxEvent(event)
+	log.Payload = outboxEventAuditPayload(eventCopy)
+	log.Payload["lease_seconds"] = leaseSeconds
+	auditLog := s.appendAuditLogLocked(log)
+	return eventCopy, auditLog, nil
+}
+
 func (s *Store) ReplayOutboxEvent(req ReplayOutboxEventRequest) (*OutboxEvent, error) {
 	eventID := strings.TrimSpace(req.EventID)
 	if eventID == "" {
@@ -4099,6 +4384,46 @@ func (s *Store) ReplayOutboxEvent(req ReplayOutboxEventRequest) (*OutboxEvent, e
 	event.AvailableAt = now
 	event.UpdatedAt = now
 	return cloneOutboxEvent(event), nil
+}
+
+func (s *Store) ReplayOutboxEventWithAudit(req ReplayOutboxEventRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error) {
+	eventID := strings.TrimSpace(req.EventID)
+	if eventID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.replayed", "outbox_event", eventID)
+	if err != nil {
+		return nil, nil, err
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	event := s.outboxEvents[eventID]
+	if event == nil {
+		return nil, nil, ErrNotFound
+	}
+	if event.Status == OutboxStatusPublished {
+		return nil, nil, ErrInvalidOrderState
+	}
+	if event.Status != OutboxStatusPending && event.Status != OutboxStatusFailed && event.Status != OutboxStatusDeadLetter {
+		return nil, nil, ErrInvalidArgument
+	}
+	event.Status = OutboxStatusPending
+	event.LastError = ""
+	event.LeaseOwner = ""
+	event.LeaseExpiresAt = time.Time{}
+	event.AvailableAt = now
+	event.UpdatedAt = now
+	eventCopy := cloneOutboxEvent(event)
+	log.Payload = outboxEventAuditPayload(eventCopy)
+	auditLog := s.appendAuditLogLocked(log)
+	return eventCopy, auditLog, nil
 }
 
 func (s *Store) ReplayOutboxEvents(req ReplayOutboxEventsRequest) (*ReplayOutboxEventsResult, error) {
@@ -4179,6 +4504,92 @@ func (s *Store) ReplayOutboxEvents(req ReplayOutboxEventsRequest) (*ReplayOutbox
 	}
 	result.Replayed = len(result.Events)
 	return result, nil
+}
+
+func (s *Store) ReplayOutboxEventsWithAudit(req ReplayOutboxEventsRequest, audit RecordAuditLogRequest) (*ReplayOutboxEventsResult, *AuditLog, error) {
+	topic := strings.TrimSpace(req.Topic)
+	log, err := outboxAuditLogFromRequest(audit, "admin.outbox.batch_replayed", "outbox_topic", outboxTopicAuditTarget(topic))
+	if err != nil {
+		return nil, nil, err
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	candidates := make([]*OutboxEvent, 0)
+	for _, event := range s.outboxEvents {
+		if event == nil {
+			continue
+		}
+		if topic != "" && event.Topic != topic {
+			continue
+		}
+		if event.Status != OutboxStatusPending && event.Status != OutboxStatusFailed {
+			continue
+		}
+		if outboxLeaseActive(event, now) {
+			continue
+		}
+		availableAt := event.AvailableAt
+		if availableAt.IsZero() {
+			availableAt = event.CreatedAt
+		}
+		if !availableAt.UTC().After(now) {
+			continue
+		}
+		candidates = append(candidates, event)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		leftAvailableAt := candidates[i].AvailableAt
+		if leftAvailableAt.IsZero() {
+			leftAvailableAt = candidates[i].CreatedAt
+		}
+		rightAvailableAt := candidates[j].AvailableAt
+		if rightAvailableAt.IsZero() {
+			rightAvailableAt = candidates[j].CreatedAt
+		}
+		if !leftAvailableAt.Equal(rightAvailableAt) {
+			return leftAvailableAt.Before(rightAvailableAt)
+		}
+		if !candidates[i].CreatedAt.Equal(candidates[j].CreatedAt) {
+			return candidates[i].CreatedAt.Before(candidates[j].CreatedAt)
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	result := &ReplayOutboxEventsResult{
+		Topic:  topic,
+		Limit:  limit,
+		Events: []OutboxEvent{},
+	}
+	for _, event := range candidates {
+		event.Status = OutboxStatusPending
+		event.LastError = ""
+		event.LeaseOwner = ""
+		event.LeaseExpiresAt = time.Time{}
+		event.AvailableAt = now
+		event.UpdatedAt = now
+		result.Events = append(result.Events, *cloneOutboxEvent(event))
+	}
+	result.Replayed = len(result.Events)
+	log.Payload = outboxReplayBatchAuditPayload(result)
+	auditLog := s.appendAuditLogLocked(log)
+	return result, auditLog, nil
 }
 
 func (s *Store) appendOrderEventLocked(order *Order, event OrderEvent) {

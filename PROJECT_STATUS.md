@@ -1,6 +1,6 @@
 # Infinitech 2.0 当前状态总览
 
-更新时间：2026-05-23
+更新时间：2026-05-24
 目标仓库：`https://github.com/HCRXchenghong/infinitech2.0`  
 当前结论：项目已经完成架构基线、monorepo 骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化与 outbox/对象存储等多条商业化底座链路；但还没有完成真实生产支付、真实 IM/RTC、完整管理端、真实高可用基础设施、10 万在线压测和容灾演练，所以不能宣称已经商业级可上线，只能说正在按商业级标准推进。
 
@@ -19,12 +19,12 @@
 - 管理端审计中心增强首版，支持 actor/action/target/after/before/limit 筛选、before 游标翻页、保存筛选、详情抽屉、跨模块跳转和脱敏 payload 摘要。
 - 管理端审计服务端安全边界首版，新增 `security_auditor` 只读审计角色，并把 audit payload 白名单/敏感字段掩码下沉到 Store 与 PostgreSQL 路径。
 - 管理端审计完整性证明首版，审计日志返回 `integrity_algorithm`、`integrity_hash`、`integrity_verified`，本地默认 `sha256:v1`，生产配置 `AUDIT_LOG_SIGNING_SECRET` 后使用 `hmac-sha256:v1` 检测审计字段或白名单 payload 篡改。
-- 退款策略配置、管理端订单退款、售后审核、订单状态补偿与对象清理完成/失败审计同事务首版，`PUT /api/admin/refund-settings` 通过 `SaveRefundSettingsWithAudit` 同事务更新退款策略并写入审计，`POST /api/orders/{orderID}/refund` 通过 `RefundOrderWithAudit` 同事务写入退款业务账本和 `admin.order.refunded` 审计，`POST /api/after-sales/{requestID}/review` 通过 `ReviewAfterSalesWithAudit` 同事务写入售后审核、必要退款和 `after_sales.reviewed` 审计，`POST /api/admin/orders/{orderID}/state/compensate` 通过 `CompensateOrderStateWithAudit` 同事务写入状态补偿结果和 `admin.order_state.compensated` 审计，`POST /api/admin/object-storage/cleanup-complete` 与 `POST /api/admin/object-storage/cleanup-failed` 分别通过 `CompleteObjectStorageCleanupWithAudit`、`RecordObjectStorageCleanupFailureWithAudit` 同事务写入对象清理结果和审计。
+- 退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败与 outbox 运维审计同事务首版，`PUT /api/admin/refund-settings` 通过 `SaveRefundSettingsWithAudit` 同事务更新退款策略并写入审计，`POST /api/orders/{orderID}/refund` 通过 `RefundOrderWithAudit` 同事务写入退款业务账本和 `admin.order.refunded` 审计，`POST /api/after-sales/{requestID}/review` 通过 `ReviewAfterSalesWithAudit` 同事务写入售后审核、必要退款和 `after_sales.reviewed` 审计，`POST /api/admin/orders/{orderID}/state/compensate` 通过 `CompensateOrderStateWithAudit` 同事务写入状态补偿结果和 `admin.order_state.compensated` 审计，`POST /api/admin/object-storage/cleanup-complete` 与 `POST /api/admin/object-storage/cleanup-failed` 分别通过 `CompleteObjectStorageCleanupWithAudit`、`RecordObjectStorageCleanupFailureWithAudit` 同事务写入对象清理结果和审计，outbox claim/lease renew/publish/fail/replay/batch replay 分别通过 `ClaimOutboxEventsWithAudit`、`RenewOutboxEventLeaseWithAudit`、`MarkOutboxEventPublishedWithAudit`、`MarkOutboxEventFailedWithAudit`、`ReplayOutboxEventWithAudit`、`ReplayOutboxEventsWithAudit` 同事务更新 `platform_outbox_events` 和 `audit_logs`。
 
 当前最重要的未完成项：
 
 - 管理端全域细分 RBAC、审计导出、留存、异常告警、KMS/链式不可抵赖签名和审计策略治理。
-- 剩余关键业务写操作与审计写入同事务强制提交，优先迁移 outbox 运维和商户/骑手邀约写路径。
+- 剩余关键业务写操作与审计写入同事务强制提交，优先迁移商户/骑手邀约写路径。
 - 真实微信支付、微信原路退款、对账、提现、商户结算和骑手收入。
 - 真实 IM、客服工作台、RTC 信令与通话审计。
 - 生产高可用基础设施和 10 万在线压测/容灾报告。
@@ -199,7 +199,7 @@
 - 管理端已新增审计中心增强首版，支持按操作者、动作、目标、after/before 时间范围和条数查询审计记录；页面以白名单摘要展示 payload，并对 password、secret、token、authorization、openid、phone、object key、签名等敏感字段做脱敏；常用筛选可保存，审计详情可在抽屉查看，并可按目标继续筛选或跳到相关运营模块。
 - 管理端已新增审计服务端安全边界首版，`security_auditor` 可只读审计账本但不能执行后台写操作；`auth_sessions` 与身份迁移允许该主体类型；审计 payload 在服务端白名单过滤后才写入或返回，`object_key` 等敏感允许字段会被掩码，password、token、phone、nested/raw_request 等非白名单或敏感字段会被丢弃。
 - 管理端已新增审计完整性证明首版，`audit_logs` 表和 API 返回 `integrity_algorithm`、`integrity_hash`、`integrity_verified`；内存 Store 与 PostgreSQL 写入会签封规范化审计字段和服务端白名单 payload，查询时验证是否被篡改；Admin Web 审计中心可展示完整性状态、算法和哈希。
-- 管理端已新增退款策略配置、管理端订单退款、售后审核、订单状态补偿与对象清理完成/失败审计同事务首版，HTTP 退款策略保存入口改走 `SaveRefundSettingsWithAudit`，管理端订单退款入口改走 `RefundOrderWithAudit`，售后审核入口改走 `ReviewAfterSalesWithAudit`，订单状态补偿入口改走 `CompensateOrderStateWithAudit`，对象清理完成/失败入口改走 `CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit`；PostgreSQL-backed Store 分别使用单个数据库事务同时写入业务表与 `audit_logs`，并由 HTTP 防回退测试和架构守卫固定路径。
+- 管理端已新增退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败与 outbox 运维审计同事务首版，HTTP 退款策略保存入口改走 `SaveRefundSettingsWithAudit`，管理端订单退款入口改走 `RefundOrderWithAudit`，售后审核入口改走 `ReviewAfterSalesWithAudit`，订单状态补偿入口改走 `CompensateOrderStateWithAudit`，对象清理完成/失败入口改走 `CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit`，outbox 运维入口改走 `ClaimOutboxEventsWithAudit`、`RenewOutboxEventLeaseWithAudit`、`MarkOutboxEventPublishedWithAudit`、`MarkOutboxEventFailedWithAudit`、`ReplayOutboxEventWithAudit` 和 `ReplayOutboxEventsWithAudit`；PostgreSQL-backed Store 分别使用单个数据库事务同时写入业务表或 `platform_outbox_events` 与 `audit_logs`，并由 HTTP 防回退测试、Store 原子审计测试和架构守卫固定路径。
 - BFF 已补浏览器来源 CORS 白名单和 `OPTIONS` 预检处理，默认覆盖本地管理端/uni 调试来源，并可通过 `BFF_ALLOWED_ORIGINS` 配置部署来源。
 - `apps/admin-uni` 骨架。
 - `packages/admin-core` 已定义关键运营模块。
@@ -264,7 +264,7 @@
 - 管理端操作审计日志首版：关键后台写操作记录 actor、action、target、request_id、ip_hash、服务端白名单 payload 和创建时间，管理员可按条件查询。
 - 审计日志 PostgreSQL 规范化表首版：`PostgresStore` 确保 `audit_logs` 表/索引存在，把旧快照审计幂等补入表，通过 `platform_sequences` 行级锁生成审计 `aud_N`，PostgreSQL 查询路径直接读取规范化表。
 - 管理端审计完整性证明首版：审计日志签封规范化字段和白名单 payload，返回 `integrity_algorithm`、`integrity_hash`、`integrity_verified`，本地默认 SHA256，生产可用 `AUDIT_LOG_SIGNING_SECRET` 启用 HMAC。
-- 退款策略配置、管理端订单退款、售后审核、订单状态补偿与对象清理完成/失败审计同事务首版：`SaveRefundSettingsWithAudit` 将退款策略配置写入和 `admin.refund_settings.updated` 审计写入收敛到仓储级原子路径；`RefundOrderWithAudit` 将管理端订单退款业务账本和 `admin.order.refunded` 审计写入收敛到仓储级原子路径；`ReviewAfterSalesWithAudit` 将售后审核、必要退款和 `after_sales.reviewed` 审计写入收敛到仓储级原子路径；`CompensateOrderStateWithAudit` 将订单状态补偿和 `admin.order_state.compensated` 审计写入收敛到仓储级原子路径；`CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit` 将对象清理完成/失败票据状态和 `admin.object_cleanup.completed`/`admin.object_cleanup.failed` 审计写入收敛到仓储级原子路径，PostgreSQL-backed Store 均在同一事务内完成业务表与 `audit_logs` 写入。
+- 退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败与 outbox 运维审计同事务首版：`SaveRefundSettingsWithAudit` 将退款策略配置写入和 `admin.refund_settings.updated` 审计写入收敛到仓储级原子路径；`RefundOrderWithAudit` 将管理端订单退款业务账本和 `admin.order.refunded` 审计写入收敛到仓储级原子路径；`ReviewAfterSalesWithAudit` 将售后审核、必要退款和 `after_sales.reviewed` 审计写入收敛到仓储级原子路径；`CompensateOrderStateWithAudit` 将订单状态补偿和 `admin.order_state.compensated` 审计写入收敛到仓储级原子路径；`CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit` 将对象清理完成/失败票据状态和 `admin.object_cleanup.completed`/`admin.object_cleanup.failed` 审计写入收敛到仓储级原子路径；outbox claim/lease renew/publish/fail/replay/batch replay 通过对应 `WithAudit` 仓储方法在同一事务内更新 `platform_outbox_events` 与 `audit_logs`。
 - 对象生命周期清理 worker 首版。
 - 对象清理失败账本首版。
 - 对象清理统计接口首版。
@@ -479,8 +479,8 @@ npm run verify:architecture
 - 已做审计中心增强首版：actor/action/target/after/before/limit 筛选、before 游标翻页、保存筛选、详情抽屉、跨模块跳转和脱敏 payload 摘要。
 - 已做审计服务端安全边界首版：`security_auditor` 只读审计角色、审计 payload 服务端白名单和敏感字段掩码。
 - 已做审计完整性证明首版：`sha256:v1`/`hmac-sha256:v1` 签封审计规范化字段和白名单 payload，Admin Web 可展示验证状态。
-- 已做退款策略配置、管理端订单退款、售后审核、订单状态补偿与对象清理完成/失败审计同事务首版：后台退款策略保存会在仓储级原子路径内同时更新配置和写入审计，管理端订单退款会在仓储级原子路径内同时写入退款业务账本和审计，售后审核会在仓储级原子路径内同时写入审核结果、必要退款和审计，订单状态补偿会在仓储级原子路径内同时写入修复结果和审计，对象清理完成/失败会在仓储级原子路径内同时写入上传票据清理状态和审计。
-- 下一步：把订单/售后/商户/骑手视图继续拆详情页与审核表单，并补全域服务端细分 RBAC、outbox/邀约等剩余写操作审计同事务、审计导出留存、异常告警和 KMS/链式不可抵赖签名。
+- 已做退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败与 outbox 运维审计同事务首版：后台退款策略保存会在仓储级原子路径内同时更新配置和写入审计，管理端订单退款会在仓储级原子路径内同时写入退款业务账本和审计，售后审核会在仓储级原子路径内同时写入审核结果、必要退款和审计，订单状态补偿会在仓储级原子路径内同时写入修复结果和审计，对象清理完成/失败会在仓储级原子路径内同时写入上传票据清理状态和审计，outbox 运维会在仓储级原子路径内同时更新 outbox 事件状态和审计。
+- 下一步：把订单/售后/商户/骑手视图继续拆详情页与审核表单，并补全域服务端细分 RBAC、商户/骑手邀约等剩余写操作审计同事务、审计导出留存、异常告警和 KMS/链式不可抵赖签名。
 
 ### 第 3 优先级：微信支付生产链路
 
