@@ -1,14 +1,14 @@
 # Infinitech 2.0 最近进展与路线图
 
-更新时间：2026-05-22  
+更新时间：2026-05-23
 目标仓库：`https://github.com/HCRXchenghong/infinitech2.0`  
-当前最新提交：`9f0f57b feat: normalize admin audit logs`
+当前最新提交：待提交
 
 ## 当前结论
 
-项目已经完成架构基线、monorepo 工程骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化账本、outbox relay、对象扫描/清理、管理端 P0 运营视图和管理端审计账本首版。
+项目已经完成架构基线、monorepo 工程骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化账本、outbox relay、对象扫描/清理、管理端 P0 运营视图、管理端审计账本、审计中心增强首版、审计服务端安全边界首版、审计完整性证明首版，以及退款策略配置、管理端订单退款、售后审核、订单状态补偿与对象清理完成/失败审计同事务首版。
 
-但项目仍未达到商业级可上线状态。真实生产支付、微信原路退款、提现结算、真实 IM/RTC、完整后台页面、细分 RBAC、真实高可用基础设施、10 万在线压测和容灾演练还没完成。未完成这些验收前，只能说“按商业级目标推进中”，不能说“已经商业级上线”。
+但项目仍未达到商业级可上线状态。真实生产支付、微信原路退款、提现结算、真实 IM/RTC、完整后台页面、全域细分 RBAC、真实高可用基础设施、10 万在线压测和容灾演练还没完成。未完成这些验收前，只能说“按商业级目标推进中”，不能说“已经商业级上线”。
 
 ## 最近已完成
 
@@ -41,7 +41,7 @@
 - 已新增 `GET /api/admin/audit-logs`。
 - API、BFF、Admin Web 操作台已接入。
 - 已覆盖商户/骑手邀约、退款策略保存、订单退款、订单状态补偿、售后审核、对象清理完成/失败、outbox 领取/续租/发布/失败/重放/批量重放等关键后台写操作。
-- 审计记录包含 actor、action、target、request_id、ip_hash、非敏感 payload 和 created_at。
+- 审计记录包含 actor、action、target、request_id、ip_hash、服务端白名单 payload 和 created_at。
 
 ### 6. 审计日志 PostgreSQL 规范化表
 
@@ -50,6 +50,49 @@
 - 新审计 ID 通过 `platform_sequences` 的 `audit_logs` 序列行级锁生成 `aud_N`，避免多副本 API 下 ID 碰撞。
 - PostgreSQL-backed Store 查询审计时直接读取规范化 `audit_logs` 表。
 
+### 7. 管理端审计检索页首版
+
+- Admin Web 已新增“审计检索”P0 模块。
+- 支持按 actor type、actor id、action、target type、target id、before 时间游标和 limit 查询 `/api/admin/audit-logs`。
+- 支持 before 游标翻页，便于按时间倒序继续追查历史操作。
+- 审计 payload 在表格中只显示白名单摘要，并对 password、secret、token、authorization、openid、phone、object key、签名等敏感字段做脱敏详情展示。
+- RBAC 草案新增安全审计员 `security_auditor`，用于后续服务端细分权限落地。
+
+### 8. 管理端审计中心增强首版
+
+- `/api/admin/audit-logs` 已新增 `after` 时间下界，内存 Store 和 PostgreSQL 查询均按 `created_at >= after` 过滤，`before` 继续作为严格小于的时间游标。
+- Admin Web 审计检索已支持 after/before 时间范围、保存常用筛选、审计详情抽屉、按当前目标继续筛选和 before 游标翻页。
+- 审计目标可根据 target type/action 跳到订单、售后、商户、骑手、outbox、对象清理和退款策略等相关运营模块。
+- Admin Web 单测、Go Store/HTTP/PostgreSQL 查询构造测试和架构守卫已覆盖 after、预设、详情和跳转能力。
+
+### 9. 管理端审计服务端安全边界首版
+
+- `api-go` 新增 `security_auditor` 服务端角色，`Principal.CanReadAuditLogs()` 只允许管理员和安全审计员读取 `/api/admin/audit-logs`。
+- 安全审计员可以只读审计账本，但不能执行商户邀请、订单状态补偿等后台写操作；HTTP 回归测试已覆盖允许读和拒绝写。
+- `auth_identities`、`auth_sessions` 迁移和运行时建表已允许 `security_auditor` 主体类型，避免生产 session 落库失败。
+- 审计 payload 白名单和敏感字段掩码已下沉到后端 Store/PostgreSQL 路径；写入、SQL marshal、SQL 读取和镜像恢复都会调用统一 `sanitizeAuditPayload`。
+- 白名单字段如 `default_refund_strategy`、`amount_fen` 会保留；`object_key` 等敏感允许字段会掩码；`password`、`token`、`phone`、`nested`、`raw_request` 等非白名单或敏感字段不会持久化或原样返回。
+
+### 10. 管理端审计完整性证明首版
+
+- `audit_logs` 迁移和运行时建表已新增 `integrity_algorithm` 与 `integrity_hash`，API 合同返回 `integrity_verified`。
+- 内存 Store 与 PostgreSQL 写入会对审计 ID、actor、action、target、request_id、ip_hash、服务端白名单 payload 和 `created_at` 生成稳定完整性证明；查询时重新验证并暴露验证结果。
+- 本地和无密钥环境默认使用 `sha256:v1`；生产配置 `AUDIT_LOG_SIGNING_SECRET` 后使用 `hmac-sha256:v1`，可发现数据库中审计字段或白名单 payload 被篡改。
+- 旧快照或旧 SQL 行缺少完整性字段时，可在业务字段完全一致的前提下回填证明；Admin Web 审计中心已展示完整性状态、算法和哈希。
+- 这仍不是最终法律级不可抵赖方案，后续还要补 KMS/Vault 密钥轮换、链式账本、WORM/冷归档、导出留存和告警。
+
+### 11. 退款策略配置、管理端订单退款、售后审核、订单状态补偿与对象清理审计同事务首版
+
+- `PUT /api/admin/refund-settings` 已从 HTTP 层“先写业务、再补审计”迁移到仓储级 `SaveRefundSettingsWithAudit` 原子路径。
+- `POST /api/orders/{orderID}/refund` 已从 HTTP 层“先退款、再补审计”迁移到仓储级 `RefundOrderWithAudit` 原子路径。
+- `POST /api/after-sales/{requestID}/review` 已从 HTTP 层“先审核售后、再补审计”迁移到仓储级 `ReviewAfterSalesWithAudit` 原子路径。
+- `POST /api/admin/orders/{orderID}/state/compensate` 已从 HTTP 层“先补偿状态、再补审计”迁移到仓储级 `CompensateOrderStateWithAudit` 原子路径。
+- `POST /api/admin/object-storage/cleanup-complete` 与 `POST /api/admin/object-storage/cleanup-failed` 已从 HTTP 层“先回写清理结果、再补审计”迁移到仓储级 `CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit` 原子路径。
+- 内存 Store 在同一把业务锁内完成退款策略保存、订单退款、售后审核、订单状态补偿或对象清理票据状态更新并写入对应审计；PostgreSQL-backed Store 在同一个数据库事务内写入业务表与 `audit_logs`，审计 ID 继续走 `platform_sequences` 行级锁。
+- 退款策略审计 payload 以服务端规范化后的 `default_refund_strategy` 为准；订单退款审计 payload 以最终退款交易为准，只保留 `refund_id`、`destination`、`status`、`amount_fen` 和 `idempotency_key`；售后审核审计 payload 以最终审核结果和退款交易为准，只保留 `decision`、`status`、`refund_id`、`amount_fen`、`destination` 和 `idempotency_key`；订单状态补偿审计 payload 以最终补偿结果为准，只保留 `changed`、`previous_status`、`expected_status`、`compensation_type`、`evidence_count` 和必要 rider 字段；对象清理审计 payload 以最终票据状态为准，只保留脱敏 `object_key`、`reason`、`status` 和失败时的 `cleanup_attempts`。
+- HTTP 防回退测试和架构守卫已固定这些路径，避免未来退回到业务写成功后再单独调用 `RecordAuditLog`。
+- 当前只是首批后台写路径与审计同事务首版，outbox 运维和商户/骑手邀约等写路径仍需继续迁移。
+
 ## 当前未完成
 
 ### P0 商业级阻塞项
@@ -57,8 +100,8 @@
 - 真实微信支付生产参数、证书、回调、验签、异常重放和对账闭环。
 - 微信原路退款 API 真调用、退款回调、对账和差错处理。
 - 钱包提现、商户结算、骑手收入、平台抽佣和财务报表。
-- 管理端细分 RBAC、敏感字段脱敏、审计检索页、审计导出/留存/告警。
-- 关键业务写操作与审计写入同事务强制提交。
+- 管理端全域细分 RBAC、审计导出/留存/告警、KMS/链式不可抵赖签名、冷热归档和审计策略治理。
+- 剩余关键业务写操作与审计写入同事务强制提交，优先迁移 outbox 运维和商户/骑手邀约写路径。
 - 真实 IM 消息落库、离线补偿、客服工作台和消息风控。
 - RTC 语音通话信令、通话审计和订单/会话关联。
 - PostgreSQL HA、Redis Cluster、Kafka 多 Broker、MinIO 生产权限、Vault/KMS 密钥治理。
@@ -87,10 +130,9 @@
 
 ### 第一批：后台审计中心补全
 
-- 把关键业务写操作和 `audit_logs` 写入推进到同一业务事务内强制提交。
-- 做 Admin Web 审计检索页：按 actor、action、target、时间范围筛选，支持分页。
-- 补敏感字段脱敏规则和审计 payload 白名单。
-- 补导出、留存策略、异常告警和不可抵赖签名设计。
+- 继续把剩余关键业务写操作和 `audit_logs` 写入推进到同一业务事务内强制提交，退款策略配置、管理端订单退款、售后审核、订单状态补偿和对象清理完成/失败已完成首版。
+- 把安全审计员从审计只读扩展为全域服务端 RBAC 策略矩阵。
+- 补导出、留存策略、异常告警、KMS/链式不可抵赖签名和冷热归档设计。
 
 ### 第二批：管理端详情页与审核闭环
 

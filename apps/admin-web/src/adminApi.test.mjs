@@ -1,12 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ADMIN_API_OPERATIONS, buildAdminRequest, executeAdminOperation, fieldsForOperation, getAdminOperation } from "./adminApi.mjs";
+import {
+  auditDataFromResult,
+  auditSearchValuesFromFilters,
+  auditTargetRoute,
+  buildAuditRows,
+  makeAuditFilterPreset,
+  nextAuditBefore,
+  normalizeAuditFilters,
+  redactAuditPayload,
+  summarizeAuditPayload,
+  upsertAuditFilterPreset
+} from "./adminAudit.mjs";
 import { ADMIN_WEB_KPIS, ADMIN_WEB_MODULES, ADMIN_WEB_QUEUES, ADMIN_WEB_RBAC, ADMIN_WEB_SECTIONS, getAdminWebModule } from "./config.mjs";
 import { ADMIN_WEB_VIEWS, getAdminView } from "./adminViews.mjs";
 import { applySnapshotToAdminView, buildSnapshotKpis, buildSnapshotQueues, snapshotDataFromResult } from "./adminSnapshot.mjs";
 
 test("admin web exposes the first operable control-center modules", () => {
-  for (const key of ["orders", "after-sales", "merchants", "riders", "dispatch", "refund-settings", "payment", "support", "rtc", "integrations"]) {
+  for (const key of ["orders", "after-sales", "merchants", "riders", "dispatch", "audit-logs", "refund-settings", "payment", "support", "rtc", "integrations"]) {
     assert.ok(getAdminWebModule(key), `missing ${key}`);
   }
   assert.ok(ADMIN_WEB_SECTIONS.length >= 4);
@@ -14,6 +26,7 @@ test("admin web exposes the first operable control-center modules", () => {
   assert.ok(ADMIN_WEB_KPIS.some((item) => item.key === "outbox"));
   assert.ok(ADMIN_WEB_QUEUES.some((item) => item.operationKey === "object-cleanup-stats"));
   assert.ok(ADMIN_WEB_RBAC.some((item) => item.role === "finance_admin" && item.scopes.includes("refund:write")));
+  assert.ok(ADMIN_WEB_RBAC.some((item) => item.role === "security_auditor" && item.scopes.includes("audit:read")));
 });
 
 test("admin web operation catalog covers shipped admin API surfaces", () => {
@@ -44,7 +57,7 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
 });
 
 test("admin web ships P0 business views with actions and safeguards", () => {
-  for (const key of ["orders", "after-sales", "merchants", "riders", "rider-performance", "dispatch", "refund-settings"]) {
+  for (const key of ["orders", "after-sales", "merchants", "riders", "rider-performance", "dispatch", "audit-logs", "refund-settings"]) {
     const view = getAdminView(key);
     assert.equal(view.key, key);
     assert.ok(view.metrics.length >= 4, `missing metrics for ${key}`);
@@ -72,12 +85,104 @@ test("admin request builder normalizes auth query path and body", () => {
   const snapshotRequest = buildAdminRequest(getAdminOperation("operations-snapshot"), { limit: 10, lease_expiring_within_seconds: 45 }, "admin.token");
   assert.equal(snapshotRequest.url, "/api/admin/operations/snapshot?limit=10&lease_expiring_within_seconds=45&object_cleanup_grace_seconds=3600");
 
-  const auditRequest = buildAdminRequest(getAdminOperation("audit-logs"), { target_type: "order", limit: 5 }, "Bearer admin.token");
-  assert.equal(auditRequest.url, "/api/admin/audit-logs?target_type=order&limit=5");
+  const auditRequest = buildAdminRequest(getAdminOperation("audit-logs"), { actor_type: "admin", actor_id: "admin_1", target_type: "order", after: "2026-05-22T00:00:00Z", before: "2026-05-22T12:00:00Z", limit: 5 }, "Bearer admin.token");
+  assert.equal(auditRequest.url, "/api/admin/audit-logs?actor_type=admin&actor_id=admin_1&target_type=order&after=2026-05-22T00%3A00%3A00Z&before=2026-05-22T12%3A00%3A00Z&limit=5");
   assert.equal(auditRequest.headers.Authorization, "Bearer admin.token");
 
   const loginFields = fieldsForOperation(getAdminOperation("admin-login"));
   assert.deepEqual(loginFields.map((field) => field.key), ["account_id", "password"]);
+});
+
+test("admin audit adapter redacts sensitive payload and builds cursor rows", () => {
+  const logs = [
+    {
+      id: "aud_2",
+      actor_type: "admin",
+      actor_id: "admin_1",
+      action: "admin.order.refunded",
+      target_type: "order",
+      target_id: "ord_1",
+      request_id: "req_1",
+      ip_hash: "ip_hash",
+      payload: {
+        amount_fen: 1200,
+        idempotency_key: "refund_ord_1",
+        password: "PlainTextPassword",
+        token: "secret-token-value",
+        object_key: "after-sales/asr_1/private/evidence.jpg",
+        nested: { phone: "13900000000", reason: "商品售罄" }
+      },
+      integrity_algorithm: "hmac-sha256:v1",
+      integrity_hash: "abcdef1234567890abcdef1234567890",
+      integrity_verified: true,
+      created_at: "2026-05-22T12:00:00Z"
+    }
+  ];
+  const redacted = redactAuditPayload(logs[0].payload);
+  assert.equal(redacted.password, "Pla***rd");
+  assert.equal(redacted.token, "sec***ue");
+  assert.equal(redacted.object_key, "aft***pg");
+  assert.equal(redacted.nested.phone, "139***00");
+  assert.equal(redacted.nested.reason, "商品售罄");
+
+  const summary = summarizeAuditPayload(logs[0].payload);
+  assert.match(summary, /amount_fen: 1200/);
+  assert.match(summary, /idempotency_key: refund_ord_1/);
+  assert.doesNotMatch(summary, /PlainTextPassword|secret-token-value|private\/evidence/);
+
+  const rows = buildAuditRows(logs);
+  assert.equal(rows[0].actor, "admin:admin_1");
+  assert.equal(rows[0].target, "order:ord_1");
+  assert.equal(rows[0].targetModule, "orders");
+  assert.equal(rows[0].targetOperation, "order-compensate");
+  assert.equal(rows[0].targetLabel, "订单监控");
+  assert.equal(rows[0].before, logs[0].created_at);
+  assert.equal(rows[0].integrityLabel, "已验证");
+  assert.equal(rows[0].integrityTone, "ok");
+  assert.equal(rows[0].integrityAlgorithm, "hmac-sha256:v1");
+  assert.equal(rows[0].integrityHashShort, "abcdef123456...");
+  assert.equal(nextAuditBefore(logs), logs[0].created_at);
+  assert.deepEqual(auditDataFromResult({ payload: { data: logs } }), logs);
+  assert.deepEqual(auditDataFromResult({ payload: { data: { nope: true } } }), []);
+
+  const tamperedRows = buildAuditRows([{ ...logs[0], integrity_verified: false }]);
+  assert.equal(tamperedRows[0].integrityLabel, "未通过");
+  assert.equal(tamperedRows[0].integrityTone, "danger");
+});
+
+test("admin audit filters normalize ranges presets and target routes", () => {
+  const normalized = normalizeAuditFilters({
+    actor_type: " admin ",
+    actor_id: " admin_1 ",
+    action: " admin.outbox.replayed ",
+    target_type: " outbox_event ",
+    target_id: " obe_1 ",
+    after: " 2026-05-22T00:00:00Z ",
+    before: " 2026-05-22T12:00:00Z ",
+    limit: 999
+  });
+  assert.deepEqual(normalized, {
+    actor_type: "admin",
+    actor_id: "admin_1",
+    action: "admin.outbox.replayed",
+    target_type: "outbox_event",
+    target_id: "obe_1",
+    after: "2026-05-22T00:00:00Z",
+    before: "2026-05-22T12:00:00Z",
+    limit: 500
+  });
+  assert.equal(auditSearchValuesFromFilters(normalized, { beforeOverride: "2026-05-22T08:00:00Z" }).before, "2026-05-22T08:00:00Z");
+
+  const preset = makeAuditFilterPreset(normalized, "2026-05-22T13:00:00Z");
+  assert.match(preset.id, /^audit_filter_/);
+  assert.match(preset.name, /actor:admin/);
+  assert.equal(preset.filters.limit, 500);
+  assert.equal(upsertAuditFilterPreset([preset], preset).length, 1);
+
+  const outboxRoute = auditTargetRoute({ target_type: "outbox_event", action: "admin.outbox.replayed" });
+  assert.deepEqual(outboxRoute, { module: "dashboard", operation: "outbox-events", label: "Outbox 事件" });
+  const fallbackRoute = auditTargetRoute({ target_type: "unknown", action: "admin.merchant_invite.created" });
+  assert.equal(fallbackRoute.module, "merchants");
 });
 
 test("admin operation executor returns response metadata and payload", async () => {

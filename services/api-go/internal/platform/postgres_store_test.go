@@ -584,7 +584,7 @@ func TestAuditLogSnapshotAndSequenceForSQLTable(t *testing.T) {
 		Action:     "admin.refund_settings.updated",
 		TargetType: "refund_settings",
 		TargetID:   "default",
-		Payload:    map[string]any{"strategy": RefundStrategyBalanceFirst},
+		Payload:    map[string]any{"default_refund_strategy": RefundStrategyBalanceFirst},
 		CreatedAt:  firstAt,
 	})
 	if err != nil {
@@ -603,15 +603,18 @@ func TestAuditLogSnapshotAndSequenceForSQLTable(t *testing.T) {
 	}
 
 	snapshot := store.auditLogSnapshot()
-	if len(snapshot) != 2 || snapshot[0].ID != first.ID || snapshot[0].Payload["strategy"] != RefundStrategyBalanceFirst {
+	if len(snapshot) != 2 || snapshot[0].ID != first.ID || snapshot[0].Payload["default_refund_strategy"] != RefundStrategyBalanceFirst {
 		t.Fatalf("expected immutable sorted audit snapshot for SQL sync, got %+v", snapshot)
 	}
-	snapshot[0].Payload["strategy"] = "tampered"
+	if snapshot[0].IntegrityAlgorithm != auditIntegrityAlgorithmSHA256 || snapshot[0].IntegrityHash == "" || !snapshot[0].IntegrityVerified {
+		t.Fatalf("expected SQL audit snapshot to include verified integrity proof, got %+v", snapshot[0])
+	}
+	snapshot[0].Payload["default_refund_strategy"] = "tampered"
 	logs, err := store.AuditLogs(AuditLogsRequest{Action: "admin.refund_settings.updated", Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(logs) != 1 || logs[0].Payload["strategy"] != RefundStrategyBalanceFirst {
+	if len(logs) != 1 || logs[0].Payload["default_refund_strategy"] != RefundStrategyBalanceFirst || !logs[0].IntegrityVerified {
 		t.Fatalf("expected audit snapshot to protect payload copies, got %+v", logs)
 	}
 
@@ -630,9 +633,40 @@ func TestAuditLogSnapshotAndSequenceForSQLTable(t *testing.T) {
 	if next.ID != "aud_10" {
 		t.Fatalf("expected restored SQL audit sequence to continue, got %s", next.ID)
 	}
+	if next.IntegrityAlgorithm != auditIntegrityAlgorithmSHA256 || next.IntegrityHash == "" || !next.IntegrityVerified {
+		t.Fatalf("expected restored SQL audit sequence write to include integrity proof, got %+v", next)
+	}
+}
+
+func TestSQLAuditLogIntegritySealsMissingProofWithHMAC(t *testing.T) {
+	log, err := auditLogFromRequest(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.outbox.replayed",
+		TargetType: "outbox_event",
+		TargetID:   "obe_1",
+		Payload:    map[string]any{"topic": "order.paid", "limit": 50},
+		CreatedAt:  time.Date(2026, 5, 23, 11, 0, 0, 123456789, time.UTC),
+	}, "aud_20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ensureAuditLogIntegrity(log, "sql-audit-secret")
+	if log.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || log.IntegrityHash == "" || !log.IntegrityVerified {
+		t.Fatalf("expected SQL audit write path to seal missing integrity proof with HMAC, got %+v", log)
+	}
+	if log.CreatedAt.Nanosecond() != 123456000 {
+		t.Fatalf("expected audit integrity timestamp to normalize to PostgreSQL microsecond precision, got %s", log.CreatedAt.Format(time.RFC3339Nano))
+	}
+	tampered := *cloneAuditLog(log)
+	tampered.Payload["limit"] = 25
+	if verifyAuditLogIntegrity(tampered, "sql-audit-secret") {
+		t.Fatalf("expected SQL audit integrity verifier to reject tampered payload")
+	}
 }
 
 func TestSQLAuditLogQueryBuilderAppliesFiltersAndLimit(t *testing.T) {
+	after := time.Date(2026, 5, 22, 9, 0, 0, 0, time.UTC)
 	before := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
 	query, args := buildSQLAuditLogsQuery(AuditLogsRequest{
 		ActorType:  "admin",
@@ -640,25 +674,29 @@ func TestSQLAuditLogQueryBuilderAppliesFiltersAndLimit(t *testing.T) {
 		Action:     "admin.order.refunded",
 		TargetType: "order",
 		TargetID:   "ord_1",
+		After:      after,
 		Before:     before,
 		Limit:      999,
 	})
 	for _, expected := range []string{
 		"FROM audit_logs",
+		"integrity_algorithm",
+		"integrity_hash",
 		"actor_type = $1",
 		"actor_id = $2",
 		"action = $3",
 		"target_type = $4",
 		"target_id = $5",
-		"created_at < $6",
+		"created_at >= $6",
+		"created_at < $7",
 		"ORDER BY created_at DESC, id DESC",
-		"LIMIT $7",
+		"LIMIT $8",
 	} {
 		if !strings.Contains(query, expected) {
 			t.Fatalf("expected audit query to contain %q, got %s", expected, query)
 		}
 	}
-	if len(args) != 7 || args[1] != "admin_1" || args[6] != 500 {
+	if len(args) != 8 || args[1] != "admin_1" || args[5] != after || args[6] != before || args[7] != 500 {
 		t.Fatalf("expected sanitized audit query args and capped limit, got %+v", args)
 	}
 }

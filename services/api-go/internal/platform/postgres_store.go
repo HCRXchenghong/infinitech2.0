@@ -25,7 +25,7 @@ const postgresOutboxEventReturningColumns = `
 	event.lease_expires_at, event.published_at, event.created_at, event.updated_at`
 const postgresAuditLogColumns = `
 	id, actor_type, actor_id, action, target_type, target_id,
-	request_id, ip_hash, payload, created_at`
+	request_id, ip_hash, payload, integrity_algorithm, integrity_hash, created_at`
 
 var ErrPersistence = errors.New("persistence failed")
 
@@ -267,10 +267,14 @@ func (s *PostgresStore) ensureAuditLogTable(ctx context.Context) error {
   request_id TEXT NOT NULL DEFAULT '',
   ip_hash TEXT NOT NULL DEFAULT '',
   payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  integrity_algorithm TEXT NOT NULL DEFAULT '',
+  integrity_hash TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )`,
 		`ALTER TABLE audit_logs ALTER COLUMN id DROP DEFAULT`,
 		`ALTER TABLE audit_logs ALTER COLUMN id TYPE TEXT USING id::text`,
+		`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS integrity_algorithm TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS integrity_hash TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_logs_target_time
   ON audit_logs (target_type, target_id, created_at DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_time
@@ -1299,6 +1303,8 @@ func (s *Store) applyAuditLogFromSQL(log AuditLog) {
 	if strings.TrimSpace(log.ID) == "" {
 		return
 	}
+	log.Payload = sanitizeAuditPayload(log.Payload)
+	ensureAuditLogIntegrity(&log, s.auditLogSigningSecretSnapshot())
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.auditLogs[log.ID] = cloneAuditLog(&log)
@@ -1320,7 +1326,7 @@ func (s *PostgresStore) syncSnapshotAuditLogsToTable(ctx context.Context) error 
 		_ = tx.Rollback()
 	}()
 	for _, log := range logs {
-		if err := upsertSQLAuditLog(ctx, tx, log); err != nil {
+		if err := upsertSQLAuditLog(ctx, tx, log, s.Store.auditLogSigningSecretSnapshot()); err != nil {
 			return err
 		}
 	}
@@ -1362,9 +1368,9 @@ func auditLogFromRequest(req RecordAuditLogRequest, id string) (*AuditLog, error
 	}
 	now := req.CreatedAt
 	if now.IsZero() {
-		now = time.Now().UTC()
+		now = normalizeAuditLogTime(time.Now())
 	}
-	now = now.UTC()
+	now = normalizeAuditLogTime(now)
 	return &AuditLog{
 		ID:         strings.TrimSpace(id),
 		ActorType:  actorType,
@@ -1374,20 +1380,20 @@ func auditLogFromRequest(req RecordAuditLogRequest, id string) (*AuditLog, error
 		TargetID:   targetID,
 		RequestID:  strings.TrimSpace(req.RequestID),
 		IPHash:     strings.TrimSpace(req.IPHash),
-		Payload:    cloneMapAny(req.Payload),
+		Payload:    sanitizeAuditPayload(req.Payload),
 		CreatedAt:  now,
 	}, nil
 }
 
-func upsertSQLAuditLog(ctx context.Context, tx *sql.Tx, log AuditLog) error {
-	return writeSQLAuditLog(ctx, tx, log, false)
+func upsertSQLAuditLog(ctx context.Context, tx *sql.Tx, log AuditLog, signingSecret string) error {
+	return writeSQLAuditLog(ctx, tx, log, false, signingSecret)
 }
 
-func insertSQLAuditLog(ctx context.Context, tx *sql.Tx, log AuditLog) error {
-	return writeSQLAuditLog(ctx, tx, log, true)
+func insertSQLAuditLog(ctx context.Context, tx *sql.Tx, log AuditLog, signingSecret string) error {
+	return writeSQLAuditLog(ctx, tx, log, true, signingSecret)
 }
 
-func writeSQLAuditLog(ctx context.Context, tx *sql.Tx, log AuditLog, requireInsert bool) error {
+func writeSQLAuditLog(ctx context.Context, tx *sql.Tx, log AuditLog, requireInsert bool, signingSecret string) error {
 	log.ID = strings.TrimSpace(log.ID)
 	log.ActorType = strings.TrimSpace(log.ActorType)
 	log.ActorID = strings.TrimSpace(log.ActorID)
@@ -1400,21 +1406,39 @@ func writeSQLAuditLog(ctx context.Context, tx *sql.Tx, log AuditLog, requireInse
 		return ErrInvalidArgument
 	}
 	if log.CreatedAt.IsZero() {
-		log.CreatedAt = time.Now().UTC()
+		log.CreatedAt = normalizeAuditLogTime(time.Now())
 	} else {
-		log.CreatedAt = log.CreatedAt.UTC()
+		log.CreatedAt = normalizeAuditLogTime(log.CreatedAt)
 	}
-	payload, err := json.Marshal(cloneMapAny(log.Payload))
+	ensureAuditLogIntegrity(&log, signingSecret)
+	payload, err := json.Marshal(sanitizeAuditPayload(log.Payload))
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `
+	conflictClause := `ON CONFLICT (id) DO UPDATE SET
+  integrity_algorithm = EXCLUDED.integrity_algorithm,
+  integrity_hash = EXCLUDED.integrity_hash
+WHERE (audit_logs.integrity_algorithm = '' OR audit_logs.integrity_hash = '')
+  AND audit_logs.actor_type = EXCLUDED.actor_type
+  AND audit_logs.actor_id = EXCLUDED.actor_id
+  AND audit_logs.action = EXCLUDED.action
+  AND audit_logs.target_type = EXCLUDED.target_type
+  AND audit_logs.target_id = EXCLUDED.target_id
+  AND audit_logs.request_id = EXCLUDED.request_id
+  AND audit_logs.ip_hash = EXCLUDED.ip_hash
+  AND audit_logs.payload = EXCLUDED.payload
+  AND audit_logs.created_at = EXCLUDED.created_at`
+	if requireInsert {
+		conflictClause = `ON CONFLICT (id) DO NOTHING`
+	}
+	query := fmt.Sprintf(`
 INSERT INTO audit_logs (
   id, actor_type, actor_id, action, target_type, target_id,
-  request_id, ip_hash, payload, created_at
+  request_id, ip_hash, payload, integrity_algorithm, integrity_hash, created_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
-ON CONFLICT (id) DO NOTHING`,
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)
+%s`, conflictClause)
+	result, err := tx.ExecContext(ctx, query,
 		log.ID,
 		log.ActorType,
 		log.ActorID,
@@ -1424,6 +1448,8 @@ ON CONFLICT (id) DO NOTHING`,
 		log.RequestID,
 		log.IPHash,
 		string(payload),
+		log.IntegrityAlgorithm,
+		log.IntegrityHash,
 		log.CreatedAt,
 	)
 	if err != nil {
@@ -1461,6 +1487,10 @@ func buildSQLAuditLogsQuery(req AuditLogsRequest) (string, []any) {
 	if req.TargetID != "" {
 		addFilter("target_id", req.TargetID)
 	}
+	if !req.After.IsZero() {
+		args = append(args, req.After.UTC())
+		filters = append(filters, fmt.Sprintf("created_at >= $%d", len(args)))
+	}
 	if !req.Before.IsZero() {
 		args = append(args, req.Before.UTC())
 		filters = append(filters, fmt.Sprintf("created_at < $%d", len(args)))
@@ -1497,6 +1527,8 @@ func (s *PostgresStore) loadSQLAuditLogs(ctx context.Context, req AuditLogsReque
 			&log.RequestID,
 			&log.IPHash,
 			&payload,
+			&log.IntegrityAlgorithm,
+			&log.IntegrityHash,
 			&log.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -1509,7 +1541,9 @@ func (s *PostgresStore) loadSQLAuditLogs(ctx context.Context, req AuditLogsReque
 		if log.Payload == nil {
 			log.Payload = map[string]any{}
 		}
-		log.CreatedAt = log.CreatedAt.UTC()
+		log.Payload = sanitizeAuditPayload(log.Payload)
+		log.CreatedAt = normalizeAuditLogTime(log.CreatedAt)
+		log.IntegrityVerified = verifyAuditLogIntegrity(log, s.Store.auditLogSigningSecretSnapshot())
 		logs = append(logs, log)
 	}
 	if err := rows.Err(); err != nil {
@@ -2829,6 +2863,250 @@ func insertSQLOrderEvent(ctx context.Context, tx *sql.Tx, orderID string, event 
 	return err
 }
 
+func loadSQLOrderForStateCompensation(ctx context.Context, tx *sql.Tx, orderID string) (Order, error) {
+	order, err := loadSQLOrderForBalancePayment(ctx, tx, orderID)
+	if err != nil {
+		return Order{}, err
+	}
+	rows, err := tx.QueryContext(ctx, `
+	SELECT type, actor_id, message, created_at
+	FROM order_events
+	WHERE order_id = $1
+	ORDER BY created_at, id`, strings.TrimSpace(orderID))
+	if err != nil {
+		return Order{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var event OrderEvent
+		if err := rows.Scan(&event.Type, &event.ActorID, &event.Message, &event.CreatedAt); err != nil {
+			return Order{}, err
+		}
+		event.CreatedAt = event.CreatedAt.UTC()
+		order.Events = append(order.Events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return Order{}, err
+	}
+	return order, nil
+}
+
+func loadSQLWalletTransactionsForOrder(ctx context.Context, tx *sql.Tx, orderID string) ([]WalletTransaction, error) {
+	rows, err := tx.QueryContext(ctx, `
+	SELECT id, subject_id, order_id, type, amount_fen, payment_method, idempotency_key, status, created_at
+	FROM wallet_transactions
+	WHERE subject_type = 'user' AND order_id = $1
+	ORDER BY created_at, id`, strings.TrimSpace(orderID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	transactions := []WalletTransaction{}
+	for rows.Next() {
+		var transaction WalletTransaction
+		var nullableOrderID sql.NullString
+		if err := rows.Scan(
+			&transaction.ID,
+			&transaction.UserID,
+			&nullableOrderID,
+			&transaction.Type,
+			&transaction.AmountFen,
+			&transaction.PaymentMethod,
+			&transaction.IdempotencyKey,
+			&transaction.Status,
+			&transaction.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if nullableOrderID.Valid {
+			transaction.OrderID = nullableOrderID.String
+		}
+		transaction.CreatedAt = transaction.CreatedAt.UTC()
+		transactions = append(transactions, transaction)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return transactions, nil
+}
+
+func loadSQLPaymentTransactionsForOrder(ctx context.Context, tx *sql.Tx, orderID string) ([]PaymentTransaction, error) {
+	rows, err := tx.QueryContext(ctx, `
+	SELECT id, order_id, user_id, method, amount_fen, status, out_trade_no,
+	       transaction_id, idempotency_key, created_at, updated_at
+	FROM payment_transactions
+	WHERE order_id = $1
+	ORDER BY created_at, id`, strings.TrimSpace(orderID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	transactions := []PaymentTransaction{}
+	for rows.Next() {
+		var transaction PaymentTransaction
+		var transactionID sql.NullString
+		if err := rows.Scan(
+			&transaction.ID,
+			&transaction.OrderID,
+			&transaction.UserID,
+			&transaction.Method,
+			&transaction.AmountFen,
+			&transaction.Status,
+			&transaction.OutTradeNo,
+			&transactionID,
+			&transaction.IdempotencyKey,
+			&transaction.CreatedAt,
+			&transaction.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if transactionID.Valid {
+			transaction.TransactionID = transactionID.String
+		}
+		transaction.CreatedAt = transaction.CreatedAt.UTC()
+		transaction.UpdatedAt = transaction.UpdatedAt.UTC()
+		transactions = append(transactions, transaction)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return transactions, nil
+}
+
+func loadSQLDispatchEventsForOrder(ctx context.Context, tx *sql.Tx, orderID string) ([]DispatchEvent, error) {
+	rows, err := tx.QueryContext(ctx, `
+	SELECT id, order_id, station_id, mode, type, rider_id, actor_id, reason,
+	       idempotency_key, online_candidate_size,
+	       COALESCE(to_json(rejected_rider_ids)::text, '[]'),
+	       can_decline_without_penalty, created_at
+	FROM dispatch_events
+	WHERE order_id = $1
+	ORDER BY created_at, id`, strings.TrimSpace(orderID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	events := []DispatchEvent{}
+	for rows.Next() {
+		var event DispatchEvent
+		var rejectedPayload string
+		if err := rows.Scan(
+			&event.ID,
+			&event.OrderID,
+			&event.StationID,
+			&event.Mode,
+			&event.Type,
+			&event.RiderID,
+			&event.ActorID,
+			&event.Reason,
+			&event.IdempotencyKey,
+			&event.OnlineCandidateSize,
+			&rejectedPayload,
+			&event.CanDeclineWithoutPenalty,
+			&event.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(rejectedPayload), &event.RejectedRiderIDs); err != nil {
+			return nil, err
+		}
+		event.RejectedRiderIDs = normalizedStringSlice(event.RejectedRiderIDs)
+		event.CreatedAt = event.CreatedAt.UTC()
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func (s *PostgresStore) compensateOrderStateInSQLTx(ctx context.Context, tx *sql.Tx, req CompensateOrderStateRequest) (*CompensateOrderStateResult, OrderEvent, error) {
+	order, err := loadSQLOrderForStateCompensation(ctx, tx, req.OrderID)
+	if err != nil {
+		return nil, OrderEvent{}, err
+	}
+	walletTransactions, err := loadSQLWalletTransactionsForOrder(ctx, tx, req.OrderID)
+	if err != nil {
+		return nil, OrderEvent{}, err
+	}
+	paymentTransactions, err := loadSQLPaymentTransactionsForOrder(ctx, tx, req.OrderID)
+	if err != nil {
+		return nil, OrderEvent{}, err
+	}
+	dispatchEvents, err := loadSQLDispatchEventsForOrder(ctx, tx, req.OrderID)
+	if err != nil {
+		return nil, OrderEvent{}, err
+	}
+
+	temp := NewStore(nil)
+	temp.orders = map[string]*Order{order.ID: cloneOrder(&order)}
+	temp.walletIdempotency = map[string]*WalletTransaction{}
+	for _, transaction := range walletTransactions {
+		transactionCopy := transaction
+		if strings.TrimSpace(transactionCopy.IdempotencyKey) != "" {
+			temp.walletIdempotency[transactionCopy.IdempotencyKey] = cloneWalletTransaction(&transactionCopy)
+		}
+	}
+	temp.paymentTransactions = map[string]*PaymentTransaction{}
+	for _, transaction := range paymentTransactions {
+		transactionCopy := transaction
+		temp.paymentTransactions[transactionCopy.ID] = clonePaymentTransaction(&transactionCopy)
+	}
+	temp.dispatchEvents = map[string]*DispatchEvent{}
+	for _, event := range dispatchEvents {
+		eventCopy := event
+		temp.dispatchEvents[eventCopy.ID] = cloneDispatchEvent(&eventCopy)
+	}
+	s.Store.mu.Lock()
+	for id, voucher := range s.Store.groupbuyVouchers {
+		if voucher != nil && voucher.OrderID == order.ID {
+			temp.groupbuyVouchers[id] = cloneGroupbuyVoucher(voucher)
+		}
+	}
+	s.Store.mu.Unlock()
+
+	plan := temp.orderStateCompensationPlanLocked(temp.orders[order.ID], req)
+	if !plan.Result.Changed {
+		return plan.Result, OrderEvent{}, nil
+	}
+	nextStatus := strings.TrimSpace(plan.Result.ExpectedStatus)
+	nextRiderID := strings.TrimSpace(plan.Result.ExpectedRiderID)
+	nextPaymentMethod := strings.TrimSpace(order.PaymentMethod)
+	if nextPaymentMethod == "" {
+		nextPaymentMethod = strings.TrimSpace(plan.PaymentMethod)
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE orders
+		SET status = $2,
+		    rider_id = $3,
+		    payment_method = $4,
+		    updated_at = $5
+		WHERE id = $1`,
+		order.ID,
+		nextStatus,
+		nullableString(nextRiderID),
+		nextPaymentMethod,
+		req.Now.UTC(),
+	)
+	if err != nil {
+		return nil, OrderEvent{}, err
+	}
+	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
+		return nil, OrderEvent{}, ErrNotFound
+	}
+	if err := insertSQLOrderEvent(ctx, tx, order.ID, plan.Event); err != nil {
+		return nil, OrderEvent{}, err
+	}
+	updatedOrder := order
+	updatedOrder.Status = nextStatus
+	updatedOrder.RiderID = nextRiderID
+	updatedOrder.PaymentMethod = nextPaymentMethod
+	updatedOrder.UpdatedAt = req.Now.UTC()
+	updatedOrder.Events = append(updatedOrder.Events, plan.Event)
+	plan.Result.Order = cloneOrder(&updatedOrder)
+	return plan.Result, plan.Event, nil
+}
+
 func (s *PostgresStore) createOrderInSQL(ctx context.Context, req CreateOrderRequest) (Order, OrderEvent, error) {
 	userID := strings.TrimSpace(req.UserID)
 	orderType := strings.TrimSpace(req.Type)
@@ -3560,14 +3838,6 @@ ON CONFLICT (idempotency_key) DO NOTHING`,
 }
 
 func (s *PostgresStore) refundOrderInSQL(ctx context.Context, req RefundOrderRequest) (RefundTransaction, WalletAccount, string, OrderEvent, error) {
-	orderID := strings.TrimSpace(req.OrderID)
-	userID := strings.TrimSpace(req.UserID)
-	reason := strings.TrimSpace(req.Reason)
-	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
-	if orderID == "" || reason == "" || idempotencyKey == "" {
-		return RefundTransaction{}, WalletAccount{}, "", OrderEvent{}, ErrInvalidArgument
-	}
-
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return RefundTransaction{}, WalletAccount{}, "", OrderEvent{}, err
@@ -3575,6 +3845,24 @@ func (s *PostgresStore) refundOrderInSQL(ctx context.Context, req RefundOrderReq
 	defer func() {
 		_ = tx.Rollback()
 	}()
+	refund, account, orderID, event, err := refundOrderInSQLTx(ctx, tx, req)
+	if err != nil {
+		return RefundTransaction{}, WalletAccount{}, "", OrderEvent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return RefundTransaction{}, WalletAccount{}, "", OrderEvent{}, err
+	}
+	return refund, account, orderID, event, nil
+}
+
+func refundOrderInSQLTx(ctx context.Context, tx *sql.Tx, req RefundOrderRequest) (RefundTransaction, WalletAccount, string, OrderEvent, error) {
+	orderID := strings.TrimSpace(req.OrderID)
+	userID := strings.TrimSpace(req.UserID)
+	reason := strings.TrimSpace(req.Reason)
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	if orderID == "" || reason == "" || idempotencyKey == "" {
+		return RefundTransaction{}, WalletAccount{}, "", OrderEvent{}, ErrInvalidArgument
+	}
 
 	if err := lockSQLWalletIdempotencyKey(ctx, tx, idempotencyKey); err != nil {
 		return RefundTransaction{}, WalletAccount{}, "", OrderEvent{}, err
@@ -3591,9 +3879,6 @@ func (s *PostgresStore) refundOrderInSQL(ctx context.Context, req RefundOrderReq
 			if err != nil {
 				return RefundTransaction{}, WalletAccount{}, "", OrderEvent{}, err
 			}
-		}
-		if err := tx.Commit(); err != nil {
-			return RefundTransaction{}, WalletAccount{}, "", OrderEvent{}, err
 		}
 		return existing, account, existing.OrderID, refundOrderEvent(existing, strings.TrimSpace(req.ActorID)), nil
 	}
@@ -3685,9 +3970,6 @@ func (s *PostgresStore) refundOrderInSQL(ctx context.Context, req RefundOrderReq
 		return RefundTransaction{}, WalletAccount{}, "", OrderEvent{}, err
 	}
 
-	if err := tx.Commit(); err != nil {
-		return RefundTransaction{}, WalletAccount{}, "", OrderEvent{}, err
-	}
 	return refund, account, order.ID, event, nil
 }
 
@@ -3695,10 +3977,30 @@ type sqlAfterSalesReviewResult struct {
 	RequestID string
 	RefundID  string
 	OrderID   string
+	Status    string
 	Events    []OrderEvent
 }
 
 func (s *PostgresStore) reviewAfterSalesInSQL(ctx context.Context, req ReviewAfterSalesRequest) (sqlAfterSalesReviewResult, RefundTransaction, WalletAccount, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return sqlAfterSalesReviewResult{}, RefundTransaction{}, WalletAccount{}, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	result, refund, account, err := reviewAfterSalesInSQLTx(ctx, tx, req)
+	if err != nil {
+		return sqlAfterSalesReviewResult{}, RefundTransaction{}, WalletAccount{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return sqlAfterSalesReviewResult{}, RefundTransaction{}, WalletAccount{}, err
+	}
+	return result, refund, account, nil
+}
+
+func reviewAfterSalesInSQLTx(ctx context.Context, tx *sql.Tx, req ReviewAfterSalesRequest) (sqlAfterSalesReviewResult, RefundTransaction, WalletAccount, error) {
 	req.RequestID = strings.TrimSpace(req.RequestID)
 	req.Decision = strings.TrimSpace(req.Decision)
 	req.Reason = strings.TrimSpace(req.Reason)
@@ -3708,14 +4010,6 @@ func (s *PostgresStore) reviewAfterSalesInSQL(ctx context.Context, req ReviewAft
 	if req.RequestID == "" || req.Decision == "" || req.ActorID == "" || req.ActorRole == "" {
 		return sqlAfterSalesReviewResult{}, RefundTransaction{}, WalletAccount{}, ErrInvalidArgument
 	}
-
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-	if err != nil {
-		return sqlAfterSalesReviewResult{}, RefundTransaction{}, WalletAccount{}, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
 
 	request, order, ownerMerchantID, err := loadSQLAfterSalesForUpdate(ctx, tx, req.RequestID)
 	if err != nil {
@@ -3799,11 +4093,8 @@ func (s *PostgresStore) reviewAfterSalesInSQL(ctx context.Context, req ReviewAft
 	if err := insertSQLOrderEvent(ctx, tx, order.ID, afterSalesEvent); err != nil {
 		return sqlAfterSalesReviewResult{}, RefundTransaction{}, WalletAccount{}, err
 	}
+	result.Status = nextStatus
 	result.Events = append(result.Events, afterSalesEvent)
-
-	if err := tx.Commit(); err != nil {
-		return sqlAfterSalesReviewResult{}, RefundTransaction{}, WalletAccount{}, err
-	}
 	return result, refund, account, nil
 }
 
@@ -4755,6 +5046,140 @@ func (s *PostgresStore) loadSQLAfterSalesUploadTickets(ctx context.Context) ([]A
 		return nil, err
 	}
 	return tickets, nil
+}
+
+func loadSQLAfterSalesUploadTicketForUpdate(ctx context.Context, tx *sql.Tx, ticketID string) (AfterSalesEvidenceUploadTicket, error) {
+	var ticket AfterSalesEvidenceUploadTicket
+	var uploadedAt sql.NullTime
+	var confirmedAt sql.NullTime
+	var scanCheckedAt sql.NullTime
+	var deletedAt sql.NullTime
+	var lastCleanupFailedAt sql.NullTime
+	err := tx.QueryRowContext(ctx, `
+	SELECT id, request_id, order_id, provider, bucket, object_key, public_url,
+	       file_name, content_type, size_bytes, max_size_bytes, content_sha,
+	       uploaded_by_id, uploaded_by_role, status, scan_status, scan_result,
+	       created_at, expires_at, uploaded_at, confirmed_at, scan_checked_at,
+	       cleanup_reason, deleted_at, cleanup_attempts, last_cleanup_error, last_cleanup_failed_at
+	FROM order_after_sales_evidence_upload_tickets
+	WHERE id = $1
+	FOR UPDATE`, strings.TrimSpace(ticketID)).Scan(
+		&ticket.ID,
+		&ticket.RequestID,
+		&ticket.OrderID,
+		&ticket.Provider,
+		&ticket.Bucket,
+		&ticket.ObjectKey,
+		&ticket.PublicURL,
+		&ticket.FileName,
+		&ticket.ContentType,
+		&ticket.SizeBytes,
+		&ticket.MaxSizeBytes,
+		&ticket.ContentSHA,
+		&ticket.UploadedByID,
+		&ticket.UploadedByRole,
+		&ticket.Status,
+		&ticket.ScanStatus,
+		&ticket.ScanResult,
+		&ticket.CreatedAt,
+		&ticket.ExpiresAt,
+		&uploadedAt,
+		&confirmedAt,
+		&scanCheckedAt,
+		&ticket.CleanupReason,
+		&deletedAt,
+		&ticket.CleanupAttempts,
+		&ticket.LastCleanupError,
+		&lastCleanupFailedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AfterSalesEvidenceUploadTicket{}, ErrInvalidArgument
+	}
+	if err != nil {
+		return AfterSalesEvidenceUploadTicket{}, err
+	}
+	ticket.FileName = sanitizeObjectFileName(ticket.FileName)
+	ticket.ContentType = normalizeEvidenceContentType(ticket.ContentType)
+	ticket.ContentSHA = strings.TrimSpace(ticket.ContentSHA)
+	ticket.Status = normalizeAfterSalesUploadTicketStatus(ticket.Status)
+	ticket.ScanStatus = normalizeAfterSalesUploadScanStatus(ticket.ScanStatus)
+	ticket.ScanResult = strings.TrimSpace(ticket.ScanResult)
+	ticket.CleanupReason = normalizeObjectStorageCleanupReason(ticket.CleanupReason)
+	ticket.LastCleanupError = sanitizeObjectStorageCleanupError(ticket.LastCleanupError)
+	if ticket.CleanupAttempts < 0 {
+		ticket.CleanupAttempts = 0
+	}
+	ticket.CreatedAt = ticket.CreatedAt.UTC()
+	ticket.ExpiresAt = ticket.ExpiresAt.UTC()
+	if uploadedAt.Valid {
+		ticket.UploadedAt = uploadedAt.Time.UTC()
+	}
+	if confirmedAt.Valid {
+		ticket.ConfirmedAt = confirmedAt.Time.UTC()
+	}
+	if scanCheckedAt.Valid {
+		ticket.ScanCheckedAt = scanCheckedAt.Time.UTC()
+	}
+	if deletedAt.Valid {
+		ticket.DeletedAt = deletedAt.Time.UTC()
+	}
+	if lastCleanupFailedAt.Valid {
+		ticket.LastCleanupFailedAt = lastCleanupFailedAt.Time.UTC()
+	}
+	if ticket.ID == "" || ticket.RequestID == "" || ticket.ObjectKey == "" || ticket.PublicURL == "" || ticket.FileName == "" || ticket.ContentType == "" || ticket.Status == "" || ticket.ScanStatus == "" {
+		return AfterSalesEvidenceUploadTicket{}, ErrInvalidArgument
+	}
+	return ticket, nil
+}
+
+func completeObjectStorageCleanupInSQLTx(ctx context.Context, tx *sql.Tx, req ObjectStorageCleanupCompleteRequest) (AfterSalesEvidenceUploadTicket, error) {
+	normalized, err := normalizeObjectStorageCleanupCompleteRequest(req)
+	if err != nil {
+		return AfterSalesEvidenceUploadTicket{}, err
+	}
+	ticket, err := loadSQLAfterSalesUploadTicketForUpdate(ctx, tx, normalized.TicketID)
+	if err != nil {
+		return AfterSalesEvidenceUploadTicket{}, err
+	}
+	temp := &Store{afterSalesUploadTickets: map[string]*AfterSalesEvidenceUploadTicket{
+		ticket.ID: cloneAfterSalesEvidenceUploadTicket(&ticket),
+	}}
+	updated, err := temp.completeObjectStorageCleanupLocked(normalized)
+	if err != nil {
+		return AfterSalesEvidenceUploadTicket{}, err
+	}
+	if updated == nil {
+		return AfterSalesEvidenceUploadTicket{}, ErrInvalidArgument
+	}
+	if err := upsertSQLAfterSalesUploadTicket(ctx, tx, *updated); err != nil {
+		return AfterSalesEvidenceUploadTicket{}, err
+	}
+	return *updated, nil
+}
+
+func recordObjectStorageCleanupFailureInSQLTx(ctx context.Context, tx *sql.Tx, req ObjectStorageCleanupFailureRequest) (AfterSalesEvidenceUploadTicket, error) {
+	normalized, err := normalizeObjectStorageCleanupFailureRequest(req)
+	if err != nil {
+		return AfterSalesEvidenceUploadTicket{}, err
+	}
+	ticket, err := loadSQLAfterSalesUploadTicketForUpdate(ctx, tx, normalized.TicketID)
+	if err != nil {
+		return AfterSalesEvidenceUploadTicket{}, err
+	}
+	temp := &Store{afterSalesUploadTickets: map[string]*AfterSalesEvidenceUploadTicket{
+		ticket.ID: cloneAfterSalesEvidenceUploadTicket(&ticket),
+	}}
+	updated, err := temp.recordObjectStorageCleanupFailureLocked(normalized)
+	if err != nil {
+		return AfterSalesEvidenceUploadTicket{}, err
+	}
+	if updated == nil {
+		return AfterSalesEvidenceUploadTicket{}, ErrInvalidArgument
+	}
+	if err := upsertSQLAfterSalesUploadTicket(ctx, tx, *updated); err != nil {
+		return AfterSalesEvidenceUploadTicket{}, err
+	}
+	return *updated, nil
 }
 
 func (s *PostgresStore) loadSQLAfterSalesEvidence(ctx context.Context) ([]AfterSalesEvidence, error) {
@@ -6056,7 +6481,8 @@ func (s *PostgresStore) RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, er
 		return log, errors.Join(ErrPersistence, err)
 	}
 	log.ID = fmt.Sprintf("aud_%d", auditLogNumber)
-	if err := insertSQLAuditLog(ctx, tx, *log); err != nil {
+	ensureAuditLogIntegrity(log, s.Store.auditLogSigningSecretSnapshot())
+	if err := insertSQLAuditLog(ctx, tx, *log, s.Store.auditLogSigningSecretSnapshot()); err != nil {
 		return log, errors.Join(ErrPersistence, err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -6175,8 +6601,81 @@ func (s *PostgresStore) CheckoutCart(req CheckoutCartRequest) (*Order, *CartSumm
 }
 
 func (s *PostgresStore) CompensateOrderState(req CompensateOrderStateRequest) (*CompensateOrderStateResult, error) {
-	result, err := s.Store.CompensateOrderState(req)
-	return result, s.persistAfter(err)
+	normalized, err := normalizeCompensateOrderStateRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	result, event, err := s.compensateOrderStateInSQLTx(ctx, tx, normalized)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	if result.Changed {
+		if err := s.reloadPaymentDomainAndOutboxAfterSQLOrderEvent(ctx, normalized.OrderID, event); err != nil {
+			return result, errors.Join(ErrPersistence, err)
+		}
+	}
+	return result, nil
+}
+
+func (s *PostgresStore) CompensateOrderStateWithAudit(req CompensateOrderStateRequest, audit RecordAuditLogRequest) (*CompensateOrderStateResult, *AuditLog, error) {
+	normalized, err := normalizeCompensateOrderStateRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, log, err
+	}
+	if log.Action != "admin.order_state.compensated" || log.TargetType != "order" || log.TargetID != normalized.OrderID {
+		return nil, log, ErrInvalidArgument
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	result, event, err := s.compensateOrderStateInSQLTx(ctx, tx, normalized)
+	if err != nil {
+		return nil, log, err
+	}
+	log.Payload = orderStateCompensationAuditPayload(result)
+	auditLogNumber, err := nextSQLAuditLogNumber(ctx, tx)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	log.ID = fmt.Sprintf("aud_%d", auditLogNumber)
+	ensureAuditLogIntegrity(log, s.Store.auditLogSigningSecretSnapshot())
+	if err := insertSQLAuditLog(ctx, tx, *log, s.Store.auditLogSigningSecretSnapshot()); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if result.Changed {
+		if err := s.reloadPaymentDomainAndOutboxAfterSQLOrderEvent(ctx, normalized.OrderID, event); err != nil {
+			return result, log, errors.Join(ErrPersistence, err)
+		}
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	if err := s.persistAfter(nil); err != nil {
+		return result, log, err
+	}
+	return result, cloneAuditLog(log), nil
 }
 
 func (s *PostgresStore) MerchantAcceptOrder(orderID string, merchantID string) (*Order, error) {
@@ -6270,6 +6769,50 @@ func (s *PostgresStore) SaveRefundSettings(req SaveRefundSettingsRequest) (*Refu
 	return settings, s.persistAfter(err)
 }
 
+func (s *PostgresStore) SaveRefundSettingsWithAudit(req SaveRefundSettingsRequest, audit RecordAuditLogRequest) (*RefundSettings, *AuditLog, error) {
+	settings := normalizeStoredRefundSettings(RefundSettings{DefaultStrategy: req.DefaultStrategy})
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, log, err
+	}
+	if log.Action != "admin.refund_settings.updated" || log.TargetType != "refund_settings" || log.TargetID != "default" {
+		return nil, log, ErrInvalidArgument
+	}
+	log.Payload = map[string]any{"default_refund_strategy": settings.DefaultStrategy}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if err := upsertSQLRefundSettings(ctx, tx, settings); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	auditLogNumber, err := nextSQLAuditLogNumber(ctx, tx)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	log.ID = fmt.Sprintf("aud_%d", auditLogNumber)
+	ensureAuditLogIntegrity(log, s.Store.auditLogSigningSecretSnapshot())
+	if err := insertSQLAuditLog(ctx, tx, *log, s.Store.auditLogSigningSecretSnapshot()); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if _, err := s.Store.SaveRefundSettings(req); err != nil {
+		return nil, log, err
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	if err := s.persistAfter(nil); err != nil {
+		return nil, log, err
+	}
+	return &settings, cloneAuditLog(log), nil
+}
+
 func (s *PostgresStore) RefundOrder(req RefundOrderRequest) (*RefundTransaction, *Order, *WalletAccount, error) {
 	ctx := context.Background()
 	sqlRefund, sqlAccount, orderID, event, err := s.refundOrderInSQL(ctx, req)
@@ -6290,6 +6833,67 @@ func (s *PostgresStore) RefundOrder(req RefundOrderRequest) (*RefundTransaction,
 		account = cloneWalletAccount(&sqlAccount)
 	}
 	return refund, order, account, nil
+}
+
+func (s *PostgresStore) RefundOrderWithAudit(req RefundOrderRequest, audit RecordAuditLogRequest) (*RefundTransaction, *Order, *WalletAccount, *AuditLog, error) {
+	req.OrderID = strings.TrimSpace(req.OrderID)
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Reason = strings.TrimSpace(req.Reason)
+	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, nil, log, err
+	}
+	if log.Action != "admin.order.refunded" || log.TargetType != "order" || log.TargetID != req.OrderID {
+		return nil, nil, nil, log, ErrInvalidArgument
+	}
+	if req.OrderID == "" || req.Reason == "" || req.IdempotencyKey == "" {
+		return nil, nil, nil, log, ErrInvalidArgument
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	sqlRefund, sqlAccount, orderID, event, err := refundOrderInSQLTx(ctx, tx, req)
+	if err != nil {
+		return nil, nil, nil, log, err
+	}
+	log.Payload = refundOrderAuditPayload(&sqlRefund)
+	auditLogNumber, err := nextSQLAuditLogNumber(ctx, tx)
+	if err != nil {
+		return nil, nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	log.ID = fmt.Sprintf("aud_%d", auditLogNumber)
+	ensureAuditLogIntegrity(log, s.Store.auditLogSigningSecretSnapshot())
+	if err := insertSQLAuditLog(ctx, tx, *log, s.Store.auditLogSigningSecretSnapshot()); err != nil {
+		return nil, nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := s.reloadPaymentDomainAndOutboxAfterSQLRefund(ctx, orderID, event); err != nil {
+		return cloneRefundTransaction(&sqlRefund), nil, cloneWalletAccount(&sqlAccount), log, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	if err := s.persistAfter(nil); err != nil {
+		return cloneRefundTransaction(&sqlRefund), nil, cloneWalletAccount(&sqlAccount), log, err
+	}
+	refund, order, account, err := s.Store.refundResult(req.IdempotencyKey)
+	if err != nil {
+		return cloneRefundTransaction(&sqlRefund), nil, cloneWalletAccount(&sqlAccount), cloneAuditLog(log), err
+	}
+	if refund == nil {
+		refund = cloneRefundTransaction(&sqlRefund)
+	}
+	if account == nil && sqlRefund.Destination == RefundDestinationBalance {
+		account = cloneWalletAccount(&sqlAccount)
+	}
+	return refund, order, account, cloneAuditLog(log), nil
 }
 
 func (s *PostgresStore) CreateAfterSales(req CreateAfterSalesRequest) (*AfterSalesRequest, error) {
@@ -6342,9 +6946,107 @@ func (s *PostgresStore) CompleteObjectStorageCleanup(req ObjectStorageCleanupCom
 	return ticket, s.persistAfter(err)
 }
 
+func (s *PostgresStore) CompleteObjectStorageCleanupWithAudit(req ObjectStorageCleanupCompleteRequest, audit RecordAuditLogRequest) (*AfterSalesEvidenceUploadTicket, *AuditLog, error) {
+	normalized, err := normalizeObjectStorageCleanupCompleteRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, log, err
+	}
+	if log.Action != "admin.object_cleanup.completed" || log.TargetType != "object_storage_ticket" || log.TargetID != normalized.TicketID {
+		return nil, log, ErrInvalidArgument
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	ticket, err := completeObjectStorageCleanupInSQLTx(ctx, tx, normalized)
+	if err != nil {
+		return nil, log, err
+	}
+	log.Payload = objectStorageCleanupCompletedAuditPayload(&ticket)
+	auditLogNumber, err := nextSQLAuditLogNumber(ctx, tx)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	log.ID = fmt.Sprintf("aud_%d", auditLogNumber)
+	signingSecret := s.Store.auditLogSigningSecretSnapshot()
+	ensureAuditLogIntegrity(log, signingSecret)
+	if err := insertSQLAuditLog(ctx, tx, *log, signingSecret); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := s.loadPaymentDomainFromTables(ctx); err != nil {
+		return cloneAfterSalesEvidenceUploadTicket(&ticket), log, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	if err := s.persistAfter(nil); err != nil {
+		return cloneAfterSalesEvidenceUploadTicket(&ticket), log, err
+	}
+	return cloneAfterSalesEvidenceUploadTicket(&ticket), cloneAuditLog(log), nil
+}
+
 func (s *PostgresStore) RecordObjectStorageCleanupFailure(req ObjectStorageCleanupFailureRequest) (*AfterSalesEvidenceUploadTicket, error) {
 	ticket, err := s.Store.RecordObjectStorageCleanupFailure(req)
 	return ticket, s.persistAfter(err)
+}
+
+func (s *PostgresStore) RecordObjectStorageCleanupFailureWithAudit(req ObjectStorageCleanupFailureRequest, audit RecordAuditLogRequest) (*AfterSalesEvidenceUploadTicket, *AuditLog, error) {
+	normalized, err := normalizeObjectStorageCleanupFailureRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, log, err
+	}
+	if log.Action != "admin.object_cleanup.failed" || log.TargetType != "object_storage_ticket" || log.TargetID != normalized.TicketID {
+		return nil, log, ErrInvalidArgument
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	ticket, err := recordObjectStorageCleanupFailureInSQLTx(ctx, tx, normalized)
+	if err != nil {
+		return nil, log, err
+	}
+	log.Payload = objectStorageCleanupFailedAuditPayload(&ticket)
+	auditLogNumber, err := nextSQLAuditLogNumber(ctx, tx)
+	if err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	log.ID = fmt.Sprintf("aud_%d", auditLogNumber)
+	signingSecret := s.Store.auditLogSigningSecretSnapshot()
+	ensureAuditLogIntegrity(log, signingSecret)
+	if err := insertSQLAuditLog(ctx, tx, *log, signingSecret); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := s.loadPaymentDomainFromTables(ctx); err != nil {
+		return cloneAfterSalesEvidenceUploadTicket(&ticket), log, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	if err := s.persistAfter(nil); err != nil {
+		return cloneAfterSalesEvidenceUploadTicket(&ticket), log, err
+	}
+	return cloneAfterSalesEvidenceUploadTicket(&ticket), cloneAuditLog(log), nil
 }
 
 func (s *PostgresStore) ObjectStorageCleanupStats(req ObjectStorageCleanupCandidatesRequest) (*ObjectStorageCleanupStats, error) {
@@ -6388,6 +7090,82 @@ func (s *PostgresStore) ReviewAfterSales(req ReviewAfterSalesRequest) (*AfterSal
 		account = cloneWalletAccount(&sqlAccount)
 	}
 	return request, refund, order, account, nil
+}
+
+func (s *PostgresStore) ReviewAfterSalesWithAudit(req ReviewAfterSalesRequest, audit RecordAuditLogRequest) (*AfterSalesRequest, *RefundTransaction, *Order, *WalletAccount, *AuditLog, error) {
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.Decision = strings.TrimSpace(req.Decision)
+	req.Reason = strings.TrimSpace(req.Reason)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.ActorRole = strings.TrimSpace(req.ActorRole)
+	req.RefundIdempotencyKey = strings.TrimSpace(req.RefundIdempotencyKey)
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, nil, nil, log, err
+	}
+	if log.Action != "after_sales.reviewed" || log.TargetType != "after_sales" || log.TargetID != req.RequestID {
+		return nil, nil, nil, nil, log, ErrInvalidArgument
+	}
+	if req.RequestID == "" || req.Decision == "" || req.ActorID == "" || req.ActorRole == "" {
+		return nil, nil, nil, nil, log, ErrInvalidArgument
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, nil, nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	result, sqlRefund, sqlAccount, err := reviewAfterSalesInSQLTx(ctx, tx, req)
+	if err != nil {
+		return nil, nil, nil, nil, log, err
+	}
+	auditRequest := &AfterSalesRequest{ID: result.RequestID, Status: result.Status, RefundID: result.RefundID}
+	var auditRefund *RefundTransaction
+	if result.RefundID != "" {
+		auditRefund = &sqlRefund
+	}
+	log.Payload = afterSalesReviewAuditPayload(req, auditRequest, auditRefund)
+	auditLogNumber, err := nextSQLAuditLogNumber(ctx, tx)
+	if err != nil {
+		return nil, nil, nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	log.ID = fmt.Sprintf("aud_%d", auditLogNumber)
+	ensureAuditLogIntegrity(log, s.Store.auditLogSigningSecretSnapshot())
+	if err := insertSQLAuditLog(ctx, tx, *log, s.Store.auditLogSigningSecretSnapshot()); err != nil {
+		return nil, nil, nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	if err := s.reloadPaymentDomainAndOutboxAfterSQLAfterSales(ctx, result.OrderID, result.Events); err != nil {
+		return nil, cloneRefundTransaction(&sqlRefund), nil, cloneWalletAccount(&sqlAccount), log, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	if err := s.persistAfter(nil); err != nil {
+		return nil, cloneRefundTransaction(&sqlRefund), nil, cloneWalletAccount(&sqlAccount), log, err
+	}
+	request, refund, order, account, err := s.Store.afterSalesReviewResult(result.RequestID, result.RefundID)
+	if err != nil {
+		var fallbackRefund *RefundTransaction
+		var fallbackAccount *WalletAccount
+		if result.RefundID != "" {
+			fallbackRefund = cloneRefundTransaction(&sqlRefund)
+			if sqlRefund.Destination == RefundDestinationBalance {
+				fallbackAccount = cloneWalletAccount(&sqlAccount)
+			}
+		}
+		return nil, fallbackRefund, nil, fallbackAccount, cloneAuditLog(log), err
+	}
+	if refund == nil && result.RefundID != "" {
+		refund = cloneRefundTransaction(&sqlRefund)
+	}
+	if account == nil && sqlRefund.Destination == RefundDestinationBalance {
+		account = cloneWalletAccount(&sqlAccount)
+	}
+	return request, refund, order, account, cloneAuditLog(log), nil
 }
 
 func (s *PostgresStore) CreateWechatPrepay(req WechatPrepayRequest) (*WechatPrepayResponse, *PaymentTransaction, error) {

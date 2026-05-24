@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	RoleAdmin          = "admin"
-	RoleMerchant       = "merchant"
-	RoleRider          = "rider"
-	RoleStationManager = "station_manager"
-	RoleUser           = "user"
+	RoleAdmin           = "admin"
+	RoleMerchant        = "merchant"
+	RoleRider           = "rider"
+	RoleSecurityAuditor = "security_auditor"
+	RoleStationManager  = "station_manager"
+	RoleUser            = "user"
 )
 
 var (
@@ -35,6 +36,10 @@ func (p Principal) IsZero() bool {
 
 func (p Principal) IsAdmin() bool {
 	return p.Role == RoleAdmin
+}
+
+func (p Principal) CanReadAuditLogs() bool {
+	return p.Role == RoleAdmin || p.Role == RoleSecurityAuditor
 }
 
 func (p Principal) CanActAsUser(userID string) bool {
@@ -220,7 +225,7 @@ func bearerToken(req *http.Request) (string, error) {
 
 func isKnownRole(role string) bool {
 	switch role {
-	case RoleAdmin, RoleMerchant, RoleRider, RoleStationManager, RoleUser:
+	case RoleAdmin, RoleMerchant, RoleRider, RoleSecurityAuditor, RoleStationManager, RoleUser:
 		return true
 	default:
 		return false

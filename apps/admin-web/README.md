@@ -8,15 +8,16 @@
 - 商户/站长/骑手邀约：调用管理员邀请接口，支撑邀约制准入。
 - 运营快照：调用 `/api/admin/operations/snapshot` 聚合订单、商户、骑手、售后、派单、退款策略、outbox 和对象清理状态。
 - 操作审计：调用 `/api/admin/audit-logs` 查询关键后台写操作审计账本。
-- 退款策略：读取和保存默认退余额/默认原路返回策略。
+- 审计检索：按 actor、action、target、after/before 时间范围和 limit 查询审计记录，支持保存筛选、详情抽屉、按目标筛选和跨模块跳转，并以白名单摘要、脱敏详情和完整性状态展示 payload。
+- 退款策略：读取和保存默认退余额/默认原路返回策略；后端保存路径已把配置写入与审计写入收敛到同一仓储事务。
 - 售后审核：读取后台售后列表。
 - Outbox 运维：查看事件、健康统计和批量恢复入口。
 - 对象存储清理：查看清理统计和候选对象。
-- 订单状态补偿：按订单号触发后台补偿接口。
+- 订单状态补偿：按订单号触发后台补偿接口；后端补偿路径已把状态修复结果与审计写入收敛到同一仓储事务。
 - 运营首页：订单、售后、骑手、资质、outbox、对象清理的 P0 指标位。
-- P0 业务视图：订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略；有管理员 token 时会用运营快照生成指标和表格。
+- P0 业务视图：订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、审计检索、退款策略；有管理员 token 时会用运营快照生成指标和表格。
 - 模块导航：订单、售后、商户、骑手、调度、支付、钱包、优惠券、圈子、群聊红包、客服、RTC、OAuth/API 等模块的状态位。
-- RBAC 草案：超级管理员、运营、财务、调度、客服角色边界。
+- RBAC 草案：超级管理员、运营、财务、调度、客服、安全审计员角色边界。
 - BFF 浏览器接入：本地预览页可通过 BFF CORS 白名单和 `OPTIONS` 预检访问后台 API；部署域名通过 `BFF_ALLOWED_ORIGINS` 配置。
 
 验证：
@@ -32,9 +33,9 @@ npm run test --workspace @infinitech/bff
 - 审核商户营业执照、健康证、员工健康证和补充资料，资质过期时自动临时关店。
 - 查看骑手接单时间、平均接单耗时、日均完成单数、团队均值、等级和派单优先级。
 - 通过运营快照把 P0 视图从静态说明推进到统一数据口径，顶部 KPI、今日队列、订单、售后、商户、骑手、骑手绩效、派单和退款策略视图已可由该接口生成，后续继续拆详情和审核表单。
-- 通过操作审计查询追踪商户/骑手邀约、退款策略、订单退款、状态补偿、售后审核、对象清理和 outbox 运维动作；后端已在 PostgreSQL-backed Store 下读取规范化 `audit_logs` 表，后续继续拆审计检索页和导出留存。
+- 通过审计检索页追踪商户/骑手邀约、退款策略、订单退款、状态补偿、售后审核、对象清理和 outbox 运维动作；后端已在 PostgreSQL-backed Store 下读取规范化 `audit_logs` 表，已支持 `security_auditor` 只读审计角色，并在服务端写入/读取审计 payload 前统一白名单过滤和敏感字段掩码；审计记录已返回 `integrity_algorithm`、`integrity_hash`、`integrity_verified`，生产配置 `AUDIT_LOG_SIGNING_SECRET` 后可用 HMAC 检测篡改；退款策略保存已通过 `SaveRefundSettingsWithAudit` 在同一业务事务内写入配置和 `admin.refund_settings.updated` 审计，管理端订单退款已通过 `RefundOrderWithAudit` 在同一业务事务内写入退款业务账本和 `admin.order.refunded` 审计，售后审核已通过 `ReviewAfterSalesWithAudit` 在同一业务事务内写入审核结果、必要退款和 `after_sales.reviewed` 审计，订单状态补偿已通过 `CompensateOrderStateWithAudit` 在同一业务事务内写入修复结果和 `admin.order_state.compensated` 审计，对象清理完成/失败已通过 `CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit` 在同一业务事务内写入上传票据状态和 `admin.object_cleanup.completed`/`admin.object_cleanup.failed` 审计，相关 payload 均由服务端根据最终业务结果规范化生成；页面支持 after/before 时间范围、before 游标翻页、保存筛选、详情抽屉、目标筛选、跨模块跳转、白名单摘要、敏感字段脱敏详情和完整性状态展示，后续继续补 outbox 运维、商户/骑手邀约等剩余写路径同事务审计、导出留存、异常告警和 KMS/链式不可抵赖签名。
 - 配置站点每日任务时长、每日固定订单数和完成固定数后的免责不接规则。
-- 配置退款默认策略：默认退平台余额或默认原路返回。
+- 配置退款默认策略：默认退平台余额或默认原路返回，并由后端同事务写入审计账本。
 - 配置首页推荐卡片，控制商品、店铺、团购、优惠券和圈子动态在首页展示。
 - 管理圈子/小微墙、找饭搭开关、问卷题库、协议版本、审核、举报和敏感词。
 - 管理优惠券资金责任：商户自担、平台补贴、商户弹窗同意参与后自担。

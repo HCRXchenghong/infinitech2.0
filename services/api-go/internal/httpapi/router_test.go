@@ -129,19 +129,118 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 		t.Fatalf("expected idempotent HTTP refund replay, got %+v", replayedBody)
 	}
 	authGetJSON(t, server.URL+"/api/admin/audit-logs", userToken("user_1"), http.StatusForbidden)
+	authGetJSON(t, server.URL+"/api/admin/audit-logs?limit=1", securityAuditorToken("auditor_1"), http.StatusOK)
+	authPostJSON(t, server.URL+"/api/admin/merchant-invites", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
+	authPostJSON(t, server.URL+"/api/admin/orders/"+order.ID+"/state/compensate", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
 	auditBody := authGetJSON(t, server.URL+"/api/admin/audit-logs?target_type=order&target_id="+order.ID+"&limit=5", adminToken("admin_1"), http.StatusOK)
 	auditLogs := auditBody["data"].([]any)
 	if len(auditLogs) != 2 || auditLogs[0].(map[string]any)["action"] != "admin.order.refunded" || auditLogs[0].(map[string]any)["actor_id"] != "admin_1" {
 		t.Fatalf("expected refund audit logs, got %+v", auditBody)
 	}
+	refundAudit := auditLogs[0].(map[string]any)
+	if refundAudit["integrity_algorithm"] != "sha256:v1" || refundAudit["integrity_hash"] == "" || refundAudit["integrity_verified"] != true {
+		t.Fatalf("expected refund audit HTTP response to expose verified integrity proof, got %+v", refundAudit)
+	}
 	refundPayload := auditLogs[0].(map[string]any)["payload"].(map[string]any)
 	if refundPayload["idempotency_key"] != "refund_http_1" || refundPayload["amount_fen"] != float64(1200) {
 		t.Fatalf("expected refund audit payload without sensitive data, got %+v", refundPayload)
+	}
+	newestRefundAuditAt, ok := auditLogs[0].(map[string]any)["created_at"].(string)
+	if !ok || newestRefundAuditAt == "" {
+		t.Fatalf("expected refund audit created_at, got %+v", auditLogs[0])
+	}
+	windowAuditBody := authGetJSON(t, server.URL+"/api/admin/audit-logs?target_type=order&target_id="+order.ID+"&after="+newestRefundAuditAt+"&limit=5", adminToken("admin_1"), http.StatusOK)
+	windowAuditLogs := windowAuditBody["data"].([]any)
+	if len(windowAuditLogs) != 1 || windowAuditLogs[0].(map[string]any)["created_at"] != newestRefundAuditAt {
+		t.Fatalf("expected after window to keep newest refund audit log, got %+v", windowAuditBody)
 	}
 	settingsAuditBody := authGetJSON(t, server.URL+"/api/admin/audit-logs?action=admin.refund_settings.updated&limit=1", adminToken("admin_1"), http.StatusOK)
 	settingsAuditLogs := settingsAuditBody["data"].([]any)
 	if len(settingsAuditLogs) != 1 || settingsAuditLogs[0].(map[string]any)["target_type"] != "refund_settings" {
 		t.Fatalf("expected refund settings audit log, got %+v", settingsAuditBody)
+	}
+}
+
+func TestAdminRefundSettingsHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
+	store := &refundSettingsAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	body := authPutJSON(t, server.URL+"/api/admin/refund-settings", adminToken("admin_1"), `{"default_refund_strategy":"original_route_first"}`, http.StatusOK)
+	if body["data"].(map[string]any)["default_refund_strategy"] != platform.RefundStrategyOriginalFirst {
+		t.Fatalf("expected original-route refund setting, got %+v", body)
+	}
+	if !store.atomicAuditCalled {
+		t.Fatal("expected refund settings HTTP handler to call atomic audit repository path")
+	}
+	if store.recordAuditCalled {
+		t.Fatal("refund settings HTTP handler must not call standalone RecordAuditLog after settings write")
+	}
+	if store.atomicAudit.Action != "admin.refund_settings.updated" || store.atomicAudit.TargetType != "refund_settings" || store.atomicAudit.TargetID != "default" {
+		t.Fatalf("expected refund settings audit target from HTTP handler, got %+v", store.atomicAudit)
+	}
+	if store.atomicAudit.ActorType != RoleAdmin || store.atomicAudit.ActorID != "admin_1" {
+		t.Fatalf("expected admin principal in atomic audit request, got %+v", store.atomicAudit)
+	}
+}
+
+func TestAdminRefundOrderHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
+	store := &refundOrderAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	body := authPostJSON(t, server.URL+"/api/orders/ord_atomic/refund", adminToken("admin_1"), `{"reason":"商品售罄","idempotency_key":"refund_atomic_http"}`, http.StatusOK)
+	data := body["data"].(map[string]any)
+	if data["refund"].(map[string]any)["id"] != "rfd_atomic_http" {
+		t.Fatalf("expected atomic refund response, got %+v", body)
+	}
+	if !store.atomicAuditCalled {
+		t.Fatal("expected admin refund HTTP handler to call atomic audit repository path")
+	}
+	if store.refundOrderCalled {
+		t.Fatal("admin refund HTTP handler must not call standalone RefundOrder before audit write")
+	}
+	if store.recordAuditCalled {
+		t.Fatal("admin refund HTTP handler must not call standalone RecordAuditLog after refund write")
+	}
+	if store.atomicReq.OrderID != "ord_atomic" || store.atomicReq.ActorID != "admin_1" || store.atomicReq.ActorRole != RoleAdmin {
+		t.Fatalf("expected order path and admin principal in atomic refund request, got %+v", store.atomicReq)
+	}
+	if store.atomicAudit.Action != "admin.order.refunded" || store.atomicAudit.TargetType != "order" || store.atomicAudit.TargetID != "ord_atomic" {
+		t.Fatalf("expected refund audit target from HTTP handler, got %+v", store.atomicAudit)
+	}
+	if store.atomicAudit.ActorType != RoleAdmin || store.atomicAudit.ActorID != "admin_1" {
+		t.Fatalf("expected admin principal in atomic refund audit request, got %+v", store.atomicAudit)
+	}
+}
+
+func TestReviewAfterSalesHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
+	store := &reviewAfterSalesAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	body := authPostJSON(t, server.URL+"/api/after-sales/asr_atomic/review", merchantToken("merchant_1"), `{"decision":"approve","reason":"确认漏送"}`, http.StatusOK)
+	data := body["data"].(map[string]any)
+	if data["after_sales"].(map[string]any)["id"] != "asr_atomic" || data["refund"].(map[string]any)["id"] != "rfd_after_sales_atomic" {
+		t.Fatalf("expected atomic after-sales review response, got %+v", body)
+	}
+	if !store.atomicAuditCalled {
+		t.Fatal("expected after-sales review HTTP handler to call atomic audit repository path")
+	}
+	if store.reviewAfterSalesCalled {
+		t.Fatal("after-sales review HTTP handler must not call standalone ReviewAfterSales before audit write")
+	}
+	if store.recordAuditCalled {
+		t.Fatal("after-sales review HTTP handler must not call standalone RecordAuditLog after review write")
+	}
+	if store.atomicReq.RequestID != "asr_atomic" || store.atomicReq.ActorID != "merchant_1" || store.atomicReq.ActorRole != RoleMerchant {
+		t.Fatalf("expected request path and merchant principal in atomic after-sales review request, got %+v", store.atomicReq)
+	}
+	if store.atomicAudit.Action != "after_sales.reviewed" || store.atomicAudit.TargetType != "after_sales" || store.atomicAudit.TargetID != "asr_atomic" {
+		t.Fatalf("expected after-sales review audit target from HTTP handler, got %+v", store.atomicAudit)
+	}
+	if store.atomicAudit.ActorType != RoleMerchant || store.atomicAudit.ActorID != "merchant_1" {
+		t.Fatalf("expected merchant principal in atomic after-sales review audit request, got %+v", store.atomicAudit)
 	}
 }
 
@@ -351,6 +450,66 @@ func TestAdminObjectStorageCleanupHTTPFlow(t *testing.T) {
 	}
 	if completeBody["data"].(map[string]any)["last_cleanup_error"] != nil {
 		t.Fatalf("expected cleanup complete to clear last cleanup error, got %+v", completeBody)
+	}
+}
+
+func TestAdminObjectStorageCleanupCompleteHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
+	store := &objectStorageCleanupAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	body := authPostJSON(t, server.URL+"/api/admin/object-storage/cleanup-complete", adminToken("admin_1"), `{"ticket_id":"aset_atomic_complete","object_key":"after-sales/asr_atomic/aft123/expired.jpg","reason":"expired_unconfirmed","deleted_at":"2026-05-23T10:00:00Z"}`, http.StatusOK)
+	data := body["data"].(map[string]any)
+	if data["id"] != "aset_atomic_complete" || data["status"] != platform.AfterSalesUploadTicketDeleted {
+		t.Fatalf("expected atomic cleanup-complete response, got %+v", body)
+	}
+	if !store.completeAtomicAuditCalled {
+		t.Fatal("expected object cleanup complete HTTP handler to call atomic audit repository path")
+	}
+	if store.completeCalled {
+		t.Fatal("object cleanup complete HTTP handler must not call standalone CompleteObjectStorageCleanup before audit write")
+	}
+	if store.recordAuditCalled {
+		t.Fatal("object cleanup complete HTTP handler must not call standalone RecordAuditLog after cleanup")
+	}
+	if store.completeReq.TicketID != "aset_atomic_complete" || store.completeReq.ObjectKey != "after-sales/asr_atomic/aft123/expired.jpg" || store.completeReq.Reason != platform.AfterSalesObjectCleanupExpired {
+		t.Fatalf("expected cleanup-complete payload to reach atomic repository path, got %+v", store.completeReq)
+	}
+	if store.completeAudit.Action != "admin.object_cleanup.completed" || store.completeAudit.TargetType != "object_storage_ticket" || store.completeAudit.TargetID != "aset_atomic_complete" {
+		t.Fatalf("expected cleanup-complete audit target from HTTP handler, got %+v", store.completeAudit)
+	}
+	if store.completeAudit.ActorType != RoleAdmin || store.completeAudit.ActorID != "admin_1" {
+		t.Fatalf("expected admin principal in cleanup-complete audit request, got %+v", store.completeAudit)
+	}
+}
+
+func TestAdminObjectStorageCleanupFailedHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
+	store := &objectStorageCleanupAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	body := authPostJSON(t, server.URL+"/api/admin/object-storage/cleanup-failed", adminToken("admin_1"), `{"ticket_id":"aset_atomic_failed","object_key":"after-sales/asr_atomic/aft456/rejected.jpg","reason":"scan_rejected","error":"delete denied","failed_at":"2026-05-23T10:01:00Z"}`, http.StatusOK)
+	data := body["data"].(map[string]any)
+	if data["id"] != "aset_atomic_failed" || data["cleanup_attempts"] != float64(1) || data["last_cleanup_error"] != "delete denied" {
+		t.Fatalf("expected atomic cleanup-failed response, got %+v", body)
+	}
+	if !store.failureAtomicAuditCalled {
+		t.Fatal("expected object cleanup failed HTTP handler to call atomic audit repository path")
+	}
+	if store.failureCalled {
+		t.Fatal("object cleanup failed HTTP handler must not call standalone RecordObjectStorageCleanupFailure before audit write")
+	}
+	if store.recordAuditCalled {
+		t.Fatal("object cleanup failed HTTP handler must not call standalone RecordAuditLog after cleanup")
+	}
+	if store.failureReq.TicketID != "aset_atomic_failed" || store.failureReq.ObjectKey != "after-sales/asr_atomic/aft456/rejected.jpg" || store.failureReq.Reason != platform.AfterSalesObjectCleanupRejected || store.failureReq.Error != "delete denied" {
+		t.Fatalf("expected cleanup-failed payload to reach atomic repository path, got %+v", store.failureReq)
+	}
+	if store.failureAudit.Action != "admin.object_cleanup.failed" || store.failureAudit.TargetType != "object_storage_ticket" || store.failureAudit.TargetID != "aset_atomic_failed" {
+		t.Fatalf("expected cleanup-failed audit target from HTTP handler, got %+v", store.failureAudit)
+	}
+	if store.failureAudit.ActorType != RoleAdmin || store.failureAudit.ActorID != "admin_1" {
+		t.Fatalf("expected admin principal in cleanup-failed audit request, got %+v", store.failureAudit)
 	}
 }
 
@@ -766,6 +925,21 @@ func TestAdminCompensateOrderStateHTTPFlow(t *testing.T) {
 	}
 	if store.req.OrderID != "ord_1" || store.req.ActorID != "admin_1" || store.req.Now.IsZero() {
 		t.Fatalf("expected admin compensation request metadata, got %+v", store.req)
+	}
+	if !store.atomicAuditCalled {
+		t.Fatal("expected order-state compensation HTTP handler to call atomic audit repository path")
+	}
+	if store.compensateOrderStateCalled {
+		t.Fatal("order-state compensation HTTP handler must not call standalone CompensateOrderState before audit write")
+	}
+	if store.recordAuditCalled {
+		t.Fatal("order-state compensation HTTP handler must not call standalone RecordAuditLog after compensation")
+	}
+	if store.atomicAudit.Action != "admin.order_state.compensated" || store.atomicAudit.TargetType != "order" || store.atomicAudit.TargetID != "ord_1" {
+		t.Fatalf("expected order-state compensation audit target from HTTP handler, got %+v", store.atomicAudit)
+	}
+	if store.atomicAudit.ActorType != RoleAdmin || store.atomicAudit.ActorID != "admin_1" {
+		t.Fatalf("expected admin principal in order-state compensation audit request, got %+v", store.atomicAudit)
 	}
 }
 
@@ -1261,15 +1435,209 @@ func adminToken(adminID string) string {
 	return RoleAdmin + ":" + adminID
 }
 
+func securityAuditorToken(auditorID string) string {
+	return RoleSecurityAuditor + ":" + auditorID
+}
+
 type compensateOrderStateStore struct {
 	*platform.Store
-	result *platform.CompensateOrderStateResult
-	req    platform.CompensateOrderStateRequest
+	result                     *platform.CompensateOrderStateResult
+	req                        platform.CompensateOrderStateRequest
+	atomicAuditCalled          bool
+	compensateOrderStateCalled bool
+	recordAuditCalled          bool
+	atomicAudit                platform.RecordAuditLogRequest
 }
 
 func (store *compensateOrderStateStore) CompensateOrderState(req platform.CompensateOrderStateRequest) (*platform.CompensateOrderStateResult, error) {
+	store.compensateOrderStateCalled = true
 	store.req = req
 	return store.result, nil
+}
+
+func (store *compensateOrderStateStore) CompensateOrderStateWithAudit(req platform.CompensateOrderStateRequest, audit platform.RecordAuditLogRequest) (*platform.CompensateOrderStateResult, *platform.AuditLog, error) {
+	store.atomicAuditCalled = true
+	store.req = req
+	store.atomicAudit = audit
+	return store.result, &platform.AuditLog{ID: "aud_order_state_atomic_http", Action: audit.Action, TargetType: audit.TargetType, TargetID: audit.TargetID}, nil
+}
+
+func (store *compensateOrderStateStore) RecordAuditLog(req platform.RecordAuditLogRequest) (*platform.AuditLog, error) {
+	store.recordAuditCalled = true
+	return nil, nil
+}
+
+type refundSettingsAtomicAuditStore struct {
+	*platform.Store
+	atomicAuditCalled bool
+	recordAuditCalled bool
+	atomicAudit       platform.RecordAuditLogRequest
+}
+
+func (store *refundSettingsAtomicAuditStore) SaveRefundSettingsWithAudit(req platform.SaveRefundSettingsRequest, audit platform.RecordAuditLogRequest) (*platform.RefundSettings, *platform.AuditLog, error) {
+	store.atomicAuditCalled = true
+	store.atomicAudit = audit
+	return store.Store.SaveRefundSettingsWithAudit(req, audit)
+}
+
+func (store *refundSettingsAtomicAuditStore) RecordAuditLog(req platform.RecordAuditLogRequest) (*platform.AuditLog, error) {
+	store.recordAuditCalled = true
+	return nil, platform.ErrInvalidArgument
+}
+
+type refundOrderAtomicAuditStore struct {
+	*platform.Store
+	atomicAuditCalled bool
+	refundOrderCalled bool
+	recordAuditCalled bool
+	atomicReq         platform.RefundOrderRequest
+	atomicAudit       platform.RecordAuditLogRequest
+}
+
+func (store *refundOrderAtomicAuditStore) RefundOrderWithAudit(req platform.RefundOrderRequest, audit platform.RecordAuditLogRequest) (*platform.RefundTransaction, *platform.Order, *platform.WalletAccount, *platform.AuditLog, error) {
+	store.atomicAuditCalled = true
+	store.atomicReq = req
+	store.atomicAudit = audit
+	refund := &platform.RefundTransaction{
+		ID:             "rfd_atomic_http",
+		OrderID:        req.OrderID,
+		UserID:         "user_atomic",
+		AmountFen:      1200,
+		Destination:    platform.RefundDestinationBalance,
+		Status:         platform.RefundStatusSuccess,
+		Reason:         req.Reason,
+		IdempotencyKey: req.IdempotencyKey,
+		CreatedAt:      time.Date(2026, 5, 23, 12, 0, 0, 0, time.UTC),
+	}
+	order := &platform.Order{ID: req.OrderID, UserID: refund.UserID, Status: platform.StatusRefunded, AmountFen: refund.AmountFen}
+	account := &platform.WalletAccount{UserID: refund.UserID, Balance: refund.AmountFen, Version: 1}
+	auditLog := &platform.AuditLog{ID: "aud_atomic_http", Action: audit.Action, TargetType: audit.TargetType, TargetID: audit.TargetID}
+	return refund, order, account, auditLog, nil
+}
+
+func (store *refundOrderAtomicAuditStore) RefundOrder(req platform.RefundOrderRequest) (*platform.RefundTransaction, *platform.Order, *platform.WalletAccount, error) {
+	store.refundOrderCalled = true
+	return nil, nil, nil, platform.ErrInvalidArgument
+}
+
+func (store *refundOrderAtomicAuditStore) RecordAuditLog(req platform.RecordAuditLogRequest) (*platform.AuditLog, error) {
+	store.recordAuditCalled = true
+	return nil, platform.ErrInvalidArgument
+}
+
+type reviewAfterSalesAtomicAuditStore struct {
+	*platform.Store
+	atomicAuditCalled      bool
+	reviewAfterSalesCalled bool
+	recordAuditCalled      bool
+	atomicReq              platform.ReviewAfterSalesRequest
+	atomicAudit            platform.RecordAuditLogRequest
+}
+
+func (store *reviewAfterSalesAtomicAuditStore) ReviewAfterSalesWithAudit(req platform.ReviewAfterSalesRequest, audit platform.RecordAuditLogRequest) (*platform.AfterSalesRequest, *platform.RefundTransaction, *platform.Order, *platform.WalletAccount, *platform.AuditLog, error) {
+	store.atomicAuditCalled = true
+	store.atomicReq = req
+	store.atomicAudit = audit
+	afterSales := &platform.AfterSalesRequest{
+		ID:                 req.RequestID,
+		OrderID:            "ord_after_sales_atomic",
+		UserID:             "user_atomic",
+		Status:             platform.AfterSalesRefunded,
+		ReviewReason:       req.Reason,
+		ReviewerID:         req.ActorID,
+		ReviewerRole:       req.ActorRole,
+		RefundID:           "rfd_after_sales_atomic",
+		RequestedAmountFen: 600,
+		RefundedAmountFen:  600,
+		RefundableFen:      600,
+	}
+	refund := &platform.RefundTransaction{
+		ID:             afterSales.RefundID,
+		OrderID:        afterSales.OrderID,
+		UserID:         afterSales.UserID,
+		AmountFen:      600,
+		Destination:    platform.RefundDestinationBalance,
+		Status:         platform.RefundStatusSuccess,
+		Reason:         req.Reason,
+		IdempotencyKey: "after_sales_atomic_http",
+		CreatedAt:      time.Date(2026, 5, 23, 12, 30, 0, 0, time.UTC),
+	}
+	order := &platform.Order{ID: afterSales.OrderID, UserID: afterSales.UserID, Status: platform.StatusMerchantPending, AmountFen: 1200}
+	account := &platform.WalletAccount{UserID: afterSales.UserID, Balance: refund.AmountFen, Version: 1}
+	auditLog := &platform.AuditLog{ID: "aud_after_sales_atomic_http", Action: audit.Action, TargetType: audit.TargetType, TargetID: audit.TargetID}
+	return afterSales, refund, order, account, auditLog, nil
+}
+
+func (store *reviewAfterSalesAtomicAuditStore) ReviewAfterSales(req platform.ReviewAfterSalesRequest) (*platform.AfterSalesRequest, *platform.RefundTransaction, *platform.Order, *platform.WalletAccount, error) {
+	store.reviewAfterSalesCalled = true
+	return nil, nil, nil, nil, platform.ErrInvalidArgument
+}
+
+func (store *reviewAfterSalesAtomicAuditStore) RecordAuditLog(req platform.RecordAuditLogRequest) (*platform.AuditLog, error) {
+	store.recordAuditCalled = true
+	return nil, platform.ErrInvalidArgument
+}
+
+type objectStorageCleanupAtomicAuditStore struct {
+	*platform.Store
+	completeAtomicAuditCalled bool
+	failureAtomicAuditCalled  bool
+	completeCalled            bool
+	failureCalled             bool
+	recordAuditCalled         bool
+	completeReq               platform.ObjectStorageCleanupCompleteRequest
+	failureReq                platform.ObjectStorageCleanupFailureRequest
+	completeAudit             platform.RecordAuditLogRequest
+	failureAudit              platform.RecordAuditLogRequest
+}
+
+func (store *objectStorageCleanupAtomicAuditStore) CompleteObjectStorageCleanupWithAudit(req platform.ObjectStorageCleanupCompleteRequest, audit platform.RecordAuditLogRequest) (*platform.AfterSalesEvidenceUploadTicket, *platform.AuditLog, error) {
+	store.completeAtomicAuditCalled = true
+	store.completeReq = req
+	store.completeAudit = audit
+	ticket := &platform.AfterSalesEvidenceUploadTicket{
+		ID:            req.TicketID,
+		ObjectKey:     req.ObjectKey,
+		Status:        platform.AfterSalesUploadTicketDeleted,
+		CleanupReason: req.Reason,
+		DeletedAt:     req.DeletedAt,
+	}
+	auditLog := &platform.AuditLog{ID: "aud_object_cleanup_complete_atomic_http", Action: audit.Action, TargetType: audit.TargetType, TargetID: audit.TargetID}
+	return ticket, auditLog, nil
+}
+
+func (store *objectStorageCleanupAtomicAuditStore) CompleteObjectStorageCleanup(req platform.ObjectStorageCleanupCompleteRequest) (*platform.AfterSalesEvidenceUploadTicket, error) {
+	store.completeCalled = true
+	store.completeReq = req
+	return nil, platform.ErrInvalidArgument
+}
+
+func (store *objectStorageCleanupAtomicAuditStore) RecordObjectStorageCleanupFailureWithAudit(req platform.ObjectStorageCleanupFailureRequest, audit platform.RecordAuditLogRequest) (*platform.AfterSalesEvidenceUploadTicket, *platform.AuditLog, error) {
+	store.failureAtomicAuditCalled = true
+	store.failureReq = req
+	store.failureAudit = audit
+	ticket := &platform.AfterSalesEvidenceUploadTicket{
+		ID:                  req.TicketID,
+		ObjectKey:           req.ObjectKey,
+		Status:              platform.AfterSalesUploadTicketUploaded,
+		CleanupReason:       req.Reason,
+		CleanupAttempts:     1,
+		LastCleanupError:    req.Error,
+		LastCleanupFailedAt: req.FailedAt,
+	}
+	auditLog := &platform.AuditLog{ID: "aud_object_cleanup_failed_atomic_http", Action: audit.Action, TargetType: audit.TargetType, TargetID: audit.TargetID}
+	return ticket, auditLog, nil
+}
+
+func (store *objectStorageCleanupAtomicAuditStore) RecordObjectStorageCleanupFailure(req platform.ObjectStorageCleanupFailureRequest) (*platform.AfterSalesEvidenceUploadTicket, error) {
+	store.failureCalled = true
+	store.failureReq = req
+	return nil, platform.ErrInvalidArgument
+}
+
+func (store *objectStorageCleanupAtomicAuditStore) RecordAuditLog(req platform.RecordAuditLogRequest) (*platform.AuditLog, error) {
+	store.recordAuditCalled = true
+	return nil, platform.ErrInvalidArgument
 }
 
 func signedWechatCallbackJSON(t *testing.T, url string, body string, expectedStatus int) map[string]any {

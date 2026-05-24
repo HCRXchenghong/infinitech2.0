@@ -1,4 +1,14 @@
 import { ADMIN_API_OPERATIONS, DEFAULT_BFF_BASE_URL, executeAdminOperation, fieldsForOperation, getAdminOperation } from "./adminApi.mjs";
+import {
+  AUDIT_FILTER_DEFAULTS,
+  auditDataFromResult,
+  auditSearchValuesFromFilters,
+  buildAuditRows,
+  makeAuditFilterPreset,
+  nextAuditBefore,
+  normalizeAuditFilters,
+  upsertAuditFilterPreset
+} from "./adminAudit.mjs";
 import { ADMIN_WEB_KPIS, ADMIN_WEB_MODULES, ADMIN_WEB_QUEUES, ADMIN_WEB_RBAC, ADMIN_WEB_SECTIONS } from "./config.mjs";
 import { getAdminView } from "./adminViews.mjs";
 import { applySnapshotToAdminView, buildSnapshotKpis, buildSnapshotQueues, snapshotDataFromResult } from "./adminSnapshot.mjs";
@@ -17,6 +27,13 @@ const state = {
   snapshotError: "",
   busy: false,
   snapshotBusy: false,
+  auditBusy: false,
+  auditError: "",
+  auditLogs: [],
+  auditNextBefore: "",
+  auditFilters: { ...AUDIT_FILTER_DEFAULTS },
+  auditFilterPresets: [],
+  auditSelectedId: "",
   values: {}
 };
 
@@ -25,13 +42,20 @@ function restoreState() {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
     state.baseUrl = saved.baseUrl || state.baseUrl;
     state.token = saved.token || state.token;
+    state.auditFilters = normalizeAuditFilters(saved.auditFilters || state.auditFilters);
+    state.auditFilterPresets = Array.isArray(saved.auditFilterPresets) ? saved.auditFilterPresets.slice(0, 8) : [];
   } catch {
     localStorage.removeItem(STORAGE_KEY);
   }
 }
 
 function persistState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ baseUrl: state.baseUrl, token: state.token }));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    baseUrl: state.baseUrl,
+    token: state.token,
+    auditFilters: normalizeAuditFilters(state.auditFilters),
+    auditFilterPresets: state.auditFilterPresets
+  }));
 }
 
 function formatJson(value) {
@@ -73,6 +97,44 @@ function operationOptions() {
 
 function toneClass(tone) {
   return ["blue", "green", "red", "amber", "slate"].includes(tone) ? tone : "slate";
+}
+
+function selectedAuditRow(rows) {
+  return rows.find((row) => row.id === state.auditSelectedId) || null;
+}
+
+function findAuditRow(rowId) {
+  return buildAuditRows(state.auditLogs).find((row) => row.id === rowId) || null;
+}
+
+function valuesForAuditJump(row) {
+  if (!row) {
+    return {};
+  }
+  if (row.targetOperation === "order-compensate" && row.targetId) {
+    return { order_id: row.targetId };
+  }
+  if (row.targetOperation === "outbox-events") {
+    return { topic: row.payload?.topic || "", status: "pending", limit: 20 };
+  }
+  if (row.targetOperation === "outbox-stats") {
+    return { topic: row.payload?.topic || "", lease_expiring_within_seconds: 60 };
+  }
+  if (row.targetOperation === "object-cleanup-candidates") {
+    return { limit: 20, grace_seconds: 3600 };
+  }
+  return {};
+}
+
+function jumpFromAuditRow(row) {
+  if (!row) {
+    return;
+  }
+  state.activeModule = row.targetModule;
+  state.activeOperation = row.targetOperation;
+  state.values = valuesForAuditJump(row);
+  state.auditSelectedId = "";
+  render();
 }
 
 function renderFields(operation) {
@@ -139,6 +201,146 @@ function renderModuleView(view) {
       <div class="safeguards">
         ${view.safeguards.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
       </div>
+    </article>
+  `;
+}
+
+function renderAuditCenter(view) {
+  const rows = buildAuditRows(state.auditLogs);
+  const filters = state.auditFilters;
+  const selectedRow = selectedAuditRow(rows);
+  return `
+    <article class="panel wide audit-center">
+      <div class="panel-head">
+        <div>
+          <h2>${escapeHtml(view.title)}</h2>
+          <p>${escapeHtml(view.subtitle)}</p>
+        </div>
+        <span class="badge">P0</span>
+      </div>
+      <div class="mini-metrics">
+        ${view.metrics.map((metric) => `
+          <div class="mini-metric ${toneClass(metric.tone)}">
+            <span>${escapeHtml(metric.label)}</span>
+            <strong>${escapeHtml(metric.value)}</strong>
+          </div>
+        `).join("")}
+      </div>
+      <div class="audit-presets">
+        <div class="audit-preset-list">
+          ${state.auditFilterPresets.length > 0 ? state.auditFilterPresets.map((preset) => `
+            <button type="button" class="link-button" data-audit-preset="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</button>
+          `).join("") : `<span class="empty-state compact">暂无保存筛选</span>`}
+        </div>
+        <div class="audit-preset-actions">
+          <button type="button" class="link-button" id="audit-save-filter">保存筛选</button>
+          <button type="button" class="link-button" id="audit-reset-filter">重置</button>
+        </div>
+      </div>
+      <form id="audit-search-form" class="audit-controls">
+        <label class="field">
+          <span>操作者类型</span>
+          <select data-audit-field="actor_type">
+            ${["", "admin", "merchant", "station_manager", "rider"].map((value) => `<option value="${value}" ${filters.actor_type === value ? "selected" : ""}>${value || "全部"}</option>`).join("")}
+          </select>
+        </label>
+        <label class="field">
+          <span>操作者 ID</span>
+          <input data-audit-field="actor_id" value="${escapeHtml(filters.actor_id)}" placeholder="admin_1" />
+        </label>
+        <label class="field">
+          <span>动作</span>
+          <input data-audit-field="action" value="${escapeHtml(filters.action)}" placeholder="admin.order.refunded" />
+        </label>
+        <label class="field">
+          <span>目标类型</span>
+          <input data-audit-field="target_type" value="${escapeHtml(filters.target_type)}" placeholder="order" />
+        </label>
+        <label class="field">
+          <span>目标 ID</span>
+          <input data-audit-field="target_id" value="${escapeHtml(filters.target_id)}" placeholder="ord_1" />
+        </label>
+        <label class="field">
+          <span>晚于时间</span>
+          <input data-audit-field="after" value="${escapeHtml(filters.after)}" placeholder="2026-05-22T00:00:00Z" />
+        </label>
+        <label class="field">
+          <span>早于时间</span>
+          <input data-audit-field="before" value="${escapeHtml(filters.before)}" placeholder="2026-05-22T12:00:00Z" />
+        </label>
+        <label class="field">
+          <span>条数</span>
+          <input data-audit-field="limit" type="number" min="1" max="500" value="${escapeHtml(filters.limit)}" />
+        </label>
+        <div class="audit-actions">
+          <button type="submit" ${state.auditBusy || !state.token ? "disabled" : ""}>${state.auditBusy ? "查询中" : "查询"}</button>
+          <button type="button" id="audit-next-page" ${state.auditBusy || !state.token || !state.auditNextBefore ? "disabled" : ""}>下一页</button>
+        </div>
+      </form>
+      ${state.auditError ? `<div class="empty-state audit-error">${escapeHtml(state.auditError)}</div>` : ""}
+      <div class="table-wrap audit-table">
+        <table>
+          <thead>
+            <tr>${view.columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows.length > 0 ? rows.map((row) => `
+              <tr class="${row.id === state.auditSelectedId ? "selected" : ""}">
+                <td>${escapeHtml(row.createdAt)}</td>
+                <td>${escapeHtml(row.actor)}</td>
+                <td>${escapeHtml(row.action)}</td>
+                <td>
+                  <span>${escapeHtml(row.target)}</span>
+                  <button type="button" class="inline-action" data-audit-jump="${escapeHtml(row.id)}">${escapeHtml(row.targetLabel)}</button>
+                </td>
+                <td>${escapeHtml(row.request)}</td>
+                <td>
+                  <span>${escapeHtml(row.payloadSummary)}</span>
+                  <button type="button" class="inline-action" data-audit-detail="${escapeHtml(row.id)}">详情</button>
+                </td>
+                <td>
+                  <span class="integrity-pill ${escapeHtml(row.integrityTone)}">${escapeHtml(row.integrityLabel)}</span>
+                  <small>${escapeHtml(row.integrityHashShort)}</small>
+                </td>
+              </tr>
+            `).join("") : `
+              <tr>
+                <td colspan="${view.columns.length}">
+                  <div class="empty-state">${state.token ? "暂无审计记录，调整筛选条件后重试。" : "填入管理员 Token 后可查询审计记录。"}</div>
+                </td>
+              </tr>
+            `}
+          </tbody>
+        </table>
+      </div>
+      <div class="safeguards">
+        ${view.safeguards.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
+      </div>
+      ${selectedRow ? `
+        <aside class="audit-detail" aria-label="审计详情">
+          <div class="audit-detail-head">
+            <div>
+              <span class="badge">${escapeHtml(selectedRow.id)}</span>
+              <h3>${escapeHtml(selectedRow.action)}</h3>
+            </div>
+            <button type="button" class="icon-button" id="audit-close-detail" aria-label="关闭">×</button>
+          </div>
+          <div class="audit-detail-grid">
+            <div><span>时间</span><strong>${escapeHtml(selectedRow.createdRaw || selectedRow.createdAt)}</strong></div>
+            <div><span>操作者</span><strong>${escapeHtml(selectedRow.actor)}</strong></div>
+            <div><span>目标</span><strong>${escapeHtml(selectedRow.target)}</strong></div>
+            <div><span>请求</span><strong>${escapeHtml(selectedRow.request)}</strong></div>
+            <div><span>完整性</span><strong>${escapeHtml(selectedRow.integrityLabel)}</strong></div>
+            <div><span>算法</span><strong>${escapeHtml(selectedRow.integrityAlgorithm)}</strong></div>
+            <div><span>哈希</span><strong>${escapeHtml(selectedRow.integrityHash || "-")}</strong></div>
+          </div>
+          <div class="audit-detail-actions">
+            <button type="button" class="link-button" data-audit-jump="${escapeHtml(selectedRow.id)}">跳到${escapeHtml(selectedRow.targetLabel)}</button>
+            <button type="button" class="link-button" data-audit-target-filter="${escapeHtml(selectedRow.id)}">按此目标筛选</button>
+          </div>
+          <pre class="audit-payload detail">${escapeHtml(JSON.stringify(selectedRow.payload, null, 2))}</pre>
+        </aside>
+      ` : ""}
     </article>
   `;
 }
@@ -214,7 +416,7 @@ function render() {
         </section>
 
         <section class="grid">
-          ${renderModuleView(activeView)}
+          ${activeView.key === "audit-logs" ? renderAuditCenter(activeView) : renderModuleView(activeView)}
 
           <article class="panel wide">
             <div class="panel-head">
@@ -347,6 +549,74 @@ function bindEvents() {
   document.getElementById("refresh-snapshot")?.addEventListener("click", async () => {
     await refreshOperationsSnapshot();
   });
+  document.querySelectorAll("[data-audit-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      state.auditFilters[field.getAttribute("data-audit-field")] = field.value;
+    });
+  });
+  document.getElementById("audit-search-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await runAuditSearch();
+  });
+  document.getElementById("audit-next-page")?.addEventListener("click", async () => {
+    await runAuditSearch({ useNextPage: true });
+  });
+  document.getElementById("audit-save-filter")?.addEventListener("click", () => {
+    const preset = makeAuditFilterPreset(state.auditFilters);
+    state.auditFilterPresets = upsertAuditFilterPreset(state.auditFilterPresets, preset);
+    state.auditFilters = preset.filters;
+    persistState();
+    render();
+  });
+  document.getElementById("audit-reset-filter")?.addEventListener("click", () => {
+    state.auditFilters = { ...AUDIT_FILTER_DEFAULTS };
+    state.auditNextBefore = "";
+    state.auditSelectedId = "";
+    persistState();
+    render();
+  });
+  document.querySelectorAll("[data-audit-preset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const preset = state.auditFilterPresets.find((item) => item.id === button.getAttribute("data-audit-preset"));
+      if (!preset) return;
+      state.auditFilters = normalizeAuditFilters(preset.filters);
+      state.auditNextBefore = "";
+      state.auditSelectedId = "";
+      persistState();
+      render();
+    });
+  });
+  document.querySelectorAll("[data-audit-detail]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.auditSelectedId = button.getAttribute("data-audit-detail") || "";
+      render();
+    });
+  });
+  document.getElementById("audit-close-detail")?.addEventListener("click", () => {
+    state.auditSelectedId = "";
+    render();
+  });
+  document.querySelectorAll("[data-audit-jump]").forEach((button) => {
+    button.addEventListener("click", () => {
+      jumpFromAuditRow(findAuditRow(button.getAttribute("data-audit-jump")));
+    });
+  });
+  document.querySelectorAll("[data-audit-target-filter]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = findAuditRow(button.getAttribute("data-audit-target-filter"));
+      if (!row) return;
+      state.auditFilters = normalizeAuditFilters({
+        ...state.auditFilters,
+        target_type: row.targetType,
+        target_id: row.targetId,
+        before: ""
+      });
+      state.auditNextBefore = "";
+      state.auditSelectedId = "";
+      persistState();
+      await runAuditSearch();
+    });
+  });
   document.getElementById("fill-login")?.addEventListener("click", async () => {
     const token = state.lastResult?.payload?.data?.access_token;
     if (token) {
@@ -383,6 +653,11 @@ async function runActiveOperation() {
         state.snapshotError = "";
       }
     }
+    if (operation.key === "audit-logs" && state.lastResult.ok) {
+      state.auditLogs = auditDataFromResult(state.lastResult);
+      state.auditNextBefore = nextAuditBefore(state.auditLogs);
+      state.auditError = "";
+    }
   } catch (error) {
     state.lastResult = {
       ok: false,
@@ -391,6 +666,44 @@ async function runActiveOperation() {
     };
   } finally {
     state.busy = false;
+    persistState();
+    render();
+  }
+}
+
+function auditSearchValues({ useNextPage = false } = {}) {
+  return auditSearchValuesFromFilters(state.auditFilters, {
+    beforeOverride: useNextPage ? state.auditNextBefore : ""
+  });
+}
+
+async function runAuditSearch({ useNextPage = false } = {}) {
+  if (!state.token || state.auditBusy) {
+    return;
+  }
+  state.auditBusy = true;
+  state.auditError = "";
+  render();
+  try {
+    const values = auditSearchValues({ useNextPage });
+    const result = await executeAdminOperation({
+      baseUrl: state.baseUrl || DEFAULT_BFF_BASE_URL,
+      token: state.token,
+      operationKey: "audit-logs",
+      values
+    });
+    if (!result.ok || result.payload?.success === false) {
+      throw new Error(result.payload?.message || `HTTP ${result.status}`);
+    }
+    state.lastResult = result;
+    state.auditLogs = auditDataFromResult(result);
+    state.auditNextBefore = nextAuditBefore(state.auditLogs);
+    state.auditFilters = normalizeAuditFilters({ ...state.auditFilters, before: values.before || "" });
+    state.auditSelectedId = "";
+  } catch (error) {
+    state.auditError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.auditBusy = false;
     persistState();
     render();
   }

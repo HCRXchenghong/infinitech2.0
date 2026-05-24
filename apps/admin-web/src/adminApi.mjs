@@ -100,9 +100,13 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     authRequired: true,
     area: "ops",
     queryFields: [
+      { key: "actor_type", label: "操作者类型", type: "select", defaultValue: "", options: ["", "admin", "merchant", "station_manager", "rider"] },
+      { key: "actor_id", label: "操作者 ID", type: "text", defaultValue: "" },
       { key: "target_type", label: "目标类型", type: "text", defaultValue: "" },
       { key: "target_id", label: "目标 ID", type: "text", defaultValue: "" },
       { key: "action", label: "动作", type: "text", defaultValue: "" },
+      { key: "after", label: "晚于时间", type: "text", defaultValue: "" },
+      { key: "before", label: "早于时间", type: "text", defaultValue: "" },
       { key: "limit", label: "条数", type: "number", defaultValue: 20 }
     ],
     fields: []

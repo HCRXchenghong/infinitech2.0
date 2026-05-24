@@ -139,6 +139,26 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
     ],
     safeguards: ["同单抢单只能一个成功", "派单超时自动转派", "站长手动派单必须留痕"]
   },
+  "audit-logs": {
+    key: "audit-logs",
+    title: "审计检索",
+    subtitle: "按操作者、动作、目标和时间游标追踪后台高风险操作。",
+    metrics: [
+      { label: "查询入口", value: "已接入", tone: "green" },
+      { label: "过滤维度", value: "6", tone: "blue" },
+      { label: "Payload", value: "脱敏", tone: "amber" },
+      { label: "导出留存", value: "待补", tone: "slate" }
+    ],
+    actions: ["audit-logs", "operations-snapshot"],
+    columns: ["时间", "操作者", "动作", "目标", "请求", "摘要", "完整性"],
+    rows: [
+      ["05-22 12:00", "admin:admin_1", "admin.order.refunded", "order:ord_1", "req_1", "amount_fen: 1200", "已验证"],
+      ["05-22 12:01", "admin:admin_1", "admin.refund_settings.updated", "refund_settings:default", "req_2", "default_refund_strategy: balance_first", "已验证"],
+      ["05-22 12:02", "admin:admin_1", "admin.outbox.replayed", "outbox_event:obe_1", "req_3", "event_id: obe_1", "已验证"],
+      ["05-22 12:03", "admin:admin_1", "after_sales.reviewed", "after_sales:asr_1", "req_4", "decision: approve", "已验证"]
+    ],
+    safeguards: ["默认不展示敏感 payload", "返回完整性验证状态", "导出/留存/告警仍需服务端补齐"]
+  },
   "refund-settings": {
     key: "refund-settings",
     title: "退款策略",

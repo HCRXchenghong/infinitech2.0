@@ -1642,7 +1642,7 @@
   - `npm run test --workspace @infinitech/admin-web`
   - `npm run verify:architecture`
   - 浏览器打开 `http://127.0.0.1:4173/apps/admin-web/index.html`，点击订单监控、商户资质、骑手/站长模块，均能展示对应业务视图；浏览器控制台无 error。
-- 当前边界：这些是 P0 页面结构和操作入口，仍需把表格行替换为真实 API 数据源，补分页、筛选、详情抽屉、审核表单、操作审计落库、敏感字段脱敏和服务端细分 RBAC。
+- 当前边界：这些是 P0 页面结构和操作入口，仍需把表格行替换为真实 API 数据源，补分页、筛选、详情抽屉、审核表单、操作审计落库和服务端细分 RBAC；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版。
 - 文件：
   - `apps/admin-web/src/adminViews.mjs`
   - `apps/admin-web/src/main.js`
@@ -1664,7 +1664,7 @@
 - 验收证据：
   - `cd services/api-go && go test -count=1 ./...`
   - `npm run verify`
-- 当前边界：这是管理端数据口径聚合首版，不是完整后台实页。仍需把 P0 表格/指标真正绑定接口响应，补分页筛选、详情抽屉、审核表单、操作审计落库、敏感字段脱敏、服务端细分 RBAC 和生产级数据库查询优化。
+- 当前边界：这是管理端数据口径聚合首版，不是完整后台实页。仍需把 P0 表格/指标真正绑定接口响应，补分页筛选、详情抽屉、审核表单、操作审计落库、服务端细分 RBAC 和生产级数据库查询优化；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版。
 - 文件：
   - `services/api-go/internal/platform/contracts.go`
   - `services/api-go/internal/platform/repository.go`
@@ -1691,7 +1691,7 @@
 - 验收证据：
   - `npm run test --workspace @infinitech/admin-web`
   - `npm run verify:architecture`
-- 当前边界：P0 页面已能按运营快照生成首批表格和指标，但仍需分页筛选、详情抽屉、审核表单、操作审计落库、敏感字段脱敏策略和服务端细分 RBAC。
+- 当前边界：P0 页面已能按运营快照生成首批表格和指标，但仍需分页筛选、详情抽屉、审核表单、操作审计落库和服务端细分 RBAC；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版。
 - 文件：
   - `apps/admin-web/src/adminSnapshot.mjs`
   - `apps/admin-web/src/main.js`
@@ -1726,13 +1726,13 @@
 ### DONE-20260522-084 管理端操作审计日志首版
 
 - 日期：2026-05-22
-- 结果：新增管理端操作审计账本首版，领域层支持 `RecordAuditLog` 与 `AuditLogs`，可按 actor、action、target、limit 和 before 查询。HTTP 新增 `GET /api/admin/audit-logs`，BFF 已代理，Admin Web 操作台已加入“操作审计”入口。管理员关键写操作开始落审计：商户邀约、骑手/站长邀约、退款策略保存、订单退款、订单状态补偿、售后审核、对象清理完成/失败、outbox 领取/续租/发布/失败/重放/批量重放。审计记录包含 actor、action、target、request_id、ip_hash、非敏感 payload 和 created_at，并进入 PostgreSQL-backed Store 快照。
+- 结果：新增管理端操作审计账本首版，领域层支持 `RecordAuditLog` 与 `AuditLogs`，可按 actor、action、target、limit 和 before 查询。HTTP 新增 `GET /api/admin/audit-logs`，BFF 已代理，Admin Web 操作台已加入“操作审计”入口。管理员关键写操作开始落审计：商户邀约、骑手/站长邀约、退款策略保存、订单退款、订单状态补偿、售后审核、对象清理完成/失败、outbox 领取/续租/发布/失败/重放/批量重放。审计记录包含 actor、action、target、request_id、ip_hash、服务端白名单 payload 和 created_at，并进入 PostgreSQL-backed Store 快照。
 - 验收证据：
   - `cd services/api-go && go test -count=1 ./...`
   - `npm run test --workspace @infinitech/bff`
   - `npm run test --workspace @infinitech/admin-web`
   - `npm run verify:architecture`
-- 当前边界：这是首版操作审计，不是完整审计后台。当前审计随 Store 快照持久化，后续还要推进到规范化 `audit_logs` 表事务内强制写入、细分 RBAC、审计检索页、敏感字段脱敏策略、导出与留存策略、异常告警和不可抵赖签名。
+- 当前边界：这是首版操作审计，不是完整审计后台。当前审计随 Store 快照持久化，后续还要推进到规范化 `audit_logs` 表事务内强制写入、细分 RBAC、审计检索页、导出与留存策略、异常告警和 KMS/链式不可抵赖签名；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版，审计完整性证明已在后续 `DONE-20260523-090` 落地首版。
 - 文件：
   - `services/api-go/internal/platform/contracts.go`
   - `services/api-go/internal/platform/repository.go`
@@ -1761,7 +1761,7 @@
 - 验收证据：
   - `cd services/api-go && go test -count=1 ./...`
   - `npm run verify:architecture`
-- 当前边界：审计已进入规范化 PostgreSQL 表，但仍不是完整商业审计中心。关键业务写操作与审计写入还不是同一个业务事务内的强制原子提交；仍需补细分 RBAC、审计检索页、敏感字段脱敏策略、导出/留存、异常告警、不可抵赖签名和审计归档冷热分层。
+- 当前边界：审计已进入规范化 PostgreSQL 表，但仍不是完整商业审计中心。关键业务写操作与审计写入还不是同一个业务事务内的强制原子提交；仍需补细分 RBAC、审计检索页、导出/留存、异常告警、KMS/链式不可抵赖签名和审计归档冷热分层；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版，审计完整性证明已在后续 `DONE-20260523-090` 落地首版。
 - 文件：
   - `infra/db/migrations/0001_core.sql`
   - `services/api-go/internal/platform/store.go`
@@ -1783,6 +1783,224 @@
   - `PROJECT_STATUS.md`
   - `EXECUTION_LEDGER.md`
 
+### DONE-20260523-087 管理端审计检索页首版
+
+- 日期：2026-05-23
+- 结果：Admin Web 新增“审计检索”P0 模块，从“接口操作台查 JSON”推进到可扫读的审计中心首版。页面可按 `actor_type`、`actor_id`、`action`、`target_type`、`target_id`、`before` 和 `limit` 查询 `/api/admin/audit-logs`，支持 before 游标翻页；新增 `adminAudit` 适配层，按白名单生成 payload 摘要，并对 password、secret、token、authorization、openid、session、credential、phone、object key、签名等敏感字段做脱敏详情展示。RBAC 草案新增 `security_auditor` 安全审计员角色；架构守卫已锁定审计检索、脱敏适配和筛选参数，防止回退到裸 JSON 操作台。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+- 当前边界：这是 Admin Web 审计检索首版，仍不是完整商业审计中心。全域服务端细分 RBAC、关键业务写操作与审计写入同事务强制提交、审计导出/留存、异常告警、KMS/链式不可抵赖签名和冷热归档仍待推进；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版，审计完整性证明已在后续 `DONE-20260523-090` 落地首版。
+- 文件：
+  - `apps/admin-web/src/adminAudit.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/config.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260523-088 管理端审计中心增强首版
+
+- 日期：2026-05-23
+- 结果：审计中心从“可查首版”继续补到可运营追查首版。`GET /api/admin/audit-logs` 新增 `after` 时间下界，内存 Store 与 PostgreSQL 查询统一按 `created_at >= after` 过滤，`before` 保持严格小于游标；Admin Web 审计检索页支持 actor/action/target/after/before/limit 筛选、保存常用筛选、before 游标翻页、详情抽屉、按当前目标继续筛选和跨模块跳转；目标映射已覆盖订单、售后、商户、骑手、outbox、对象清理和退款策略等已落地运营模块。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `npm run verify:architecture`
+  - `npm run verify`
+- 当前边界：审计中心仍未达到完整商业审计闭环。全域服务端细分 RBAC、关键业务写操作与审计写入同事务强制提交、审计导出/留存、异常告警、KMS/链式不可抵赖签名和冷热归档仍待推进；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版，审计完整性证明已在后续 `DONE-20260523-090` 落地首版。
+- 文件：
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/postgres_store_test.go`
+  - `apps/admin-web/src/adminAudit.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260523-089 管理端审计服务端安全边界首版
+
+- 日期：2026-05-23
+- 结果：把管理端审计从“前端可脱敏展示”推进到服务端可信边界首版。`api-go` 新增 `RoleSecurityAuditor = "security_auditor"` 和 `Principal.CanReadAuditLogs()`，`GET /api/admin/audit-logs` 允许管理员与安全审计员读取，商户邀请、订单状态补偿等后台写操作仍要求管理员；`auth_identities`、`auth_sessions` 迁移和运行时建表已允许 `security_auditor` 主体类型，避免生产会话落库失败。审计 payload 白名单与敏感字段掩码已下沉到 Store/PostgreSQL 路径，`RecordAuditLog`、SQL 写入、SQL 读取和 SQL 镜像恢复都会调用统一 `sanitizeAuditPayload`，保留 `default_refund_strategy`、`amount_fen` 等允许字段，掩码 `object_key` 等敏感允许字段，并丢弃 `password`、`token`、`phone`、`nested`、`raw_request` 等非白名单或敏感字段。
+- 验收证据：
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `npm run verify:architecture`
+- 当前边界：这是审计服务端只读角色和 payload 安全边界首版，不是完整商业审计闭环。关键业务写操作与审计写入仍需推进到同一业务事务强制提交；全域服务端 RBAC 策略矩阵、审计导出/留存、异常告警、KMS/链式不可抵赖签名、冷热归档和策略治理仍待补齐；审计完整性证明已在后续 `DONE-20260523-090` 落地首版。
+- 文件：
+  - `services/api-go/internal/httpapi/auth.go`
+  - `services/api-go/internal/httpapi/auth_session.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/postgres_store_test.go`
+  - `infra/db/migrations/0001_core.sql`
+  - `infra/db/migrations/0002_auth_payment.sql`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260523-090 管理端审计完整性证明首版
+
+- 日期：2026-05-23
+- 结果：把管理端审计账本从“可查、可脱敏、可只读授权”推进到可检测篡改的完整性证明首版。`AuditLog` 新增 `integrity_algorithm`、`integrity_hash`、`integrity_verified`；`audit_logs` 表新增 `integrity_algorithm` 与 `integrity_hash` 并兼容运行时补列。内存 Store 与 PostgreSQL 写入会对审计 ID、actor、action、target、request_id、ip_hash、服务端白名单 payload 和微秒精度 `created_at` 生成稳定证明；payload 内 `time.Time` 会规范为 UTC 字符串，避免 JSONB 读回类型漂移导致误报。无密钥环境默认 `sha256:v1`，生产配置 `AUDIT_LOG_SIGNING_SECRET` 后使用 `hmac-sha256:v1`；查询时重新验证并返回 `integrity_verified`，可发现数据库中审计字段或白名单 payload 被篡改。旧快照或旧 SQL 行缺少完整性字段时，只有业务字段完全一致才会回填证明；Admin Web 审计中心已展示完整性状态、算法和哈希。
+- 验收证据：
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - `npm run verify`
+- 当前边界：这是审计完整性证明首版，不是法律级不可抵赖归档。关键业务写操作与审计写入仍需推进到同一业务事务强制提交；全域服务端 RBAC、导出/留存、异常告警、KMS/Vault 密钥轮换、链式账本、WORM/冷归档和策略治理仍待补齐。
+- 文件：
+  - `services/api-go/cmd/api/main.go`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/postgres_store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `infra/db/migrations/0001_core.sql`
+  - `apps/admin-web/src/adminAudit.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260523-091 退款策略配置与审计同事务首版
+
+- 日期：2026-05-23
+- 结果：把 `PUT /api/admin/refund-settings` 从 HTTP 层“先保存退款策略、再单独补审计”迁移到仓储级原子路径。`Repository` 新增 `SaveRefundSettingsWithAudit`；内存 Store 在同一把业务锁内更新退款策略并写入 `admin.refund_settings.updated` 审计；PostgreSQL-backed Store 在同一个数据库事务内写入 `refund_settings` 与 `audit_logs`，审计 ID 继续走 `platform_sequences` 行级锁，提交后刷新内存镜像。退款策略审计 payload 由服务端重新生成，只保留规范化后的 `default_refund_strategy`，即便调用方传入其他白名单字段也不会混入该动作的审计。
+- 验收证据：
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `node --test scripts/check-architecture.mjs`
+  - 本轮收尾继续跑 `npm run test --workspace @infinitech/admin-web`、`npm run verify:architecture`、`npm run verify` 和 `git diff --check`
+- 当前边界：这是首个关键配置写路径的业务写入与审计写入同事务提交，不代表所有后台写操作都已完成原子审计；后续 `DONE-20260523-092` 已继续迁移管理端订单退款，`DONE-20260523-093` 已继续迁移售后审核，`DONE-20260523-094` 已继续迁移订单状态补偿。对象清理完成/失败、outbox 领取/续租/发布/失败/重放/批量重放、商户/骑手邀约等写路径仍需继续迁移到同一业务事务强制提交；审计导出/留存、异常告警、KMS/Vault 密钥轮换、链式账本、WORM/冷归档和策略治理仍待补齐。
+- 文件：
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260523-092 管理端订单退款与审计同事务首版
+
+- 日期：2026-05-23
+- 结果：把 `POST /api/orders/{orderID}/refund` 从 HTTP 层“先执行退款、再单独补审计”迁移到仓储级 `RefundOrderWithAudit` 原子路径。内存 Store 在同一把业务锁内执行退款与写入 `admin.order.refunded` 审计；PostgreSQL-backed Store 在同一个数据库事务内写入退款交易、钱包退款流水、订单状态/事件和 `audit_logs`，审计 ID 继续走 `platform_sequences` 行级锁。退款审计 payload 由服务端根据最终退款交易重新生成，只保留 `refund_id`、`destination`、`status`、`amount_fen`、`idempotency_key`。
+- 验收证据：
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `node --test scripts/check-architecture.mjs`
+  - 本轮收尾继续跑 `npm run test --workspace @infinitech/admin-web`、`npm run verify:architecture`、`npm run verify` 和 `git diff --check`
+- 当前边界：这是第二条后台写路径的业务写入与审计写入同事务提交，不代表所有后台写操作都已完成原子审计；后续 `DONE-20260523-093` 已继续迁移售后审核，`DONE-20260523-094` 已继续迁移订单状态补偿。对象清理完成/失败、outbox 领取/续租/发布/失败/重放/批量重放、商户/骑手邀约等仍需继续迁移。
+- 文件：
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+	  - `apps/admin-web/README.md`
+	  - `EXECUTION_LEDGER.md`
+
+### DONE-20260523-093 售后审核与审计同事务首版
+
+- 日期：2026-05-23
+- 结果：把 `POST /api/after-sales/{requestID}/review` 从 HTTP 层“先审核售后、再单独补审计”迁移到仓储级 `ReviewAfterSalesWithAudit` 原子路径。内存 Store 在同一把业务锁内完成售后审核、必要退款、订单事件和 `after_sales.reviewed` 审计；PostgreSQL-backed Store 在同一个数据库事务内锁定售后申请与订单，写入售后审核结果、售后事件、订单事件、必要退款交易/钱包退款流水/订单退款状态和 `audit_logs`，审计 ID 继续走 `platform_sequences` 行级锁。售后审核审计 payload 由服务端根据最终审核结果和退款交易重新生成，只保留 `decision`、`status`、`refund_id`、`amount_fen`、`destination`、`idempotency_key`。
+- 验收证据：
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `node --test scripts/check-architecture.mjs`
+  - 本轮收尾继续跑 `npm run test --workspace @infinitech/admin-web`、`npm run verify:architecture`、`npm run verify`、`cd services/api-go && go test ./...` 和 `git diff --check`
+- 当前边界：这是第三条后台写路径的业务写入与审计写入同事务提交，不代表所有后台写操作都已完成原子审计；后续 `DONE-20260523-094` 已继续迁移订单状态补偿。对象清理完成/失败、outbox 领取/续租/发布/失败/重放/批量重放、商户/骑手邀约等仍需继续迁移。
+- 文件：
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260523-094 订单状态补偿与审计同事务首版
+
+- 日期：2026-05-23
+- 结果：把 `POST /api/admin/orders/{orderID}/state/compensate` 从 HTTP 层“先补偿订单状态、再单独补审计”迁移到仓储级 `CompensateOrderStateWithAudit` 原子路径。内存 Store 复用同一把业务锁完成订单状态/骑手/支付方式漂移修复并写入 `admin.order_state.compensated` 审计；PostgreSQL-backed Store 在同一个数据库事务内锁定订单、读取订单事件/钱包流水/支付交易/派单事件，复用状态补偿计划逻辑更新 `orders`、写入 `order_events` 和 `audit_logs`，审计 ID 继续走 `platform_sequences` 行级锁。订单状态补偿审计 payload 由服务端根据最终补偿结果重新生成，只保留 `changed`、`previous_status`、`expected_status`、`compensation_type`、`evidence_count` 和必要 rider 字段，调用方伪造 payload 不会混入审计。
+- 验收证据：
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `node --test scripts/check-architecture.mjs`
+  - 本轮收尾继续跑 `npm run test --workspace @infinitech/admin-web`、`npm run verify:architecture`、`cd services/api-go && go test ./...`、`npm run verify` 和 `git diff --check`
+- 当前边界：这是第四条后台写路径的业务写入与审计写入同事务提交，不代表所有后台写操作都已完成原子审计。对象清理完成/失败、outbox 领取/续租/发布/失败/重放/批量重放、商户/骑手邀约等仍需继续迁移。
+- 文件：
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `PLATFORM_MASTER_PLAN.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
 ## 进行中
 
 ### TASK-USER-MP-001 用户端原生微信小程序
@@ -1802,8 +2020,9 @@
 
 - 状态：进行中
 - 目标：建立 Go 核心业务 API。
-- 已完成：微信登录签名 token、真实微信 `code2session` provider resolver、auth session 持久化与 logout 撤销、生产默认关闭开发 token、商户邀约/资质、商户员工健康证、商户补充资料、商户主体登录、管理员 bootstrap 登录、骑手/站长邀约注册、骑手/站长主体登录、商户资料、商户订单列表、商户接单/出餐状态机、商户商品管理、商户/骑手保证金、店铺接单门槛、团购下单发券与扫码核销、骑手在线状态、10 分钟后自动派单、拒单顺延派单、派单确认超时自动转派、订单状态机补偿首版、管理端运营快照聚合首版、管理端操作审计日志首版、审计日志 PostgreSQL `audit_logs` 规范化表首版、平台 outbox 事件首版、outbox relay worker 首版、outbox relay 可运行化与部署骨架、outbox 积压观测首版、outbox 手动恢复/重放首版、outbox 批量恢复/重放首版、outbox 死信隔离首版、outbox relay 租约领取首版、outbox relay 租约续租首版、PostgreSQL outbox 规范化 relay 路径首版、outbox 租约健康观测首版、消费端幂等落库首版、支付/钱包 PostgreSQL 规范化恢复首版、订单创建 PostgreSQL 事务化首版、购物车结算 PostgreSQL 事务化首版、余额支付 PostgreSQL 事务扣减首版、退款策略与余额退款核心闭环首版、payment-worker 原路退款事件规范化首版、退款 PostgreSQL 事务化首版、售后申请与审核核心闭环首版、售后 PostgreSQL 规范化恢复首版、售后审核 PostgreSQL 事务化首版、售后部分退款资金账本首版、售后仲裁与客服介入处理日志首版、售后可退金额与证据上传票据首版、售后证据确认与附件元数据首版、对象存储上传签名配置化首版、售后上传票据账本与确认防伪首版、售后对象存在性 HEAD 校验开关首版、售后上传回调验签与扫描门禁首版、对象扫描 worker 首版、对象扫描 worker ClamAV 适配与下载首版、对象生命周期清理 worker 首版、对象清理失败账本首版、对象清理统计接口首版、派单审计事件 PostgreSQL 规范化恢复首版、商家订单流转 PostgreSQL 事务化首版、骑手取货/送达完成、固定单量完成后免责拒派决策、站长站点骑手/订单视图、站长手动派单、站长任务时长/固定单量配置、站点骑手绩效等级快照、派单事件持久化与查询审计、站点区域匹配首版、店铺、商品、地址、购物车、结算订单、订单列表、订单详情、余额支付、余额支付密码、微信支付预下单/回调验签、骑手抢单、每日一次免责取消的领域实现和 HTTP 接口；用户/商户/骑手/站长/管理员角色鉴权骨架；核心 PostgreSQL 迁移；Repository 边界；PostgreSQL-backed Store 快照持久化第一阶段。
-- 下一步：补真实 Kafka/NATS broker 运维和 relay 积压恢复；继续推进微信原路退款 API 调用、售后对象存储真实签名/回调和提现/结算资金链路。
+- 已完成：微信登录签名 token、真实微信 `code2session` provider resolver、auth session 持久化与 logout 撤销、生产默认关闭开发 token、商户邀约/资质、商户员工健康证、商户补充资料、商户主体登录、管理员 bootstrap 登录、骑手/站长邀约注册、骑手/站长主体登录、商户资料、商户订单列表、商户接单/出餐状态机、商户商品管理、商户/骑手保证金、店铺接单门槛、团购下单发券与扫码核销、骑手在线状态、10 分钟后自动派单、拒单顺延派单、派单确认超时自动转派、订单状态机补偿首版、管理端运营快照聚合首版、管理端操作审计日志首版、审计日志 PostgreSQL `audit_logs` 规范化表首版、管理端审计服务端安全边界首版、管理端审计完整性证明首版、平台 outbox 事件首版、outbox relay worker 首版、outbox relay 可运行化与部署骨架、outbox 积压观测首版、outbox 手动恢复/重放首版、outbox 批量恢复/重放首版、outbox 死信隔离首版、outbox relay 租约领取首版、outbox relay 租约续租首版、PostgreSQL outbox 规范化 relay 路径首版、outbox 租约健康观测首版、消费端幂等落库首版、支付/钱包 PostgreSQL 规范化恢复首版、订单创建 PostgreSQL 事务化首版、购物车结算 PostgreSQL 事务化首版、余额支付 PostgreSQL 事务扣减首版、退款策略与余额退款核心闭环首版、payment-worker 原路退款事件规范化首版、退款 PostgreSQL 事务化首版、售后申请与审核核心闭环首版、售后 PostgreSQL 规范化恢复首版、售后审核 PostgreSQL 事务化首版、售后部分退款资金账本首版、售后仲裁与客服介入处理日志首版、售后可退金额与证据上传票据首版、售后证据确认与附件元数据首版、对象存储上传签名配置化首版、售后上传票据账本与确认防伪首版、售后对象存在性 HEAD 校验开关首版、售后上传回调验签与扫描门禁首版、对象扫描 worker 首版、对象扫描 worker ClamAV 适配与下载首版、对象生命周期清理 worker 首版、对象清理失败账本首版、对象清理统计接口首版、派单审计事件 PostgreSQL 规范化恢复首版、商家订单流转 PostgreSQL 事务化首版、骑手取货/送达完成、固定单量完成后免责拒派决策、站长站点骑手/订单视图、站长手动派单、站长任务时长/固定单量配置、站点骑手绩效等级快照、派单事件持久化与查询审计、站点区域匹配首版、店铺、商品、地址、购物车、结算订单、订单列表、订单详情、余额支付、余额支付密码、微信支付预下单/回调验签、骑手抢单、每日一次免责取消的领域实现和 HTTP 接口；用户/商户/骑手/站长/管理员/安全审计员角色鉴权骨架；核心 PostgreSQL 迁移；Repository 边界；PostgreSQL-backed Store 快照持久化第一阶段。
+- 补充进展：`DONE-20260523-091` 已完成退款策略配置与 `admin.refund_settings.updated` 审计同事务首版；`DONE-20260523-092` 已完成管理端订单退款与 `admin.order.refunded` 审计同事务首版；`DONE-20260523-093` 已完成售后审核与 `after_sales.reviewed` 审计同事务首版；`DONE-20260523-094` 已完成订单状态补偿与 `admin.order_state.compensated` 审计同事务首版，PostgreSQL-backed Store 均在同一数据库事务内写入业务表与 `audit_logs`。
+- 下一步：继续把对象清理、outbox 运维和商户/骑手邀约等剩余后台写路径迁移到业务写入与审计写入同事务强制提交；补真实 Kafka/NATS broker 运维和 relay 积压恢复；继续推进微信原路退款 API 调用、售后对象存储真实签名/回调和提现/结算资金链路。
 - 范围：认证、用户、商户、骑手、店铺、商品、订单、团购、买药、跑腿、钱包、支付、消息、客服、RTC、邀请、配置。
 - 验收：
   - 单元测试和 API contract 测试通过。
@@ -1860,8 +2079,9 @@
 
 - 状态：进行中
 - 目标：完成桌面管理端。
-- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、运营快照、操作审计、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 草案；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、退款策略等 P0 业务视图首版；P0 KPI、队列和表格已可由运营快照生成，并对展示字段做 HTML 转义。
-- 下一步：补订单详情、商户资质审核详情、骑手/站长管理详情、售后审核详情、分页筛选、审计检索页、敏感字段脱敏和首页卡片/优惠券/圈子饭搭配置页。
+- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、运营快照、操作审计、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 草案；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、审计检索、退款策略等 P0 业务视图首版；P0 KPI、队列和表格已可由运营快照生成，并对展示字段做 HTML 转义；审计中心已支持 actor/action/target/after/before/limit 筛选、before 游标翻页、保存筛选、详情抽屉、跨模块跳转、脱敏 payload 摘要和完整性状态展示；后端已支持 `security_auditor` 只读审计角色、审计 payload 服务端白名单/敏感字段掩码和审计完整性证明首版。
+- 补充进展：退款策略保存、管理端订单退款、售后审核和订单状态补偿后端已改为同事务写入业务结果与审计，Admin Web 审计检索可继续查看完整性状态和服务端规范化 payload。
+- 下一步：补订单详情、商户资质审核详情、骑手/站长管理详情、售后审核详情、业务分页筛选、全域服务端细分 RBAC、对象清理/outbox/邀约等剩余写路径同事务审计、审计导出/留存/告警、KMS/链式不可抵赖签名和首页卡片/优惠券/圈子饭搭配置页。
 - 范围：订单、售后、用户、商户、骑手绩效等级、商品、精选商品、首页卡片、首页活动、优惠券、圈子/饭搭、团购、买药、跑腿、支付中心、钱包、提现、退款策略、积分会员、通知推送、评价、风控、数据备份恢复、派单规则、骑手计价、群聊红包、客服、RTC、电话联系审计、OAuth/API 管理、系统日志。
 - 验收：
   - 桌面浏览器可完成运营配置和订单处理。

@@ -23,7 +23,7 @@ CREATE TABLE app_users (
 
 CREATE TABLE auth_identities (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'merchant', 'rider', 'station_manager', 'admin')),
+  subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'merchant', 'rider', 'station_manager', 'admin', 'security_auditor')),
   subject_id TEXT NOT NULL,
   provider TEXT NOT NULL,
   provider_open_id TEXT NOT NULL,
@@ -356,6 +356,8 @@ CREATE TABLE audit_logs (
   request_id TEXT NOT NULL DEFAULT '',
   ip_hash TEXT NOT NULL DEFAULT '',
   payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  integrity_algorithm TEXT NOT NULL DEFAULT '',
+  integrity_hash TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

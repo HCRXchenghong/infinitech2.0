@@ -2,7 +2,7 @@ export const ADMIN_WEB_SECTIONS = Object.freeze([
   {
     key: "operate",
     title: "运营中枢",
-    modules: ["dashboard", "orders", "after-sales", "merchants", "riders", "rider-performance", "dispatch"]
+    modules: ["dashboard", "orders", "after-sales", "merchants", "riders", "rider-performance", "dispatch", "audit-logs"]
   },
   {
     key: "finance",
@@ -29,6 +29,7 @@ export const ADMIN_WEB_MODULES = Object.freeze([
   { key: "riders", title: "骑手/站长", status: "wired", priority: "P0", owner: "配送" },
   { key: "rider-performance", title: "骑手绩效", status: "wired", priority: "P1", owner: "配送" },
   { key: "dispatch", title: "派单审计", status: "wired", priority: "P0", owner: "配送" },
+  { key: "audit-logs", title: "审计检索", status: "wired", priority: "P0", owner: "安全" },
   { key: "refund-settings", title: "退款策略", status: "wired", priority: "P0", owner: "财务" },
   { key: "payment", title: "支付中心", status: "planned", priority: "P0", owner: "财务" },
   { key: "wallet", title: "钱包财务", status: "planned", priority: "P0", owner: "财务" },
@@ -74,7 +75,8 @@ export const ADMIN_WEB_RBAC = Object.freeze([
   { role: "ops_admin", name: "运营管理员", scopes: ["orders:read", "after_sales:review", "merchant:review", "home:write"] },
   { role: "finance_admin", name: "财务管理员", scopes: ["refund:write", "wallet:read", "settlement:read"] },
   { role: "dispatch_admin", name: "调度管理员", scopes: ["dispatch:read", "dispatch:manual_assign", "rider:read"] },
-  { role: "support_admin", name: "客服管理员", scopes: ["support:read", "after_sales:event", "rtc:audit"] }
+  { role: "support_admin", name: "客服管理员", scopes: ["support:read", "after_sales:event", "rtc:audit"] },
+  { role: "security_auditor", name: "安全审计员", scopes: ["audit:read", "risk:read", "system_logs:read"] }
 ]);
 
 export function getAdminWebModule(key) {

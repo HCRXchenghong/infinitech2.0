@@ -1,8 +1,10 @@
 package platform
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -84,6 +86,7 @@ type Store struct {
 	outboxEvents            map[string]*OutboxEvent
 	outboxByIdempotency     map[string]string
 	auditLogs               map[string]*AuditLog
+	auditLogSigningSecret   string
 	objectStorage           ObjectStorageConfig
 }
 
@@ -137,6 +140,18 @@ func NewStore(homeModules []HomeModule) *Store {
 		auditLogs:               map[string]*AuditLog{},
 		objectStorage:           DefaultObjectStorageConfig(),
 	}
+}
+
+func (s *Store) ConfigureAuditLogIntegrity(signingSecret string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditLogSigningSecret = strings.TrimSpace(signingSecret)
+}
+
+func (s *Store) auditLogSigningSecretSnapshot() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.auditLogSigningSecret
 }
 
 func (s *Store) LoginWechatMini(req WechatMiniLoginRequest) (*WechatMiniLoginResult, error) {
@@ -1062,27 +1077,91 @@ func (s *Store) OrderByID(orderID string) (*Order, error) {
 }
 
 func (s *Store) CompensateOrderState(req CompensateOrderStateRequest) (*CompensateOrderStateResult, error) {
-	orderID := strings.TrimSpace(req.OrderID)
-	if orderID == "" {
-		return nil, ErrInvalidArgument
-	}
-	now := req.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	now = now.UTC()
-	actorID := strings.TrimSpace(req.ActorID)
-	if actorID == "" {
-		actorID = "system"
+	normalized, err := normalizeCompensateOrderStateRequest(req)
+	if err != nil {
+		return nil, err
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.compensateOrderStateLocked(normalized)
+}
 
-	order := s.orders[orderID]
+func (s *Store) CompensateOrderStateWithAudit(req CompensateOrderStateRequest, audit RecordAuditLogRequest) (*CompensateOrderStateResult, *AuditLog, error) {
+	normalized, err := normalizeCompensateOrderStateRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	if log.Action != "admin.order_state.compensated" || log.TargetType != "order" || log.TargetID != normalized.OrderID {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result, err := s.compensateOrderStateLocked(normalized)
+	if err != nil {
+		return nil, nil, err
+	}
+	log.Payload = orderStateCompensationAuditPayload(result)
+	s.nextAuditLogID++
+	log.ID = fmt.Sprintf("aud_%d", s.nextAuditLogID)
+	sealAuditLogIntegrity(log, s.auditLogSigningSecret)
+	s.auditLogs[log.ID] = log
+	return result, cloneAuditLog(log), nil
+}
+
+func normalizeCompensateOrderStateRequest(req CompensateOrderStateRequest) (CompensateOrderStateRequest, error) {
+	req.OrderID = strings.TrimSpace(req.OrderID)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	if req.OrderID == "" {
+		return req, ErrInvalidArgument
+	}
+	if req.ActorID == "" {
+		req.ActorID = "system"
+	}
+	if req.Now.IsZero() {
+		req.Now = time.Now().UTC()
+	} else {
+		req.Now = req.Now.UTC()
+	}
+	return req, nil
+}
+
+type orderStateCompensationPlan struct {
+	Result        *CompensateOrderStateResult
+	PaymentMethod string
+	Event         OrderEvent
+}
+
+func (s *Store) compensateOrderStateLocked(req CompensateOrderStateRequest) (*CompensateOrderStateResult, error) {
+	order := s.orders[req.OrderID]
 	if order == nil {
 		return nil, ErrNotFound
 	}
+	plan := s.orderStateCompensationPlanLocked(order, req)
+	if !plan.Result.Changed {
+		return plan.Result, nil
+	}
+	if plan.Result.PreviousStatus != plan.Result.ExpectedStatus {
+		order.Status = plan.Result.ExpectedStatus
+	}
+	if plan.Result.PreviousRiderID != plan.Result.ExpectedRiderID {
+		order.RiderID = plan.Result.ExpectedRiderID
+	}
+	if plan.PaymentMethod != "" && strings.TrimSpace(order.PaymentMethod) == "" {
+		order.PaymentMethod = plan.PaymentMethod
+	}
+	order.UpdatedAt = req.Now
+	s.appendOrderEventLocked(order, plan.Event)
+	plan.Result.Order = cloneOrder(order)
+	return plan.Result, nil
+}
+
+func (s *Store) orderStateCompensationPlanLocked(order *Order, req CompensateOrderStateRequest) orderStateCompensationPlan {
 	expectation := s.expectedOrderStateLocked(order)
 	if expectation.Status == "" {
 		expectation.Status = order.Status
@@ -1099,7 +1178,7 @@ func (s *Store) CompensateOrderState(req CompensateOrderStateRequest) (*Compensa
 		result.ExpectedRiderID = order.RiderID
 		result.Evidence = append(result.Evidence, "terminal_status_protected:"+order.Status)
 		result.Order = cloneOrder(order)
-		return result, nil
+		return orderStateCompensationPlan{Result: result}
 	}
 
 	statusChanged := expectation.Status != "" && expectation.Status != order.Status
@@ -1108,29 +1187,41 @@ func (s *Store) CompensateOrderState(req CompensateOrderStateRequest) (*Compensa
 	paymentMethodChanged := expectation.PaymentMethod != "" && strings.TrimSpace(order.PaymentMethod) == ""
 	if !statusChanged && !riderChanged && !paymentMethodChanged {
 		result.Order = cloneOrder(order)
-		return result, nil
+		return orderStateCompensationPlan{Result: result}
 	}
 
-	if statusChanged {
-		order.Status = expectation.Status
-	}
-	if riderChanged {
-		order.RiderID = expectation.RiderID
-	}
-	if paymentMethodChanged {
-		order.PaymentMethod = expectation.PaymentMethod
-	}
-	order.UpdatedAt = now
 	result.Changed = true
 	result.CompensationType = "order_state_replay"
-	s.appendOrderEventLocked(order, OrderEvent{
-		Type:      "order.state.compensated",
-		ActorID:   actorID,
-		Message:   fmt.Sprintf("订单状态机补偿：从 %s 修复为 %s", result.PreviousStatus, expectation.Status),
-		CreatedAt: now,
-	})
-	result.Order = cloneOrder(order)
-	return result, nil
+	return orderStateCompensationPlan{
+		Result:        result,
+		PaymentMethod: expectation.PaymentMethod,
+		Event: OrderEvent{
+			Type:      "order.state.compensated",
+			ActorID:   req.ActorID,
+			Message:   fmt.Sprintf("订单状态机补偿：从 %s 修复为 %s", result.PreviousStatus, expectation.Status),
+			CreatedAt: req.Now,
+		},
+	}
+}
+
+func orderStateCompensationAuditPayload(result *CompensateOrderStateResult) map[string]any {
+	if result == nil {
+		return map[string]any{}
+	}
+	payload := map[string]any{
+		"changed":           result.Changed,
+		"previous_status":   strings.TrimSpace(result.PreviousStatus),
+		"expected_status":   strings.TrimSpace(result.ExpectedStatus),
+		"compensation_type": strings.TrimSpace(result.CompensationType),
+		"evidence_count":    len(result.Evidence),
+	}
+	if strings.TrimSpace(result.PreviousRiderID) != "" {
+		payload["previous_rider_id"] = strings.TrimSpace(result.PreviousRiderID)
+	}
+	if strings.TrimSpace(result.ExpectedRiderID) != "" {
+		payload["expected_rider_id"] = strings.TrimSpace(result.ExpectedRiderID)
+	}
+	return payload
 }
 
 func (s *Store) MerchantOrders(merchantID string) ([]Order, error) {
@@ -1465,6 +1556,27 @@ func (s *Store) SaveRefundSettings(req SaveRefundSettingsRequest) (*RefundSettin
 	return &settings, nil
 }
 
+func (s *Store) SaveRefundSettingsWithAudit(req SaveRefundSettingsRequest, audit RecordAuditLogRequest) (*RefundSettings, *AuditLog, error) {
+	settings := RefundSettings{DefaultStrategy: NormalizeRefundStrategy(req.DefaultStrategy)}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	if log.Action != "admin.refund_settings.updated" || log.TargetType != "refund_settings" || log.TargetID != "default" {
+		return nil, nil, ErrInvalidArgument
+	}
+	log.Payload = map[string]any{"default_refund_strategy": settings.DefaultStrategy}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refundSettings = settings
+	s.nextAuditLogID++
+	log.ID = fmt.Sprintf("aud_%d", s.nextAuditLogID)
+	sealAuditLogIntegrity(log, s.auditLogSigningSecret)
+	s.auditLogs[log.ID] = log
+	return &settings, cloneAuditLog(log), nil
+}
+
 func (s *Store) RefundOrder(req RefundOrderRequest) (*RefundTransaction, *Order, *WalletAccount, error) {
 	req.OrderID = strings.TrimSpace(req.OrderID)
 	req.UserID = strings.TrimSpace(req.UserID)
@@ -1477,6 +1589,49 @@ func (s *Store) RefundOrder(req RefundOrderRequest) (*RefundTransaction, *Order,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.refundOrderLocked(req)
+}
+
+func (s *Store) RefundOrderWithAudit(req RefundOrderRequest, audit RecordAuditLogRequest) (*RefundTransaction, *Order, *WalletAccount, *AuditLog, error) {
+	req.OrderID = strings.TrimSpace(req.OrderID)
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Reason = strings.TrimSpace(req.Reason)
+	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	if log.Action != "admin.order.refunded" || log.TargetType != "order" || log.TargetID != req.OrderID {
+		return nil, nil, nil, nil, ErrInvalidArgument
+	}
+	if req.OrderID == "" || req.Reason == "" || req.IdempotencyKey == "" {
+		return nil, nil, nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	refund, order, account, err := s.refundOrderLocked(req)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	log.Payload = refundOrderAuditPayload(refund)
+	s.nextAuditLogID++
+	log.ID = fmt.Sprintf("aud_%d", s.nextAuditLogID)
+	sealAuditLogIntegrity(log, s.auditLogSigningSecret)
+	s.auditLogs[log.ID] = log
+	return refund, order, account, cloneAuditLog(log), nil
+}
+
+func refundOrderAuditPayload(refund *RefundTransaction) map[string]any {
+	if refund == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"refund_id":       strings.TrimSpace(refund.ID),
+		"destination":     strings.TrimSpace(refund.Destination),
+		"status":          strings.TrimSpace(refund.Status),
+		"amount_fen":      refund.AmountFen,
+		"idempotency_key": strings.TrimSpace(refund.IdempotencyKey),
+	}
 }
 
 func (s *Store) refundOrderLocked(req RefundOrderRequest) (*RefundTransaction, *Order, *WalletAccount, error) {
@@ -2203,19 +2358,58 @@ func (s *Store) objectStorageCleanupStatsLocked(now time.Time, grace time.Durati
 }
 
 func (s *Store) CompleteObjectStorageCleanup(req ObjectStorageCleanupCompleteRequest) (*AfterSalesEvidenceUploadTicket, error) {
+	normalized, err := normalizeObjectStorageCleanupCompleteRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.completeObjectStorageCleanupLocked(normalized)
+}
+
+func (s *Store) CompleteObjectStorageCleanupWithAudit(req ObjectStorageCleanupCompleteRequest, audit RecordAuditLogRequest) (*AfterSalesEvidenceUploadTicket, *AuditLog, error) {
+	normalized, err := normalizeObjectStorageCleanupCompleteRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	if log.Action != "admin.object_cleanup.completed" || log.TargetType != "object_storage_ticket" || log.TargetID != normalized.TicketID {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket, err := s.completeObjectStorageCleanupLocked(normalized)
+	if err != nil {
+		return nil, nil, err
+	}
+	log.Payload = objectStorageCleanupCompletedAuditPayload(ticket)
+	s.nextAuditLogID++
+	log.ID = fmt.Sprintf("aud_%d", s.nextAuditLogID)
+	sealAuditLogIntegrity(log, s.auditLogSigningSecret)
+	s.auditLogs[log.ID] = log
+	return ticket, cloneAuditLog(log), nil
+}
+
+func normalizeObjectStorageCleanupCompleteRequest(req ObjectStorageCleanupCompleteRequest) (ObjectStorageCleanupCompleteRequest, error) {
 	req.TicketID = strings.TrimSpace(req.TicketID)
 	req.ObjectKey = strings.TrimSpace(req.ObjectKey)
 	req.Reason = normalizeObjectStorageCleanupReason(req.Reason)
 	if req.TicketID == "" || req.ObjectKey == "" || req.Reason == "" {
-		return nil, ErrInvalidArgument
+		return req, ErrInvalidArgument
 	}
 	if req.DeletedAt.IsZero() {
 		req.DeletedAt = time.Now().UTC()
 	} else {
 		req.DeletedAt = req.DeletedAt.UTC()
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	return req, nil
+}
+
+func (s *Store) completeObjectStorageCleanupLocked(req ObjectStorageCleanupCompleteRequest) (*AfterSalesEvidenceUploadTicket, error) {
 	ticket := s.afterSalesUploadTickets[req.TicketID]
 	if ticket == nil || ticket.ObjectKey != req.ObjectKey {
 		return nil, ErrInvalidArgument
@@ -2238,20 +2432,59 @@ func (s *Store) CompleteObjectStorageCleanup(req ObjectStorageCleanupCompleteReq
 }
 
 func (s *Store) RecordObjectStorageCleanupFailure(req ObjectStorageCleanupFailureRequest) (*AfterSalesEvidenceUploadTicket, error) {
+	normalized, err := normalizeObjectStorageCleanupFailureRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.recordObjectStorageCleanupFailureLocked(normalized)
+}
+
+func (s *Store) RecordObjectStorageCleanupFailureWithAudit(req ObjectStorageCleanupFailureRequest, audit RecordAuditLogRequest) (*AfterSalesEvidenceUploadTicket, *AuditLog, error) {
+	normalized, err := normalizeObjectStorageCleanupFailureRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	if log.Action != "admin.object_cleanup.failed" || log.TargetType != "object_storage_ticket" || log.TargetID != normalized.TicketID {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket, err := s.recordObjectStorageCleanupFailureLocked(normalized)
+	if err != nil {
+		return nil, nil, err
+	}
+	log.Payload = objectStorageCleanupFailedAuditPayload(ticket)
+	s.nextAuditLogID++
+	log.ID = fmt.Sprintf("aud_%d", s.nextAuditLogID)
+	sealAuditLogIntegrity(log, s.auditLogSigningSecret)
+	s.auditLogs[log.ID] = log
+	return ticket, cloneAuditLog(log), nil
+}
+
+func normalizeObjectStorageCleanupFailureRequest(req ObjectStorageCleanupFailureRequest) (ObjectStorageCleanupFailureRequest, error) {
 	req.TicketID = strings.TrimSpace(req.TicketID)
 	req.ObjectKey = strings.TrimSpace(req.ObjectKey)
 	req.Reason = normalizeObjectStorageCleanupReason(req.Reason)
 	req.Error = sanitizeObjectStorageCleanupError(req.Error)
 	if req.TicketID == "" || req.ObjectKey == "" || req.Reason == "" || req.Error == "" {
-		return nil, ErrInvalidArgument
+		return req, ErrInvalidArgument
 	}
 	if req.FailedAt.IsZero() {
 		req.FailedAt = time.Now().UTC()
 	} else {
 		req.FailedAt = req.FailedAt.UTC()
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	return req, nil
+}
+
+func (s *Store) recordObjectStorageCleanupFailureLocked(req ObjectStorageCleanupFailureRequest) (*AfterSalesEvidenceUploadTicket, error) {
 	ticket := s.afterSalesUploadTickets[req.TicketID]
 	if ticket == nil || ticket.ObjectKey != req.ObjectKey {
 		return nil, ErrInvalidArgument
@@ -2267,6 +2500,29 @@ func (s *Store) RecordObjectStorageCleanupFailure(req ObjectStorageCleanupFailur
 	ticket.LastCleanupError = req.Error
 	ticket.LastCleanupFailedAt = req.FailedAt
 	return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+}
+
+func objectStorageCleanupCompletedAuditPayload(ticket *AfterSalesEvidenceUploadTicket) map[string]any {
+	if ticket == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"object_key": strings.TrimSpace(ticket.ObjectKey),
+		"reason":     strings.TrimSpace(ticket.CleanupReason),
+		"status":     strings.TrimSpace(ticket.Status),
+	}
+}
+
+func objectStorageCleanupFailedAuditPayload(ticket *AfterSalesEvidenceUploadTicket) map[string]any {
+	if ticket == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"object_key":       strings.TrimSpace(ticket.ObjectKey),
+		"reason":           strings.TrimSpace(ticket.CleanupReason),
+		"status":           strings.TrimSpace(ticket.Status),
+		"cleanup_attempts": ticket.CleanupAttempts,
+	}
 }
 
 func (s *Store) ConfirmAfterSalesEvidenceUpload(req ConfirmAfterSalesEvidenceUploadRequest) (*AfterSalesEvidence, *AfterSalesEvent, *AfterSalesRequest, error) {
@@ -2506,7 +2762,42 @@ func (s *Store) ReviewAfterSales(req ReviewAfterSalesRequest) (*AfterSalesReques
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.reviewAfterSalesLocked(req)
+}
 
+func (s *Store) ReviewAfterSalesWithAudit(req ReviewAfterSalesRequest, audit RecordAuditLogRequest) (*AfterSalesRequest, *RefundTransaction, *Order, *WalletAccount, *AuditLog, error) {
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.Decision = strings.TrimSpace(req.Decision)
+	req.Reason = strings.TrimSpace(req.Reason)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.ActorRole = strings.TrimSpace(req.ActorRole)
+	req.RefundIdempotencyKey = strings.TrimSpace(req.RefundIdempotencyKey)
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	if log.Action != "after_sales.reviewed" || log.TargetType != "after_sales" || log.TargetID != req.RequestID {
+		return nil, nil, nil, nil, nil, ErrInvalidArgument
+	}
+	if req.RequestID == "" || req.Decision == "" || req.ActorID == "" || req.ActorRole == "" {
+		return nil, nil, nil, nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	request, refund, order, account, err := s.reviewAfterSalesLocked(req)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	log.Payload = afterSalesReviewAuditPayload(req, request, refund)
+	s.nextAuditLogID++
+	log.ID = fmt.Sprintf("aud_%d", s.nextAuditLogID)
+	sealAuditLogIntegrity(log, s.auditLogSigningSecret)
+	s.auditLogs[log.ID] = log
+	return request, refund, order, account, cloneAuditLog(log), nil
+}
+
+func (s *Store) reviewAfterSalesLocked(req ReviewAfterSalesRequest) (*AfterSalesRequest, *RefundTransaction, *Order, *WalletAccount, error) {
 	request := s.afterSalesRequests[req.RequestID]
 	if request == nil {
 		return nil, nil, nil, nil, ErrNotFound
@@ -2602,6 +2893,25 @@ func (s *Store) ReviewAfterSales(req ReviewAfterSalesRequest) (*AfterSalesReques
 	default:
 		return nil, nil, nil, nil, ErrInvalidArgument
 	}
+}
+
+func afterSalesReviewAuditPayload(req ReviewAfterSalesRequest, request *AfterSalesRequest, refund *RefundTransaction) map[string]any {
+	payload := map[string]any{"decision": strings.TrimSpace(req.Decision)}
+	if request != nil {
+		payload["status"] = strings.TrimSpace(request.Status)
+		if strings.TrimSpace(request.RefundID) != "" {
+			payload["refund_id"] = strings.TrimSpace(request.RefundID)
+		}
+	}
+	if refund != nil {
+		if strings.TrimSpace(refund.ID) != "" {
+			payload["refund_id"] = strings.TrimSpace(refund.ID)
+		}
+		payload["amount_fen"] = refund.AmountFen
+		payload["destination"] = strings.TrimSpace(refund.Destination)
+		payload["idempotency_key"] = strings.TrimSpace(refund.IdempotencyKey)
+	}
+	return payload
 }
 
 func (s *Store) DepositAccount(subjectType string, subjectID string) (*DepositAccount, error) {
@@ -3181,9 +3491,9 @@ func (s *Store) RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error) {
 	}
 	now := req.CreatedAt
 	if now.IsZero() {
-		now = time.Now().UTC()
+		now = normalizeAuditLogTime(time.Now())
 	}
-	now = now.UTC()
+	now = normalizeAuditLogTime(now)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -3197,9 +3507,10 @@ func (s *Store) RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error) {
 		TargetID:   targetID,
 		RequestID:  strings.TrimSpace(req.RequestID),
 		IPHash:     strings.TrimSpace(req.IPHash),
-		Payload:    cloneMapAny(req.Payload),
+		Payload:    sanitizeAuditPayload(req.Payload),
 		CreatedAt:  now,
 	}
+	sealAuditLogIntegrity(log, s.auditLogSigningSecret)
 	s.auditLogs[log.ID] = log
 	return cloneAuditLog(log), nil
 }
@@ -3215,7 +3526,9 @@ func (s *Store) AuditLogs(req AuditLogsRequest) ([]AuditLog, error) {
 		if !auditLogMatchesRequest(log, req) {
 			continue
 		}
-		logs = append(logs, *cloneAuditLog(log))
+		output := cloneAuditLog(log)
+		output.IntegrityVerified = verifyAuditLogIntegrity(*output, s.auditLogSigningSecret)
+		logs = append(logs, *output)
 	}
 	sort.SliceStable(logs, func(i, j int) bool {
 		if !logs[i].CreatedAt.Equal(logs[j].CreatedAt) {
@@ -3235,6 +3548,9 @@ func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 	req.Action = strings.TrimSpace(req.Action)
 	req.TargetType = strings.TrimSpace(req.TargetType)
 	req.TargetID = strings.TrimSpace(req.TargetID)
+	if !req.After.IsZero() {
+		req.After = req.After.UTC()
+	}
 	if !req.Before.IsZero() {
 		req.Before = req.Before.UTC()
 	}
@@ -3245,6 +3561,196 @@ func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 		req.Limit = 500
 	}
 	return req
+}
+
+var auditPayloadAllowlist = map[string]struct{}{
+	"amount_fen":              {},
+	"attempts":                {},
+	"changed":                 {},
+	"cleanup_attempts":        {},
+	"compensation_type":       {},
+	"decision":                {},
+	"default_refund_strategy": {},
+	"destination":             {},
+	"evidence_count":          {},
+	"expected_rider_id":       {},
+	"expected_status":         {},
+	"expires_at":              {},
+	"idempotency_key":         {},
+	"lease_owner":             {},
+	"lease_seconds":           {},
+	"limit":                   {},
+	"object_key":              {},
+	"previous_rider_id":       {},
+	"previous_status":         {},
+	"reason":                  {},
+	"refund_id":               {},
+	"replayed":                {},
+	"retry_after_seconds":     {},
+	"station_id":              {},
+	"status":                  {},
+	"topic":                   {},
+	"type":                    {},
+}
+
+func sanitizeAuditPayload(input map[string]any) map[string]any {
+	output := map[string]any{}
+	for key, value := range input {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, ok := auditPayloadAllowlist[key]; !ok {
+			continue
+		}
+		output[key] = sanitizeAuditValue(key, value)
+	}
+	return output
+}
+
+func sanitizeAuditValue(key string, value any) any {
+	if auditPayloadKeyLooksSensitive(key) {
+		return maskAuditScalar(value)
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case time.Time:
+		return normalizeAuditLogTime(typed).Format(time.RFC3339Nano)
+	default:
+		return cloneAny(value)
+	}
+}
+
+func auditPayloadKeyLooksSensitive(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	for _, part := range []string{"password", "secret", "token", "authorization", "openid", "session", "credential", "certificate", "phone", "mobile", "email", "id_card", "identity", "file_url", "object_key", "signature", "pay_sign", "nonce"} {
+		if strings.Contains(normalized, part) {
+			return true
+		}
+	}
+	return false
+}
+
+func maskAuditScalar(value any) string {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" {
+		return ""
+	}
+	if len(text) <= 6 {
+		return "***"
+	}
+	return text[:3] + "***" + text[len(text)-2:]
+}
+
+const (
+	auditIntegrityAlgorithmSHA256     = "sha256:v1"
+	auditIntegrityAlgorithmHMACSHA256 = "hmac-sha256:v1"
+)
+
+type auditLogIntegrityCanonicalPayload struct {
+	ID         string         `json:"id"`
+	ActorType  string         `json:"actor_type"`
+	ActorID    string         `json:"actor_id"`
+	Action     string         `json:"action"`
+	TargetType string         `json:"target_type"`
+	TargetID   string         `json:"target_id"`
+	RequestID  string         `json:"request_id"`
+	IPHash     string         `json:"ip_hash"`
+	Payload    map[string]any `json:"payload"`
+	CreatedAt  string         `json:"created_at"`
+}
+
+func sealAuditLogIntegrity(log *AuditLog, signingSecret string) {
+	if log == nil {
+		return
+	}
+	log.Payload = sanitizeAuditPayload(log.Payload)
+	if log.CreatedAt.IsZero() {
+		log.CreatedAt = normalizeAuditLogTime(time.Now())
+	} else {
+		log.CreatedAt = normalizeAuditLogTime(log.CreatedAt)
+	}
+	algorithm := auditIntegrityAlgorithmSHA256
+	if strings.TrimSpace(signingSecret) != "" {
+		algorithm = auditIntegrityAlgorithmHMACSHA256
+	}
+	hash, ok := computeAuditLogIntegrityHash(*log, algorithm, signingSecret)
+	if !ok {
+		log.IntegrityAlgorithm = ""
+		log.IntegrityHash = ""
+		log.IntegrityVerified = false
+		return
+	}
+	log.IntegrityAlgorithm = algorithm
+	log.IntegrityHash = hash
+	log.IntegrityVerified = true
+}
+
+func ensureAuditLogIntegrity(log *AuditLog, signingSecret string) {
+	if log == nil {
+		return
+	}
+	log.Payload = sanitizeAuditPayload(log.Payload)
+	if !log.CreatedAt.IsZero() {
+		log.CreatedAt = normalizeAuditLogTime(log.CreatedAt)
+	}
+	if strings.TrimSpace(log.IntegrityAlgorithm) == "" || strings.TrimSpace(log.IntegrityHash) == "" {
+		sealAuditLogIntegrity(log, signingSecret)
+		return
+	}
+	log.IntegrityVerified = verifyAuditLogIntegrity(*log, signingSecret)
+}
+
+func verifyAuditLogIntegrity(log AuditLog, signingSecret string) bool {
+	algorithm := strings.TrimSpace(log.IntegrityAlgorithm)
+	recordedHash := strings.TrimSpace(log.IntegrityHash)
+	if algorithm == "" || recordedHash == "" {
+		return false
+	}
+	expectedHash, ok := computeAuditLogIntegrityHash(log, algorithm, signingSecret)
+	if !ok {
+		return false
+	}
+	return hmac.Equal([]byte(recordedHash), []byte(expectedHash))
+}
+
+func computeAuditLogIntegrityHash(log AuditLog, algorithm string, signingSecret string) (string, bool) {
+	canonical := auditLogIntegrityCanonicalPayload{
+		ID:         strings.TrimSpace(log.ID),
+		ActorType:  strings.TrimSpace(log.ActorType),
+		ActorID:    strings.TrimSpace(log.ActorID),
+		Action:     strings.TrimSpace(log.Action),
+		TargetType: strings.TrimSpace(log.TargetType),
+		TargetID:   strings.TrimSpace(log.TargetID),
+		RequestID:  strings.TrimSpace(log.RequestID),
+		IPHash:     strings.TrimSpace(log.IPHash),
+		Payload:    sanitizeAuditPayload(log.Payload),
+		CreatedAt:  normalizeAuditLogTime(log.CreatedAt).Format(time.RFC3339Nano),
+	}
+	payload, err := json.Marshal(canonical)
+	if err != nil {
+		return "", false
+	}
+	switch algorithm {
+	case auditIntegrityAlgorithmSHA256:
+		sum := sha256.Sum256(payload)
+		return hex.EncodeToString(sum[:]), true
+	case auditIntegrityAlgorithmHMACSHA256:
+		secret := strings.TrimSpace(signingSecret)
+		if secret == "" {
+			return "", false
+		}
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write(payload)
+		return hex.EncodeToString(mac.Sum(nil)), true
+	default:
+		return "", false
+	}
+}
+
+func normalizeAuditLogTime(value time.Time) time.Time {
+	return value.UTC().Truncate(time.Microsecond)
 }
 
 func auditLogMatchesRequest(log *AuditLog, req AuditLogsRequest) bool {
@@ -3264,6 +3770,9 @@ func auditLogMatchesRequest(log *AuditLog, req AuditLogsRequest) bool {
 		return false
 	}
 	if req.TargetID != "" && log.TargetID != req.TargetID {
+		return false
+	}
+	if !req.After.IsZero() && log.CreatedAt.Before(req.After) {
 		return false
 	}
 	if !req.Before.IsZero() && !log.CreatedAt.Before(req.Before) {

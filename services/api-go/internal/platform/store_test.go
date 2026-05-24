@@ -140,6 +140,126 @@ func TestRefundSettingsAndBalanceRefundFlow(t *testing.T) {
 	}
 }
 
+func TestRefundOrderWithAuditRecordsVerifiedAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("order-refund-audit-secret")
+	order, err := store.CreateOrder(CreateOrderRequest{UserID: "user_atomic_refund", Type: OrderTypeTakeout, AmountFen: 1500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: order.UserID, AmountFen: 1500, IdempotencyKey: "credit_refund_atomic_audit"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(SetWalletPaymentPasswordRequest{UserID: order.UserID, Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, paidOrder, _, err := store.PayOrderWithBalance(BalancePayRequest{UserID: order.UserID, OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_refund_atomic_audit"}); err != nil || paidOrder.Status != StatusDispatching {
+		t.Fatalf("expected paid order setup, order=%+v err=%v", paidOrder, err)
+	}
+	createdAt := time.Date(2026, 5, 23, 11, 0, 0, 123456789, time.UTC)
+
+	refund, refundedOrder, account, audit, err := store.RefundOrderWithAudit(
+		RefundOrderRequest{
+			OrderID:        order.ID,
+			Reason:         "商品售罄",
+			IdempotencyKey: "refund_order_atomic_audit",
+			ActorID:        "admin_1",
+			ActorRole:      "admin",
+		},
+		RecordAuditLogRequest{
+			ActorType:  "admin",
+			ActorID:    "admin_1",
+			Action:     "admin.order.refunded",
+			TargetType: "order",
+			TargetID:   order.ID,
+			RequestID:  "req_order_refund_atomic",
+			IPHash:     "ip_hash",
+			Payload: map[string]any{
+				"amount_fen": int64(1),
+				"token":      "must-not-persist",
+			},
+			CreatedAt: createdAt,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refund.Status != RefundStatusSuccess || refundedOrder.Status != StatusRefunded || account.Balance != 1500 {
+		t.Fatalf("expected successful audited refund, refund=%+v order=%+v account=%+v", refund, refundedOrder, account)
+	}
+	if audit.Action != "admin.order.refunded" || audit.TargetType != "order" || audit.TargetID != order.ID {
+		t.Fatalf("expected order refund audit target, got %+v", audit)
+	}
+	if audit.Payload["refund_id"] != refund.ID || audit.Payload["amount_fen"] != refund.AmountFen || audit.Payload["idempotency_key"] != refund.IdempotencyKey || audit.Payload["token"] != nil {
+		t.Fatalf("expected atomic refund audit payload to be server-generated and sanitized, got %+v", audit.Payload)
+	}
+	if audit.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || audit.IntegrityHash == "" || !audit.IntegrityVerified {
+		t.Fatalf("expected verified HMAC integrity proof, got %+v", audit)
+	}
+	if audit.CreatedAt.Nanosecond() != 123456000 {
+		t.Fatalf("expected audit timestamp normalized to PostgreSQL precision, got %s", audit.CreatedAt.Format(time.RFC3339Nano))
+	}
+
+	logs, err := store.AuditLogs(AuditLogsRequest{Action: "admin.order.refunded", TargetType: "order", TargetID: order.ID, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].ID != audit.ID || logs[0].Payload["refund_id"] != refund.ID || !logs[0].IntegrityVerified {
+		t.Fatalf("expected queryable verified refund audit log from atomic write, got %+v", logs)
+	}
+}
+
+func TestSaveRefundSettingsWithAuditRecordsVerifiedAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("refund-settings-audit-secret")
+	createdAt := time.Date(2026, 5, 23, 10, 30, 0, 987654321, time.UTC)
+
+	settings, audit, err := store.SaveRefundSettingsWithAudit(
+		SaveRefundSettingsRequest{DefaultStrategy: RefundStrategyOriginalFirst},
+		RecordAuditLogRequest{
+			ActorType:  "admin",
+			ActorID:    "admin_1",
+			Action:     "admin.refund_settings.updated",
+			TargetType: "refund_settings",
+			TargetID:   "default",
+			RequestID:  "req_refund_settings_atomic",
+			IPHash:     "ip_hash",
+			Payload: map[string]any{
+				"default_refund_strategy": RefundStrategyBalanceFirst,
+				"amount_fen":              int64(999),
+				"token":                   "must-not-persist",
+			},
+			CreatedAt: createdAt,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.DefaultStrategy != RefundStrategyOriginalFirst {
+		t.Fatalf("expected normalized refund settings, got %+v", settings)
+	}
+	if audit.Action != "admin.refund_settings.updated" || audit.TargetType != "refund_settings" || audit.TargetID != "default" {
+		t.Fatalf("expected refund-settings audit target, got %+v", audit)
+	}
+	if audit.Payload["default_refund_strategy"] != RefundStrategyOriginalFirst || audit.Payload["amount_fen"] != nil || audit.Payload["token"] != nil {
+		t.Fatalf("expected atomic audit payload to be server-normalized and sanitized, got %+v", audit.Payload)
+	}
+	if audit.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || audit.IntegrityHash == "" || !audit.IntegrityVerified {
+		t.Fatalf("expected verified HMAC integrity proof, got %+v", audit)
+	}
+	if audit.CreatedAt.Nanosecond() != 987654000 {
+		t.Fatalf("expected audit timestamp normalized to PostgreSQL precision, got %s", audit.CreatedAt.Format(time.RFC3339Nano))
+	}
+
+	logs, err := store.AuditLogs(AuditLogsRequest{Action: "admin.refund_settings.updated", TargetType: "refund_settings", TargetID: "default", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].ID != audit.ID || logs[0].Payload["default_refund_strategy"] != RefundStrategyOriginalFirst || !logs[0].IntegrityVerified {
+		t.Fatalf("expected queryable verified audit log from atomic write, got %+v", logs)
+	}
+}
+
 func TestAdminOperationsSnapshotAggregatesP0Data(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	dispatchOrder, err := store.CreateOrder(CreateOrderRequest{UserID: "user_1", Type: OrderTypeTakeout, AmountFen: 900})
@@ -365,6 +485,93 @@ func TestAfterSalesReviewApprovesAndRefundsBalance(t *testing.T) {
 	}
 	if len(afterSalesEvents) != 2 || afterSalesEvents[0].AggregateID != order.ID {
 		t.Fatalf("expected created and approved after-sales outbox events, got %+v", afterSalesEvents)
+	}
+}
+
+func TestReviewAfterSalesWithAuditRecordsVerifiedAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("after-sales-review-audit-secret")
+	order, err := store.CreateOrder(CreateOrderRequest{UserID: "user_after_sales_atomic", Type: OrderTypeTakeout, AmountFen: 1200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.orders[order.ID].ShopID = "shop_1"
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: order.UserID, AmountFen: 1200, IdempotencyKey: "credit_after_sales_atomic_audit"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(SetWalletPaymentPasswordRequest{UserID: order.UserID, Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, paidOrder, _, err := store.PayOrderWithBalance(BalancePayRequest{UserID: order.UserID, OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_after_sales_atomic_audit"}); err != nil || paidOrder.Status != StatusMerchantPending {
+		t.Fatalf("expected paid order setup, order=%+v err=%v", paidOrder, err)
+	}
+	request, err := store.CreateAfterSales(CreateAfterSalesRequest{
+		UserID:             order.UserID,
+		OrderID:            order.ID,
+		Reason:             "餐品漏送",
+		RequestedAmountFen: 600,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdAt := time.Date(2026, 5, 23, 12, 15, 0, 654321987, time.UTC)
+
+	reviewed, refund, reviewedOrder, account, audit, err := store.ReviewAfterSalesWithAudit(
+		ReviewAfterSalesRequest{
+			RequestID:            request.ID,
+			Decision:             AfterSalesDecisionApprove,
+			Reason:               "确认漏送",
+			ActorID:              "merchant_1",
+			ActorRole:            "merchant",
+			RefundIdempotencyKey: "after_sales_atomic_audit",
+		},
+		RecordAuditLogRequest{
+			ActorType:  "merchant",
+			ActorID:    "merchant_1",
+			Action:     "after_sales.reviewed",
+			TargetType: "after_sales",
+			TargetID:   request.ID,
+			RequestID:  "req_after_sales_atomic",
+			IPHash:     "ip_hash",
+			Payload: map[string]any{
+				"decision":   AfterSalesDecisionReject,
+				"amount_fen": int64(1),
+				"token":      "must-not-persist",
+			},
+			CreatedAt: createdAt,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviewed.Status != AfterSalesRefunded || refund.Status != RefundStatusSuccess || reviewedOrder.Status != StatusMerchantPending || account.Balance != 600 {
+		t.Fatalf("expected audited after-sales review refund, request=%+v refund=%+v order=%+v account=%+v", reviewed, refund, reviewedOrder, account)
+	}
+	if audit.Action != "after_sales.reviewed" || audit.TargetType != "after_sales" || audit.TargetID != request.ID {
+		t.Fatalf("expected after-sales review audit target, got %+v", audit)
+	}
+	if audit.Payload["decision"] != AfterSalesDecisionApprove ||
+		audit.Payload["status"] != AfterSalesRefunded ||
+		audit.Payload["refund_id"] != refund.ID ||
+		audit.Payload["amount_fen"] != refund.AmountFen ||
+		audit.Payload["destination"] != refund.Destination ||
+		audit.Payload["idempotency_key"] != refund.IdempotencyKey ||
+		audit.Payload["token"] != nil {
+		t.Fatalf("expected after-sales review audit payload to be server-generated and sanitized, got %+v", audit.Payload)
+	}
+	if audit.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || audit.IntegrityHash == "" || !audit.IntegrityVerified {
+		t.Fatalf("expected verified HMAC integrity proof, got %+v", audit)
+	}
+	if audit.CreatedAt.Nanosecond() != 654321000 {
+		t.Fatalf("expected audit timestamp normalized to PostgreSQL precision, got %s", audit.CreatedAt.Format(time.RFC3339Nano))
+	}
+
+	logs, err := store.AuditLogs(AuditLogsRequest{Action: "after_sales.reviewed", TargetType: "after_sales", TargetID: request.ID, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].ID != audit.ID || logs[0].Payload["refund_id"] != refund.ID || !logs[0].IntegrityVerified {
+		t.Fatalf("expected queryable verified after-sales review audit log from atomic write, got %+v", logs)
 	}
 }
 
@@ -980,6 +1187,174 @@ func TestObjectStorageCleanupCandidatesAndCompletion(t *testing.T) {
 	}); !errors.Is(err, ErrInvalidOrderState) {
 		t.Fatalf("expected confirmed object cleanup to be blocked, got %v", err)
 	}
+}
+
+func TestCompleteObjectStorageCleanupWithAuditRecordsVerifiedAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("object-cleanup-audit-secret")
+	ticket := createObjectCleanupAuditTicket(t, store, "complete", "expired-audit.jpg")
+	deletedAt := time.Date(2026, 5, 23, 14, 0, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 5, 23, 14, 5, 0, 111222333, time.UTC)
+
+	cleaned, audit, err := store.CompleteObjectStorageCleanupWithAudit(
+		ObjectStorageCleanupCompleteRequest{
+			TicketID:  ticket.TicketID,
+			ObjectKey: ticket.ObjectKey,
+			Reason:    AfterSalesObjectCleanupExpired,
+			DeletedAt: deletedAt,
+		},
+		RecordAuditLogRequest{
+			ActorType:  "admin",
+			ActorID:    "admin_1",
+			Action:     "admin.object_cleanup.completed",
+			TargetType: "object_storage_ticket",
+			TargetID:   ticket.TicketID,
+			RequestID:  "req_object_cleanup_complete_atomic",
+			IPHash:     "ip_hash",
+			Payload: map[string]any{
+				"object_key":       "caller/object/key/should-not-persist.jpg",
+				"reason":           AfterSalesObjectCleanupRejected,
+				"status":           AfterSalesUploadTicketConfirmed,
+				"cleanup_attempts": 99,
+				"token":            "must-not-persist",
+			},
+			CreatedAt: createdAt,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleaned.Status != AfterSalesUploadTicketDeleted || cleaned.CleanupReason != AfterSalesObjectCleanupExpired || !cleaned.DeletedAt.Equal(deletedAt) {
+		t.Fatalf("expected audited object cleanup to mark ticket deleted, got %+v", cleaned)
+	}
+	if audit.Action != "admin.object_cleanup.completed" || audit.TargetType != "object_storage_ticket" || audit.TargetID != ticket.TicketID {
+		t.Fatalf("expected object cleanup completed audit target, got %+v", audit)
+	}
+	if audit.Payload["object_key"] != maskAuditScalar(cleaned.ObjectKey) ||
+		audit.Payload["reason"] != AfterSalesObjectCleanupExpired ||
+		audit.Payload["status"] != AfterSalesUploadTicketDeleted ||
+		audit.Payload["cleanup_attempts"] != nil ||
+		audit.Payload["token"] != nil {
+		t.Fatalf("expected cleanup-completed audit payload to be server-generated and sanitized, got %+v", audit.Payload)
+	}
+	if audit.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || audit.IntegrityHash == "" || !audit.IntegrityVerified {
+		t.Fatalf("expected verified HMAC integrity proof, got %+v", audit)
+	}
+	if audit.CreatedAt.Nanosecond() != 111222000 {
+		t.Fatalf("expected audit timestamp normalized to PostgreSQL precision, got %s", audit.CreatedAt.Format(time.RFC3339Nano))
+	}
+
+	logs, err := store.AuditLogs(AuditLogsRequest{Action: "admin.object_cleanup.completed", TargetType: "object_storage_ticket", TargetID: ticket.TicketID, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].ID != audit.ID || logs[0].Payload["object_key"] != maskAuditScalar(cleaned.ObjectKey) || !logs[0].IntegrityVerified {
+		t.Fatalf("expected queryable verified object cleanup completed audit log from atomic write, got %+v", logs)
+	}
+}
+
+func TestRecordObjectStorageCleanupFailureWithAuditRecordsVerifiedAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("object-cleanup-audit-secret")
+	ticket := createObjectCleanupAuditTicket(t, store, "failure", "rejected-audit.jpg")
+	failedAt := time.Date(2026, 5, 23, 14, 30, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 5, 23, 14, 35, 0, 444555666, time.UTC)
+
+	failed, audit, err := store.RecordObjectStorageCleanupFailureWithAudit(
+		ObjectStorageCleanupFailureRequest{
+			TicketID:  ticket.TicketID,
+			ObjectKey: ticket.ObjectKey,
+			Reason:    AfterSalesObjectCleanupRejected,
+			Error:     "delete denied by provider",
+			FailedAt:  failedAt,
+		},
+		RecordAuditLogRequest{
+			ActorType:  "admin",
+			ActorID:    "admin_1",
+			Action:     "admin.object_cleanup.failed",
+			TargetType: "object_storage_ticket",
+			TargetID:   ticket.TicketID,
+			RequestID:  "req_object_cleanup_failed_atomic",
+			IPHash:     "ip_hash",
+			Payload: map[string]any{
+				"object_key":       "caller/object/key/should-not-persist.jpg",
+				"reason":           AfterSalesObjectCleanupExpired,
+				"status":           AfterSalesUploadTicketDeleted,
+				"cleanup_attempts": 99,
+				"token":            "must-not-persist",
+			},
+			CreatedAt: createdAt,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != AfterSalesUploadTicketIssued || failed.CleanupReason != AfterSalesObjectCleanupRejected || failed.CleanupAttempts != 1 || failed.LastCleanupError != "delete denied by provider" || !failed.LastCleanupFailedAt.Equal(failedAt) {
+		t.Fatalf("expected audited object cleanup failure to update failure ledger, got %+v", failed)
+	}
+	if audit.Action != "admin.object_cleanup.failed" || audit.TargetType != "object_storage_ticket" || audit.TargetID != ticket.TicketID {
+		t.Fatalf("expected object cleanup failed audit target, got %+v", audit)
+	}
+	if audit.Payload["object_key"] != maskAuditScalar(failed.ObjectKey) ||
+		audit.Payload["reason"] != AfterSalesObjectCleanupRejected ||
+		audit.Payload["status"] != AfterSalesUploadTicketIssued ||
+		audit.Payload["cleanup_attempts"] != 1 ||
+		audit.Payload["token"] != nil {
+		t.Fatalf("expected cleanup-failed audit payload to be server-generated and sanitized, got %+v", audit.Payload)
+	}
+	if audit.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || audit.IntegrityHash == "" || !audit.IntegrityVerified {
+		t.Fatalf("expected verified HMAC integrity proof, got %+v", audit)
+	}
+	if audit.CreatedAt.Nanosecond() != 444555000 {
+		t.Fatalf("expected audit timestamp normalized to PostgreSQL precision, got %s", audit.CreatedAt.Format(time.RFC3339Nano))
+	}
+
+	logs, err := store.AuditLogs(AuditLogsRequest{Action: "admin.object_cleanup.failed", TargetType: "object_storage_ticket", TargetID: ticket.TicketID, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].ID != audit.ID || logs[0].Payload["cleanup_attempts"] != 1 || !logs[0].IntegrityVerified {
+		t.Fatalf("expected queryable verified object cleanup failed audit log from atomic write, got %+v", logs)
+	}
+}
+
+func createObjectCleanupAuditTicket(t *testing.T, store *Store, suffix string, fileName string) *ObjectUploadTicket {
+	t.Helper()
+	userID := "user_cleanup_audit_" + suffix
+	order, err := store.CreateOrder(CreateOrderRequest{UserID: userID, Type: OrderTypeTakeout, AmountFen: 1200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: userID, AmountFen: 1200, IdempotencyKey: "credit_cleanup_audit_" + suffix}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(SetWalletPaymentPasswordRequest{UserID: userID, Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.PayOrderWithBalance(BalancePayRequest{UserID: userID, OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_cleanup_audit_" + suffix}); err != nil {
+		t.Fatal(err)
+	}
+	request, err := store.CreateAfterSales(CreateAfterSalesRequest{
+		UserID:             userID,
+		OrderID:            order.ID,
+		Reason:             "餐品漏送",
+		RequestedAmountFen: 600,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := store.CreateAfterSalesEvidenceUpload(CreateAfterSalesEvidenceUploadRequest{
+		RequestID:   request.ID,
+		ActorID:     userID,
+		ActorRole:   "user",
+		FileName:    fileName,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ticket
 }
 
 func TestWechatMiniLoginCreatesStableUserBinding(t *testing.T) {
@@ -1795,6 +2170,83 @@ func TestCompensateOrderStateRepairsPaymentAndDispatchDrift(t *testing.T) {
 	}
 	if rechecked.Changed {
 		t.Fatalf("expected second compensation to be idempotent, got %+v", rechecked)
+	}
+}
+
+func TestCompensateOrderStateWithAuditRecordsVerifiedAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("order-state-compensation-audit-secret")
+	order, err := store.CreateOrder(CreateOrderRequest{UserID: "user_atomic_compensate", Type: OrderTypeTakeout, AmountFen: 1200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: order.UserID, AmountFen: 1200, IdempotencyKey: "credit_compensate_atomic_audit"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(SetWalletPaymentPasswordRequest{UserID: order.UserID, Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	_, paidOrder, _, err := store.PayOrderWithBalance(BalancePayRequest{UserID: order.UserID, OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_compensate_atomic_audit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.orders[paidOrder.ID].Status = StatusPendingPayment
+	store.orders[paidOrder.ID].PaymentMethod = ""
+	createdAt := time.Date(2026, 5, 23, 13, 20, 0, 222333444, time.UTC)
+
+	repaired, audit, err := store.CompensateOrderStateWithAudit(
+		CompensateOrderStateRequest{
+			OrderID: paidOrder.ID,
+			ActorID: "admin_1",
+			Now:     createdAt.Add(time.Minute),
+		},
+		RecordAuditLogRequest{
+			ActorType:  "admin",
+			ActorID:    "admin_1",
+			Action:     "admin.order_state.compensated",
+			TargetType: "order",
+			TargetID:   paidOrder.ID,
+			RequestID:  "req_order_state_compensate_atomic",
+			IPHash:     "ip_hash",
+			Payload: map[string]any{
+				"changed":         false,
+				"previous_status": StatusCompleted,
+				"expected_status": StatusRefunded,
+				"token":           "must-not-persist",
+			},
+			CreatedAt: createdAt,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repaired.Changed || repaired.PreviousStatus != StatusPendingPayment || repaired.ExpectedStatus != StatusDispatching || repaired.Order.Status != StatusDispatching || repaired.Order.PaymentMethod != PaymentBalance {
+		t.Fatalf("expected audited order-state compensation to restore dispatching balance order, got %+v", repaired)
+	}
+	if audit.Action != "admin.order_state.compensated" || audit.TargetType != "order" || audit.TargetID != paidOrder.ID {
+		t.Fatalf("expected order-state compensation audit target, got %+v", audit)
+	}
+	if audit.Payload["changed"] != true ||
+		audit.Payload["previous_status"] != StatusPendingPayment ||
+		audit.Payload["expected_status"] != StatusDispatching ||
+		audit.Payload["compensation_type"] != "order_state_replay" ||
+		audit.Payload["evidence_count"] != len(repaired.Evidence) ||
+		audit.Payload["token"] != nil {
+		t.Fatalf("expected compensation audit payload to be server-generated and sanitized, got %+v", audit.Payload)
+	}
+	if audit.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || audit.IntegrityHash == "" || !audit.IntegrityVerified {
+		t.Fatalf("expected verified HMAC integrity proof, got %+v", audit)
+	}
+	if audit.CreatedAt.Nanosecond() != 222333000 {
+		t.Fatalf("expected audit timestamp normalized to PostgreSQL precision, got %s", audit.CreatedAt.Format(time.RFC3339Nano))
+	}
+
+	logs, err := store.AuditLogs(AuditLogsRequest{Action: "admin.order_state.compensated", TargetType: "order", TargetID: paidOrder.ID, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].ID != audit.ID || logs[0].Payload["changed"] != true || logs[0].Payload["previous_status"] != StatusPendingPayment || !logs[0].IntegrityVerified {
+		t.Fatalf("expected queryable verified compensation audit log from atomic write, got %+v", logs)
 	}
 }
 
@@ -2696,7 +3148,15 @@ func TestOutboxStatsBacklogReadiness(t *testing.T) {
 func TestAuditLogsRecordFilterAndProtectPayloadCopies(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
-	payload := map[string]any{"default_refund_strategy": RefundStrategyBalanceFirst}
+	payload := map[string]any{
+		"default_refund_strategy": RefundStrategyBalanceFirst,
+		"object_key":              "after-sales/asr_1/private/evidence.jpg",
+		"password":                "PlainTextPassword",
+		"token":                   "secret-token",
+		"phone":                   "13900000000",
+		"nested":                  map[string]any{"authorization": "Bearer secret"},
+		"raw_request":             map[string]any{"body": "full request"},
+	}
 	log, err := store.RecordAuditLog(RecordAuditLogRequest{
 		ActorType:  "admin",
 		ActorID:    "admin_1",
@@ -2722,8 +3182,16 @@ func TestAuditLogsRecordFilterAndProtectPayloadCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(logs) != 1 || logs[0].ID != log.ID || logs[0].Payload["default_refund_strategy"] != RefundStrategyBalanceFirst || logs[0].RequestID != "req_1" || logs[0].IPHash != "ip_hash" {
+	if len(logs) != 1 || logs[0].ID != log.ID || logs[0].Payload["default_refund_strategy"] != RefundStrategyBalanceFirst || logs[0].Payload["object_key"] != "aft***pg" || logs[0].RequestID != "req_1" || logs[0].IPHash != "ip_hash" {
 		t.Fatalf("expected filtered immutable audit log, got %+v", logs)
+	}
+	if logs[0].IntegrityAlgorithm != auditIntegrityAlgorithmSHA256 || logs[0].IntegrityHash == "" || !logs[0].IntegrityVerified {
+		t.Fatalf("expected default audit integrity proof to verify, got %+v", logs[0])
+	}
+	for _, key := range []string{"password", "token", "phone", "nested", "raw_request"} {
+		if _, ok := logs[0].Payload[key]; ok {
+			t.Fatalf("expected audit payload to drop sensitive or non-allowlisted key %q, got %+v", key, logs[0].Payload)
+		}
 	}
 
 	allLogs, err := store.AuditLogs(AuditLogsRequest{Limit: 1})
@@ -2732,6 +3200,65 @@ func TestAuditLogsRecordFilterAndProtectPayloadCopies(t *testing.T) {
 	}
 	if len(allLogs) != 1 || allLogs[0].Action != "admin.outbox.replayed" {
 		t.Fatalf("expected newest audit log first with limit, got %+v", allLogs)
+	}
+
+	windowLogs, err := store.AuditLogs(AuditLogsRequest{
+		After:  now.Add(30 * time.Second),
+		Before: now.Add(2 * time.Minute),
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(windowLogs) != 1 || windowLogs[0].Action != "admin.outbox.replayed" {
+		t.Fatalf("expected after/before window to keep only replay audit log, got %+v", windowLogs)
+	}
+}
+
+func TestAuditLogIntegrityDetectsTamperedHMACPayload(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("audit-secret")
+	now := time.Date(2026, 5, 23, 10, 0, 0, 0, time.UTC)
+
+	log, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   "ord_integrity",
+		RequestID:  "req_integrity",
+		IPHash:     "ip_hash",
+		Payload:    map[string]any{"amount_fen": int64(1200), "idempotency_key": "refund_integrity"},
+		CreatedAt:  now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if log.IntegrityAlgorithm != auditIntegrityAlgorithmHMACSHA256 || log.IntegrityHash == "" || !log.IntegrityVerified {
+		t.Fatalf("expected HMAC audit integrity proof, got %+v", log)
+	}
+	if verifyAuditLogIntegrity(*log, "wrong-secret") {
+		t.Fatalf("expected wrong audit signing secret to fail verification")
+	}
+
+	logs, err := store.AuditLogs(AuditLogsRequest{TargetType: "order", TargetID: "ord_integrity", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || !logs[0].IntegrityVerified {
+		t.Fatalf("expected sealed audit log to verify before tamper, got %+v", logs)
+	}
+
+	store.mu.Lock()
+	store.auditLogs[log.ID].Payload["amount_fen"] = int64(900)
+	store.mu.Unlock()
+
+	tamperedLogs, err := store.AuditLogs(AuditLogsRequest{TargetType: "order", TargetID: "ord_integrity", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tamperedLogs) != 1 || tamperedLogs[0].IntegrityVerified || tamperedLogs[0].IntegrityHash != log.IntegrityHash {
+		t.Fatalf("expected tampered audit payload to fail integrity verification without resealing, got %+v", tamperedLogs)
 	}
 }
 

@@ -1098,20 +1098,16 @@ func (r *Router) handleAdminCompensateOrderState(w http.ResponseWriter, req *htt
 	}
 	payload.OrderID = req.PathValue("orderID")
 	payload.ActorID = principal.ID
-	result, err := r.store.CompensateOrderState(payload)
+	result, _, err := r.store.CompensateOrderStateWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.order_state.compensated",
+		TargetType: "order",
+		TargetID:   payload.OrderID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.order_state.compensated", "order", payload.OrderID, map[string]any{
-		"changed":           result.Changed,
-		"previous_status":   result.PreviousStatus,
-		"expected_status":   result.ExpectedStatus,
-		"compensation_type": result.CompensationType,
-		"evidence_count":    len(result.Evidence),
-		"previous_rider_id": result.PreviousRiderID,
-		"expected_rider_id": result.ExpectedRiderID,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1148,14 +1144,16 @@ func (r *Router) handleAdminSaveRefundSettings(w http.ResponseWriter, req *http.
 		writeAuthError(w, errForbidden)
 		return
 	}
-	settings, err := r.store.SaveRefundSettings(payload)
+	settings, _, err := r.store.SaveRefundSettingsWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.refund_settings.updated",
+		TargetType: "refund_settings",
+		TargetID:   "default",
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.refund_settings.updated", "refund_settings", "default", map[string]any{
-		"default_refund_strategy": settings.DefaultStrategy,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1237,12 +1235,25 @@ func parseOptionalIntQuery(w http.ResponseWriter, value string) (int, bool) {
 	return parsed, true
 }
 
+func parseOptionalTimeQuery(w http.ResponseWriter, value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, true
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return time.Time{}, false
+	}
+	return parsed, true
+}
+
 func (r *Router) handleAdminAuditLogs(w http.ResponseWriter, req *http.Request) {
 	principal, ok := r.requirePrincipal(w, req)
 	if !ok {
 		return
 	}
-	if !principal.IsAdmin() {
+	if !principal.CanReadAuditLogs() {
 		writeAuthError(w, errForbidden)
 		return
 	}
@@ -1251,14 +1262,13 @@ func (r *Router) handleAdminAuditLogs(w http.ResponseWriter, req *http.Request) 
 	if !ok {
 		return
 	}
-	before := time.Time{}
-	if value := strings.TrimSpace(query.Get("before")); value != "" {
-		parsed, err := time.Parse(time.RFC3339Nano, value)
-		if err != nil {
-			writePlatformError(w, platform.ErrInvalidArgument)
-			return
-		}
-		before = parsed
+	after, ok := parseOptionalTimeQuery(w, query.Get("after"))
+	if !ok {
+		return
+	}
+	before, ok := parseOptionalTimeQuery(w, query.Get("before"))
+	if !ok {
+		return
 	}
 	logs, err := r.store.AuditLogs(platform.AuditLogsRequest{
 		ActorType:  query.Get("actor_type"),
@@ -1267,6 +1277,7 @@ func (r *Router) handleAdminAuditLogs(w http.ResponseWriter, req *http.Request) 
 		TargetType: query.Get("target_type"),
 		TargetID:   query.Get("target_id"),
 		Limit:      limit,
+		After:      after,
 		Before:     before,
 	})
 	if err != nil {
@@ -1319,18 +1330,16 @@ func (r *Router) handleAdminRefundOrder(w http.ResponseWriter, req *http.Request
 	payload.OrderID = req.PathValue("orderID")
 	payload.ActorID = principal.ID
 	payload.ActorRole = principal.Role
-	refund, order, account, err := r.store.RefundOrder(payload)
+	refund, order, account, _, err := r.store.RefundOrderWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   payload.OrderID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.order.refunded", "order", payload.OrderID, map[string]any{
-		"refund_id":       refund.ID,
-		"destination":     refund.Destination,
-		"status":          refund.Status,
-		"amount_fen":      refund.AmountFen,
-		"idempotency_key": refund.IdempotencyKey,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1353,18 +1362,16 @@ func (r *Router) handleReviewAfterSales(w http.ResponseWriter, req *http.Request
 	payload.RequestID = req.PathValue("requestID")
 	payload.ActorID = principal.ID
 	payload.ActorRole = principal.Role
-	request, refund, order, account, err := r.store.ReviewAfterSales(payload)
+	request, refund, order, account, _, err := r.store.ReviewAfterSalesWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "after_sales.reviewed",
+		TargetType: "after_sales",
+		TargetID:   payload.RequestID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "after_sales.reviewed", "after_sales", payload.RequestID, map[string]any{
-		"decision":   payload.Decision,
-		"status":     request.Status,
-		"refund_id":  request.RefundID,
-		"order_id":   request.OrderID,
-		"actor_role": principal.Role,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1579,16 +1586,16 @@ func (r *Router) handleAdminObjectStorageCleanupComplete(w http.ResponseWriter, 
 		writeAuthError(w, errForbidden)
 		return
 	}
-	ticket, err := r.store.CompleteObjectStorageCleanup(payload)
+	ticket, _, err := r.store.CompleteObjectStorageCleanupWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.object_cleanup.completed",
+		TargetType: "object_storage_ticket",
+		TargetID:   payload.TicketID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.object_cleanup.completed", "object_storage_ticket", payload.TicketID, map[string]any{
-		"object_key": payload.ObjectKey,
-		"reason":     payload.Reason,
-		"status":     ticket.Status,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}
@@ -1608,16 +1615,16 @@ func (r *Router) handleAdminObjectStorageCleanupFailed(w http.ResponseWriter, re
 		writeAuthError(w, errForbidden)
 		return
 	}
-	ticket, err := r.store.RecordObjectStorageCleanupFailure(payload)
+	ticket, _, err := r.store.RecordObjectStorageCleanupFailureWithAudit(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.object_cleanup.failed",
+		TargetType: "object_storage_ticket",
+		TargetID:   payload.TicketID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+	})
 	if err != nil {
-		writePlatformError(w, err)
-		return
-	}
-	if err := r.recordAuditLog(req, principal, "admin.object_cleanup.failed", "object_storage_ticket", payload.TicketID, map[string]any{
-		"object_key":       payload.ObjectKey,
-		"reason":           payload.Reason,
-		"cleanup_attempts": ticket.CleanupAttempts,
-	}); err != nil {
 		writePlatformError(w, err)
 		return
 	}

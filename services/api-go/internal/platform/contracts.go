@@ -1343,16 +1343,19 @@ type WechatPaymentCallbackRequest struct {
 }
 
 type AuditLog struct {
-	ID         string         `json:"id"`
-	ActorType  string         `json:"actor_type"`
-	ActorID    string         `json:"actor_id"`
-	Action     string         `json:"action"`
-	TargetType string         `json:"target_type"`
-	TargetID   string         `json:"target_id"`
-	RequestID  string         `json:"request_id"`
-	IPHash     string         `json:"ip_hash"`
-	Payload    map[string]any `json:"payload"`
-	CreatedAt  time.Time      `json:"created_at"`
+	ID                 string         `json:"id"`
+	ActorType          string         `json:"actor_type"`
+	ActorID            string         `json:"actor_id"`
+	Action             string         `json:"action"`
+	TargetType         string         `json:"target_type"`
+	TargetID           string         `json:"target_id"`
+	RequestID          string         `json:"request_id"`
+	IPHash             string         `json:"ip_hash"`
+	Payload            map[string]any `json:"payload"`
+	IntegrityAlgorithm string         `json:"integrity_algorithm"`
+	IntegrityHash      string         `json:"integrity_hash"`
+	IntegrityVerified  bool           `json:"integrity_verified"`
+	CreatedAt          time.Time      `json:"created_at"`
 }
 
 type RecordAuditLogRequest struct {
@@ -1374,6 +1377,7 @@ type AuditLogsRequest struct {
 	TargetType string    `json:"target_type"`
 	TargetID   string    `json:"target_id"`
 	Limit      int       `json:"limit"`
+	After      time.Time `json:"after"`
 	Before     time.Time `json:"before"`
 }
 

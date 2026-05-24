@@ -98,6 +98,7 @@ func newRepository(ctx context.Context) (platform.Repository, func()) {
 	if databaseURL == "" {
 		log.Print("api-go using in-memory store; set DATABASE_URL to enable PostgreSQL persistence")
 		store := platform.NewStore(platform.DefaultHomeModules())
+		configureAuditLogIntegrity(store)
 		configureObjectStorage(store)
 		return store, func() {}
 	}
@@ -105,12 +106,25 @@ func newRepository(ctx context.Context) (platform.Repository, func()) {
 	if err != nil {
 		log.Fatalf("open PostgreSQL store: %v", err)
 	}
+	configureAuditLogIntegrity(store)
 	configureObjectStorage(store)
 	log.Print("api-go using PostgreSQL-backed store")
 	return store, func() {
 		if err := store.Close(); err != nil {
 			log.Printf("close PostgreSQL store: %v", err)
 		}
+	}
+}
+
+type auditLogIntegrityConfigurator interface {
+	ConfigureAuditLogIntegrity(string)
+}
+
+func configureAuditLogIntegrity(store auditLogIntegrityConfigurator) {
+	secret := os.Getenv("AUDIT_LOG_SIGNING_SECRET")
+	store.ConfigureAuditLogIntegrity(secret)
+	if strings.TrimSpace(secret) == "" {
+		log.Print("api-go audit log integrity uses sha256 without a signing secret for local development; set AUDIT_LOG_SIGNING_SECRET for production HMAC sealing")
 	}
 }
 
