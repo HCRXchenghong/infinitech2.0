@@ -87,6 +87,29 @@ func TestBackofficeRBACPolicyCatalog(t *testing.T) {
 	}
 }
 
+func TestBackofficeRBACRuntimeScopeOverrides(t *testing.T) {
+	resetAdminRBACRoleScopeOverrides()
+	t.Cleanup(resetAdminRBACRoleScopeOverrides)
+
+	finance := Principal{ID: "finance_1", Role: RoleFinanceAdmin}
+	if !finance.CanManageRefunds() {
+		t.Fatal("expected finance admin to manage refunds before runtime override")
+	}
+	applied, ok := ApplyAdminRBACRoleScopes(RoleFinanceAdmin, []string{AdminScopeRefundRead, AdminScopeRBACRead})
+	if !ok || len(applied) != 2 {
+		t.Fatalf("expected finance runtime override to apply, scopes=%+v ok=%v", applied, ok)
+	}
+	if !finance.CanReadRefundSettings() || finance.CanManageRefunds() {
+		t.Fatalf("expected finance runtime override to remove refund write while keeping read, scopes=%+v", AdminScopesForRole(RoleFinanceAdmin))
+	}
+	if _, ok := ApplyAdminRBACRoleScopes(RoleSuperAdmin, []string{AdminScopeRBACRead}); ok {
+		t.Fatal("super admin must not be narrowed away from full access")
+	}
+	if !(Principal{ID: "super_1", Role: RoleSuperAdmin}).CanManageRBACPolicy() {
+		t.Fatal("expected super admin to keep full RBAC write access")
+	}
+}
+
 func TestBackofficeRBACRolesCanUseSignedTokens(t *testing.T) {
 	signer := NewTokenSigner("rbac-test-secret")
 	for _, role := range []string{RoleSuperAdmin, RoleOpsAdmin, RoleFinanceAdmin, RoleDispatchAdmin, RoleSupportAdmin, RoleSecurityAuditor} {

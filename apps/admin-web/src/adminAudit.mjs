@@ -1,6 +1,7 @@
 const SENSITIVE_KEY_PATTERN = /(password|secret|token|authorization|openid|session|credential|certificate|phone|mobile|email|id_card|identity|file_url|object_key|signature|pay_sign|nonce)/i;
 const PAYLOAD_ALLOWLIST = Object.freeze([
   "amount_fen",
+  "applied_scopes",
   "change_request_id",
   "current_scopes",
   "decision",
@@ -10,6 +11,7 @@ const PAYLOAD_ALLOWLIST = Object.freeze([
   "limit",
   "max_attempts",
   "policy_version",
+  "previous_scopes",
   "reason",
   "refund_id",
   "requested_scopes",

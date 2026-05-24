@@ -45,6 +45,7 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
     "rbac-change-requests",
     "rbac-change-request",
     "rbac-review-request",
+    "rbac-apply-request",
     "object-cleanup-stats",
     "object-cleanup-candidates",
     "outbox-stats",
@@ -76,6 +77,7 @@ test("admin web ships P0 business views with actions and safeguards", () => {
   assert.ok(ADMIN_WEB_VIEWS.dispatch.actions.includes("station-orders"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-change-request"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-review-request"));
+  assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-apply-request"));
 });
 
 test("admin request builder normalizes auth query path and body", () => {
@@ -106,6 +108,10 @@ test("admin request builder normalizes auth query path and body", () => {
   const rbacReview = buildAdminRequest(getAdminOperation("rbac-review-request"), { change_request_id: "rbac change 1", decision: "reject", reason: "scope too broad" }, "admin.token");
   assert.equal(rbacReview.url, "/api/admin/rbac/change-requests/rbac%20change%201/review");
   assert.deepEqual(JSON.parse(rbacReview.body), { decision: "reject", reason: "scope too broad" });
+
+  const rbacApply = buildAdminRequest(getAdminOperation("rbac-apply-request"), { change_request_id: "rbac change 1", reason: "approved runtime apply" }, "admin.token");
+  assert.equal(rbacApply.url, "/api/admin/rbac/change-requests/rbac%20change%201/apply");
+  assert.deepEqual(JSON.parse(rbacApply.body), { reason: "approved runtime apply" });
 
   const loginFields = fieldsForOperation(getAdminOperation("admin-login"));
   assert.deepEqual(loginFields.map((field) => field.key), ["account_id", "password"]);

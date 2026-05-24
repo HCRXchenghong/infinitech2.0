@@ -3681,6 +3681,7 @@ func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 
 var auditPayloadAllowlist = map[string]struct{}{
 	"amount_fen":              {},
+	"applied_scopes":          {},
 	"attempts":                {},
 	"change_request_id":       {},
 	"changed":                 {},
@@ -3700,6 +3701,7 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"lease_seconds":           {},
 	"limit":                   {},
 	"object_key":              {},
+	"previous_scopes":         {},
 	"previous_rider_id":       {},
 	"previous_status":         {},
 	"policy_version":          {},

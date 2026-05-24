@@ -86,6 +86,7 @@ func NewRouter(store platform.Repository, options ...RouterOption) http.Handler 
 	for _, option := range options {
 		option(router)
 	}
+	router.restoreAdminRBACAppliedPolicyFromAudit()
 	router.rebuildAuthVerifier()
 	router.routes()
 	return router
@@ -121,6 +122,7 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("GET /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequests)
 	r.mux.HandleFunc("POST /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequest)
 	r.mux.HandleFunc("POST /api/admin/rbac/change-requests/{changeRequestID}/review", r.handleAdminRBACChangeRequestReview)
+	r.mux.HandleFunc("POST /api/admin/rbac/change-requests/{changeRequestID}/apply", r.handleAdminRBACChangeRequestApply)
 	r.mux.HandleFunc("GET /api/admin/object-storage/cleanup-candidates", r.handleAdminObjectStorageCleanupCandidates)
 	r.mux.HandleFunc("GET /api/admin/object-storage/cleanup-stats", r.handleAdminObjectStorageCleanupStats)
 	r.mux.HandleFunc("POST /api/admin/object-storage/cleanup-complete", r.handleAdminObjectStorageCleanupComplete)
@@ -1317,6 +1319,10 @@ type adminRBACChangeReviewPayload struct {
 	Reason   string `json:"reason"`
 }
 
+type adminRBACChangeApplyPayload struct {
+	Reason string `json:"reason"`
+}
+
 type adminRBACChangeRequestRecord struct {
 	ID               string     `json:"id"`
 	Role             string     `json:"role"`
@@ -1337,12 +1343,19 @@ type adminRBACChangeRequestRecord struct {
 	ReviewedByAdmin  string     `json:"reviewed_by_admin,omitempty"`
 	ReviewedAt       *time.Time `json:"reviewed_at,omitempty"`
 	ReviewAuditID    string     `json:"review_audit_id,omitempty"`
+	Applied          bool       `json:"applied"`
+	AppliedScopes    []string   `json:"applied_scopes,omitempty"`
+	AppliedByRole    string     `json:"applied_by_role,omitempty"`
+	AppliedByAdmin   string     `json:"applied_by_admin,omitempty"`
+	AppliedAt        *time.Time `json:"applied_at,omitempty"`
+	ApplyAuditID     string     `json:"apply_audit_id,omitempty"`
 }
 
 const (
 	adminRBACChangeStatusPending  = "pending_approval"
 	adminRBACChangeStatusApproved = "approved"
 	adminRBACChangeStatusRejected = "rejected"
+	adminRBACChangeStatusApplied  = "applied"
 	adminRBACReviewApprove        = "approve"
 	adminRBACReviewReject         = "reject"
 )
@@ -1376,6 +1389,7 @@ func (r *Router) handleAdminRBACChangeRequests(w http.ResponseWriter, req *http.
 		adminRBACChangeStatusPending:  0,
 		adminRBACChangeStatusApproved: 0,
 		adminRBACChangeStatusRejected: 0,
+		adminRBACChangeStatusApplied:  0,
 	}
 	for _, item := range requests {
 		if _, ok := counts[item.Status]; ok {
@@ -1402,8 +1416,10 @@ func (r *Router) handleAdminRBACChangeRequests(w http.ResponseWriter, req *http.
 		"pending_count":  counts[adminRBACChangeStatusPending],
 		"approved_count": counts[adminRBACChangeStatusApproved],
 		"rejected_count": counts[adminRBACChangeStatusRejected],
+		"applied_count":  counts[adminRBACChangeStatusApplied],
 		"policy_version": adminRBACPolicyVersion,
 		"auto_apply":     false,
+		"manual_apply":   true,
 	})
 }
 
@@ -1425,12 +1441,8 @@ func (r *Router) handleAdminRBACChangeRequest(w http.ResponseWriter, req *http.R
 		writePlatformError(w, platform.ErrInvalidArgument)
 		return
 	}
-	requestedScopes, valid := NormalizeAdminScopeList(payload.RequestedScopes)
+	requestedScopes, valid := ValidateAdminRBACRoleScopes(role, payload.RequestedScopes)
 	if !valid || len(requestedScopes) == 0 {
-		writePlatformError(w, platform.ErrInvalidArgument)
-		return
-	}
-	if includesAdminScope(requestedScopes, AdminScopeAll) && role != RoleAdmin && role != RoleSuperAdmin {
 		writePlatformError(w, platform.ErrInvalidArgument)
 		return
 	}
@@ -1559,18 +1571,96 @@ func (r *Router) handleAdminRBACChangeRequestReview(w http.ResponseWriter, req *
 	})
 }
 
-func includesAdminScope(scopes []string, target string) bool {
-	for _, scope := range scopes {
-		if scope == target {
-			return true
-		}
+func (r *Router) handleAdminRBACChangeRequestApply(w http.ResponseWriter, req *http.Request) {
+	var payload adminRBACChangeApplyPayload
+	if !decodeJSON(w, req, &payload) {
+		return
 	}
-	return false
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanManageRBACPolicy() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	changeRequestID := strings.TrimSpace(req.PathValue("changeRequestID"))
+	if changeRequestID == "" {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	reason := strings.TrimSpace(payload.Reason)
+	if reason == "" {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	record, err := r.adminRBACChangeRequestByID(changeRequestID)
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if record.Status != adminRBACChangeStatusApproved {
+		writePlatformError(w, platform.ErrInvalidOrderState)
+		return
+	}
+	if record.RequestedByAdmin == principal.ID {
+		writePlatformError(w, platform.ErrInvalidOrderState)
+		return
+	}
+	appliedScopes, valid := ValidateAdminRBACRoleScopes(record.Role, record.RequestedScopes)
+	if !valid {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	previousScopes := AdminScopesForRole(record.Role)
+	audit, err := r.store.RecordAuditLog(platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.rbac.change_applied",
+		TargetType: "admin_rbac_role",
+		TargetID:   record.Role,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+		Payload: map[string]any{
+			"applied_scopes":    appliedScopes,
+			"change_request_id": changeRequestID,
+			"policy_version":    adminRBACPolicyVersion,
+			"previous_scopes":   previousScopes,
+			"reason":            reason,
+			"role":              record.Role,
+			"status":            adminRBACChangeStatusApplied,
+		},
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	if _, valid := ApplyAdminRBACRoleScopes(record.Role, appliedScopes); !valid {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	appliedAt := audit.CreatedAt
+	record.Status = adminRBACChangeStatusApplied
+	record.Applied = true
+	record.AppliedScopes = appliedScopes
+	record.AppliedByRole = principal.Role
+	record.AppliedByAdmin = principal.ID
+	record.AppliedAt = &appliedAt
+	record.ApplyAuditID = audit.ID
+	record.AutoApplied = false
+	writeSuccess(w, map[string]any{
+		"change_request":  record,
+		"audit_log":       audit,
+		"previous_scopes": previousScopes,
+		"applied_scopes":  appliedScopes,
+		"auto_applied":    false,
+		"runtime_applied": true,
+	})
 }
 
 func isAdminRBACChangeStatus(status string) bool {
 	switch strings.TrimSpace(status) {
-	case adminRBACChangeStatusPending, adminRBACChangeStatusApproved, adminRBACChangeStatusRejected:
+	case adminRBACChangeStatusPending, adminRBACChangeStatusApproved, adminRBACChangeStatusRejected, adminRBACChangeStatusApplied:
 		return true
 	default:
 		return false
@@ -1613,6 +1703,14 @@ func (r *Router) adminRBACChangeRequestLedger() ([]adminRBACChangeRequestRecord,
 	reviewLogs, err := r.store.AuditLogs(platform.AuditLogsRequest{
 		Action:     "admin.rbac.change_reviewed",
 		TargetType: "admin_rbac_change_request",
+		Limit:      500,
+	})
+	if err != nil {
+		return nil, err
+	}
+	applyLogs, err := r.store.AuditLogs(platform.AuditLogsRequest{
+		Action:     "admin.rbac.change_applied",
+		TargetType: "admin_rbac_role",
 		Limit:      500,
 	})
 	if err != nil {
@@ -1678,6 +1776,35 @@ func (r *Router) adminRBACChangeRequestLedger() ([]adminRBACChangeRequestRecord,
 		record.ReviewAuditID = log.ID
 		record.AutoApplied = false
 	}
+	for _, log := range applyLogs {
+		id := auditPayloadString(log.Payload, "change_request_id")
+		if id == "" {
+			continue
+		}
+		record := byID[id]
+		if record == nil {
+			continue
+		}
+		if record.AppliedAt != nil && !log.CreatedAt.After(*record.AppliedAt) {
+			continue
+		}
+		appliedScopes := auditPayloadStringSlice(log.Payload, "applied_scopes")
+		if len(appliedScopes) == 0 {
+			appliedScopes = auditPayloadStringSlice(log.Payload, "requested_scopes")
+		}
+		if _, valid := ValidateAdminRBACRoleScopes(record.Role, appliedScopes); !valid {
+			continue
+		}
+		appliedAt := log.CreatedAt
+		record.Status = adminRBACChangeStatusApplied
+		record.Applied = true
+		record.AppliedScopes = appliedScopes
+		record.AppliedByRole = log.ActorType
+		record.AppliedByAdmin = log.ActorID
+		record.AppliedAt = &appliedAt
+		record.ApplyAuditID = log.ID
+		record.AutoApplied = false
+	}
 	output := make([]adminRBACChangeRequestRecord, 0, len(byID))
 	for _, item := range byID {
 		output = append(output, *item)
@@ -1689,6 +1816,35 @@ func (r *Router) adminRBACChangeRequestLedger() ([]adminRBACChangeRequestRecord,
 		return output[i].ID > output[j].ID
 	})
 	return output, nil
+}
+
+func (r *Router) restoreAdminRBACAppliedPolicyFromAudit() {
+	resetAdminRBACRoleScopeOverrides()
+	logs, err := r.store.AuditLogs(platform.AuditLogsRequest{
+		Action:     "admin.rbac.change_applied",
+		TargetType: "admin_rbac_role",
+		Limit:      500,
+	})
+	if err != nil {
+		return
+	}
+	sort.SliceStable(logs, func(i, j int) bool {
+		if !logs[i].CreatedAt.Equal(logs[j].CreatedAt) {
+			return logs[i].CreatedAt.Before(logs[j].CreatedAt)
+		}
+		return logs[i].ID < logs[j].ID
+	})
+	for _, log := range logs {
+		role := auditPayloadString(log.Payload, "role")
+		if role == "" {
+			role = strings.TrimSpace(log.TargetID)
+		}
+		appliedScopes := auditPayloadStringSlice(log.Payload, "applied_scopes")
+		if len(appliedScopes) == 0 {
+			appliedScopes = auditPayloadStringSlice(log.Payload, "requested_scopes")
+		}
+		ApplyAdminRBACRoleScopes(role, appliedScopes)
+	}
 }
 
 func auditPayloadString(payload map[string]any, key string) string {

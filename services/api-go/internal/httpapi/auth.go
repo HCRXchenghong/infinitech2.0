@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -92,7 +93,9 @@ func (p Principal) HasAdminScope(scope string) bool {
 	if scope == "" {
 		return false
 	}
-	scopes, ok := adminRoleScopes[p.Role]
+	adminRoleScopeOverrideMu.RLock()
+	defer adminRoleScopeOverrideMu.RUnlock()
+	scopes, ok := adminScopesForRoleLocked(p.Role)
 	if !ok {
 		return false
 	}
@@ -372,6 +375,11 @@ func scopeSet(scopes ...string) map[string]struct{} {
 	return output
 }
 
+var (
+	adminRoleScopeOverrideMu sync.RWMutex
+	adminRoleScopeOverrides  = map[string]map[string]struct{}{}
+)
+
 var adminRoleScopes = map[string]map[string]struct{}{
 	RoleAdmin:      scopeSet(AdminScopeAll),
 	RoleSuperAdmin: scopeSet(AdminScopeAll),
@@ -542,20 +550,35 @@ func AdminRBACPolicyForPrincipal(principal Principal) AdminRBACPolicy {
 		CurrentRole:         principal.Role,
 		CurrentRoleScopes:   AdminScopesForRole(principal.Role),
 		CanRequestChanges:   principal.CanManageRBACPolicy(),
-		ChangeApprovalModel: "super_admin_or_legacy_admin_request_with_audit_then_manual_review",
+		ChangeApprovalModel: "request_review_apply_with_audit_and_runtime_replay",
 		Notes: []string{
 			"Built-in scopes are enforced by api-go route guards.",
-			"Change requests are audit-only in this stage and do not mutate the runtime policy automatically.",
+			"Approved RBAC change requests can be manually applied and are replayed from audit logs when api-go starts.",
 			"Field-level, station-level and merchant-level policy rules are still pending commercial governance work.",
 		},
 	}
 }
 
 func AdminScopesForRole(role string) []string {
-	scopes, ok := adminRoleScopes[strings.TrimSpace(role)]
+	adminRoleScopeOverrideMu.RLock()
+	defer adminRoleScopeOverrideMu.RUnlock()
+	scopes, ok := adminScopesForRoleLocked(role)
 	if !ok {
 		return []string{}
 	}
+	return adminScopeSetToSortedSlice(scopes)
+}
+
+func adminScopesForRoleLocked(role string) (map[string]struct{}, bool) {
+	role = strings.TrimSpace(role)
+	if scopes, ok := adminRoleScopeOverrides[role]; ok {
+		return scopes, true
+	}
+	scopes, ok := adminRoleScopes[role]
+	return scopes, ok
+}
+
+func adminScopeSetToSortedSlice(scopes map[string]struct{}) []string {
 	if _, ok := scopes[AdminScopeAll]; ok {
 		return []string{AdminScopeAll}
 	}
@@ -565,6 +588,43 @@ func AdminScopesForRole(role string) []string {
 	}
 	sort.Strings(output)
 	return output
+}
+
+func ValidateAdminRBACRoleScopes(role string, scopes []string) ([]string, bool) {
+	role = strings.TrimSpace(role)
+	if !IsBackofficeRoleName(role) {
+		return nil, false
+	}
+	normalized, valid := NormalizeAdminScopeList(scopes)
+	if !valid || len(normalized) == 0 {
+		return nil, false
+	}
+	hasAllScope := adminScopeListContains(normalized, AdminScopeAll)
+	if hasAllScope && role != RoleAdmin && role != RoleSuperAdmin {
+		return nil, false
+	}
+	if (role == RoleAdmin || role == RoleSuperAdmin) && !hasAllScope {
+		return nil, false
+	}
+	return normalized, true
+}
+
+func ApplyAdminRBACRoleScopes(role string, scopes []string) ([]string, bool) {
+	role = strings.TrimSpace(role)
+	normalized, valid := ValidateAdminRBACRoleScopes(role, scopes)
+	if !valid {
+		return nil, false
+	}
+	adminRoleScopeOverrideMu.Lock()
+	defer adminRoleScopeOverrideMu.Unlock()
+	adminRoleScopeOverrides[role] = scopeSet(normalized...)
+	return normalized, true
+}
+
+func resetAdminRBACRoleScopeOverrides() {
+	adminRoleScopeOverrideMu.Lock()
+	defer adminRoleScopeOverrideMu.Unlock()
+	adminRoleScopeOverrides = map[string]map[string]struct{}{}
 }
 
 func IsBackofficeRoleName(role string) bool {
@@ -596,6 +656,16 @@ func IsKnownAdminScope(scope string) bool {
 	scope = strings.TrimSpace(scope)
 	for _, item := range adminScopePolicyCatalog {
 		if item.Key == scope {
+			return true
+		}
+	}
+	return false
+}
+
+func adminScopeListContains(scopes []string, target string) bool {
+	target = strings.TrimSpace(target)
+	for _, scope := range scopes {
+		if strings.TrimSpace(scope) == target {
 			return true
 		}
 	}

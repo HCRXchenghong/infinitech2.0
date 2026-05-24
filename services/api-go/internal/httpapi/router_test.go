@@ -162,7 +162,10 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 }
 
 func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {
-	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	resetAdminRBACRoleScopeOverrides()
+	t.Cleanup(resetAdminRBACRoleScopeOverrides)
+	store := platform.NewStore(platform.DefaultHomeModules())
+	server := httptest.NewServer(NewRouter(store))
 	defer server.Close()
 
 	authGetJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_1"), http.StatusOK)
@@ -189,18 +192,18 @@ func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {
 	authGetJSON(t, server.URL+"/api/station-manager/riders", roleToken(RoleDispatchAdmin, "dispatch_1"), http.StatusOK)
 	authPostJSON(t, server.URL+"/api/admin/outbox/events/claim", roleToken(RoleDispatchAdmin, "dispatch_1"), `{"topic":"order.paid","limit":1,"lease_owner":"dispatch","lease_seconds":30}`, http.StatusForbidden)
 
-	rbacChange := authPostJSON(t, server.URL+"/api/admin/rbac/change-requests", roleToken(RoleSuperAdmin, "super_1"), `{"role":"support_admin","requested_scopes":["after_sales:read","after_sales:event","rbac:read"],"reason":"support scope recertification"}`, http.StatusCreated)
+	rbacChange := authPostJSON(t, server.URL+"/api/admin/rbac/change-requests", roleToken(RoleSuperAdmin, "super_1"), `{"role":"finance_admin","requested_scopes":["refund:read","rbac:read"],"reason":"finance least privilege recertification"}`, http.StatusCreated)
 	rbacData := rbacChange["data"].(map[string]any)
 	if rbacData["status"] != "pending_approval" || rbacData["auto_applied"] != false || rbacData["policy_version"] == "" {
 		t.Fatalf("expected pending audited RBAC change request, got %+v", rbacChange)
 	}
 	changeRequestID := rbacData["id"].(string)
 	audit := rbacData["audit_log"].(map[string]any)
-	if audit["action"] != "admin.rbac.change_requested" || audit["target_type"] != "admin_rbac_role" || audit["target_id"] != RoleSupportAdmin {
+	if audit["action"] != "admin.rbac.change_requested" || audit["target_type"] != "admin_rbac_role" || audit["target_id"] != RoleFinanceAdmin {
 		t.Fatalf("expected RBAC change audit log, got %+v", audit)
 	}
 	auditPayload := audit["payload"].(map[string]any)
-	if auditPayload["role"] != RoleSupportAdmin || auditPayload["status"] != "pending_approval" {
+	if auditPayload["role"] != RoleFinanceAdmin || auditPayload["status"] != "pending_approval" {
 		t.Fatalf("expected sanitized RBAC audit payload, got %+v", auditPayload)
 	}
 	pendingChanges := authGetJSON(t, server.URL+"/api/admin/rbac/change-requests?status=pending_approval&limit=5", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusOK)
@@ -223,12 +226,35 @@ func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {
 	if reviewAudit["action"] != "admin.rbac.change_reviewed" || reviewAudit["target_type"] != "admin_rbac_change_request" || reviewAudit["target_id"] != changeRequestID {
 		t.Fatalf("expected RBAC review audit log, got %+v", reviewAudit)
 	}
+	authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/apply", roleToken(RoleSuperAdmin, "super_1"), `{"reason":"requester cannot apply"}`, http.StatusConflict)
+	applied := authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/apply", roleToken(RoleSuperAdmin, "super_2"), `{"reason":"approved least privilege policy"}`, http.StatusOK)
+	appliedData := applied["data"].(map[string]any)
+	appliedRequest := appliedData["change_request"].(map[string]any)
+	if appliedRequest["status"] != "applied" || appliedRequest["applied"] != true || appliedData["runtime_applied"] != true {
+		t.Fatalf("expected applied RBAC request, got %+v", applied)
+	}
+	applyAudit := appliedData["audit_log"].(map[string]any)
+	if applyAudit["action"] != "admin.rbac.change_applied" || applyAudit["target_type"] != "admin_rbac_role" || applyAudit["target_id"] != RoleFinanceAdmin {
+		t.Fatalf("expected RBAC apply audit log, got %+v", applyAudit)
+	}
+	authGetJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_2"), http.StatusOK)
+	authPutJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_2"), `{"default_refund_strategy":"balance_first"}`, http.StatusForbidden)
+	resetAdminRBACRoleScopeOverrides()
+	restoredServer := httptest.NewServer(NewRouter(store))
+	defer restoredServer.Close()
+	authPutJSON(t, restoredServer.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_3"), `{"default_refund_strategy":"balance_first"}`, http.StatusForbidden)
 	approvedChanges := authGetJSON(t, server.URL+"/api/admin/rbac/change-requests?status=approved&limit=5", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusOK)
 	approvedItems := approvedChanges["data"].(map[string]any)["items"].([]any)
-	if len(approvedItems) != 1 || approvedItems[0].(map[string]any)["status"] != "approved" {
-		t.Fatalf("expected approved request in RBAC ledger, got %+v", approvedChanges)
+	if len(approvedItems) != 0 {
+		t.Fatalf("expected applied request to leave approved filter, got %+v", approvedChanges)
+	}
+	appliedChanges := authGetJSON(t, server.URL+"/api/admin/rbac/change-requests?status=applied&limit=5", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusOK)
+	appliedItems := appliedChanges["data"].(map[string]any)["items"].([]any)
+	if len(appliedItems) != 1 || appliedItems[0].(map[string]any)["status"] != "applied" {
+		t.Fatalf("expected applied request in RBAC ledger, got %+v", appliedChanges)
 	}
 	authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/review", roleToken(RoleSuperAdmin, "super_3"), `{"decision":"reject","reason":"already reviewed"}`, http.StatusConflict)
+	authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/apply", roleToken(RoleSuperAdmin, "super_3"), `{"reason":"already applied"}`, http.StatusConflict)
 }
 
 func TestAdminRefundSettingsHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {

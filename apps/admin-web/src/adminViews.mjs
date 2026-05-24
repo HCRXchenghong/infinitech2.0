@@ -182,14 +182,14 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
   permissions: {
     key: "permissions",
     title: "权限治理",
-    subtitle: "查看服务端真实 RBAC 矩阵，追踪权限申请，并完成不自动生效的审批留痕。",
+    subtitle: "查看服务端真实 RBAC 矩阵，追踪权限申请，并手动应用已审批的运行时权限变更。",
     metrics: [
       { label: "策略版本", value: "2026-05-24", tone: "blue" },
       { label: "后台角色", value: "7", tone: "green" },
       { label: "高危 scope", value: "6", tone: "red" },
-      { label: "变更模式", value: "双人审批", tone: "amber" }
+      { label: "变更模式", value: "审批后应用", tone: "amber" }
     ],
-    actions: ["rbac-policy", "rbac-change-requests", "rbac-change-request", "rbac-review-request", "audit-logs"],
+    actions: ["rbac-policy", "rbac-change-requests", "rbac-change-request", "rbac-review-request", "rbac-apply-request", "audit-logs"],
     columns: ["角色", "数据域", "可见权限", "高危动作", "审批方式"],
     rows: [
       ["super_admin", "platform", "全部", "rbac:write", "提交申请并审计"],
@@ -197,7 +197,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       ["finance_admin", "finance", "退款/钱包/结算", "refund:write", "需超级管理员申请"],
       ["security_auditor", "security", "审计/RBAC 只读", "无写权限", "只读复核"]
     ],
-    safeguards: ["普通分权角色只能读取策略矩阵", "申请人与审批人不能是同一管理员", "审批写入审计但不自动改运行时策略", "字段级和站点/商户数据域仍需继续补齐"]
+    safeguards: ["普通分权角色只能读取策略矩阵", "申请人与审批人不能是同一管理员", "只有已审批申请可以手动应用并写审计", "字段级和站点/商户数据域仍需继续补齐"]
   }
 });
 

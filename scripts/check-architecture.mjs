@@ -113,6 +113,7 @@ test("admin web has a minimum operable control center", () => {
   assert.match(api, /\/api\/admin\/rbac\/policy/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests\/:change_request_id\/review/);
+  assert.match(api, /\/api\/admin\/rbac\/change-requests\/:change_request_id\/apply/);
   assert.match(api, /actor_type/);
   assert.match(api, /after/);
   assert.match(api, /before/);
@@ -143,7 +144,7 @@ test("admin web has a minimum operable control center", () => {
   assert.match(views, /完整性/);
   assert.match(views, /订单状态补偿必须写审计/);
   assert.match(views, /申请人与审批人不能是同一管理员/);
-  assert.match(views, /审批写入审计但不自动改运行时策略/);
+  assert.match(views, /只有已审批申请可以手动应用并写审计/);
   assert.match(config, /ADMIN_WEB_RBAC/);
   assert.match(config, /super_admin/);
   assert.match(config, /ops_admin/);
@@ -185,6 +186,8 @@ test("bff keeps browser CORS guard for local admin and uni shells", () => {
   assert.match(tests, /\/api\/admin\/rbac\/change-requests/);
   assert.match(server, /change-requests\\\/\[\^\/\]\+\\\/review/);
   assert.match(tests, /\/api\/admin\/rbac\/change-requests\/rbac_change_1\/review/);
+  assert.match(server, /change-requests\\\/\[\^\/\]\+\\\/apply/);
+  assert.match(tests, /\/api\/admin\/rbac\/change-requests\/rbac_change_1\/apply/);
 });
 
 test("core database migration records commercial-grade ledgers and events", () => {
@@ -625,6 +628,8 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(auth, /CanReadRBACPolicy/);
   assert.match(auth, /CanManageRBACPolicy/);
   assert.match(auth, /AdminRBACPolicyForPrincipal/);
+  assert.match(auth, /ApplyAdminRBACRoleScopes/);
+  assert.match(auth, /ValidateAdminRBACRoleScopes/);
   assert.match(authTest, /TestBackofficeRBACScopeMatrix/);
   assert.match(authTest, /TestBackofficeRBACPolicyCatalog/);
   assert.match(authTest, /TestBackofficeRBACRolesCanUseSignedTokens/);
@@ -638,6 +643,8 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(router, /GET \/api\/admin\/rbac\/change-requests/);
   assert.match(router, /POST \/api\/admin\/rbac\/change-requests/);
   assert.match(router, /POST \/api\/admin\/rbac\/change-requests\/\{changeRequestID\}\/review/);
+  assert.match(router, /POST \/api\/admin\/rbac\/change-requests\/\{changeRequestID\}\/apply/);
+  assert.match(router, /restoreAdminRBACAppliedPolicyFromAudit/);
   assert.match(router, /principal\.CanReadAuditLogs\(\)/);
   assert.match(router, /principal\.CanReadRBACPolicy\(\)/);
   assert.match(router, /principal\.CanManageRBACPolicy\(\)/);
@@ -668,11 +675,14 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(router, /admin\.order\.refunded/);
   assert.match(router, /admin\.rbac\.change_requested/);
   assert.match(router, /admin\.rbac\.change_reviewed/);
+  assert.match(router, /admin\.rbac\.change_applied/);
   assert.match(router, /record\.RequestedByAdmin == principal\.ID/);
   assert.match(routerTest, /securityAuditorToken/);
   assert.match(routerTest, /TestAdminRBACRoleMatrixHTTPFlow/);
   assert.match(routerTest, /admin\.rbac\.change_requested/);
   assert.match(routerTest, /admin\.rbac\.change_reviewed/);
+  assert.match(routerTest, /admin\.rbac\.change_applied/);
+  assert.match(routerTest, /runtime_applied/);
   assert.match(routerTest, /pending_count/);
   assert.match(routerTest, /RoleFinanceAdmin/);
   assert.match(routerTest, /RoleOpsAdmin/);
@@ -702,6 +712,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(bff, /\/api\/admin\/rbac\/policy/);
   assert.match(bff, /\/api\/admin\/rbac\/change-requests/);
   assert.match(bff, /change-requests\\\/\[\^\/\]\+\\\/review/);
+  assert.match(bff, /change-requests\\\/\[\^\/\]\+\\\/apply/);
 });
 
 test("payment worker understands original-route refund outbox events", () => {
