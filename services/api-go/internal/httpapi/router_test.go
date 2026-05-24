@@ -168,6 +168,11 @@ func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {
 	authGetJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_1"), http.StatusOK)
 	authPutJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_1"), `{"default_refund_strategy":"balance_first"}`, http.StatusOK)
 	authPostJSON(t, server.URL+"/api/admin/merchant-invites", roleToken(RoleFinanceAdmin, "finance_1"), `{}`, http.StatusForbidden)
+	rbacPolicy := authGetJSON(t, server.URL+"/api/admin/rbac/policy", roleToken(RoleFinanceAdmin, "finance_1"), http.StatusOK)
+	if rbacPolicy["data"].(map[string]any)["current_role"] != RoleFinanceAdmin {
+		t.Fatalf("expected finance admin RBAC policy view, got %+v", rbacPolicy)
+	}
+	authPostJSON(t, server.URL+"/api/admin/rbac/change-requests", roleToken(RoleFinanceAdmin, "finance_1"), `{"role":"finance_admin","requested_scopes":["refund:read"],"reason":"least privilege review"}`, http.StatusForbidden)
 
 	opsInvite := authPostJSON(t, server.URL+"/api/admin/merchant-invites", roleToken(RoleOpsAdmin, "ops_1"), `{}`, http.StatusCreated)
 	if opsInvite["data"].(map[string]any)["created_by_subject_id"] != "ops_1" {
@@ -183,6 +188,20 @@ func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {
 
 	authGetJSON(t, server.URL+"/api/station-manager/riders", roleToken(RoleDispatchAdmin, "dispatch_1"), http.StatusOK)
 	authPostJSON(t, server.URL+"/api/admin/outbox/events/claim", roleToken(RoleDispatchAdmin, "dispatch_1"), `{"topic":"order.paid","limit":1,"lease_owner":"dispatch","lease_seconds":30}`, http.StatusForbidden)
+
+	rbacChange := authPostJSON(t, server.URL+"/api/admin/rbac/change-requests", roleToken(RoleSuperAdmin, "super_1"), `{"role":"support_admin","requested_scopes":["after_sales:read","after_sales:event","rbac:read"],"reason":"support scope recertification"}`, http.StatusCreated)
+	rbacData := rbacChange["data"].(map[string]any)
+	if rbacData["status"] != "pending_approval" || rbacData["auto_applied"] != false || rbacData["policy_version"] == "" {
+		t.Fatalf("expected pending audited RBAC change request, got %+v", rbacChange)
+	}
+	audit := rbacData["audit_log"].(map[string]any)
+	if audit["action"] != "admin.rbac.change_requested" || audit["target_type"] != "admin_rbac_role" || audit["target_id"] != RoleSupportAdmin {
+		t.Fatalf("expected RBAC change audit log, got %+v", audit)
+	}
+	auditPayload := audit["payload"].(map[string]any)
+	if auditPayload["role"] != RoleSupportAdmin || auditPayload["status"] != "pending_approval" {
+		t.Fatalf("expected sanitized RBAC audit payload, got %+v", auditPayload)
+	}
 }
 
 func TestAdminRefundSettingsHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {

@@ -153,10 +153,11 @@ function renderFields(operation) {
         </label>
       `;
     }
+    const inputType = field.type === "csv" ? "text" : (field.type || "text");
     return `
       <label class="field">
         <span>${field.label}</span>
-        <input data-field="${field.key}" type="${field.type || "text"}" value="${String(value)}" ${field.required ? "required" : ""} />
+        <input data-field="${field.key}" type="${inputType}" value="${String(value)}" ${field.required ? "required" : ""} />
       </label>
     `;
   }).join("");

@@ -17,7 +17,7 @@ export const ADMIN_WEB_SECTIONS = Object.freeze([
   {
     key: "service",
     title: "服务与集成",
-    modules: ["support", "notifications", "rtc", "contact-audits", "integrations", "content-settings", "settings"]
+    modules: ["support", "notifications", "rtc", "contact-audits", "integrations", "permissions", "content-settings", "settings"]
   }
 ]);
 
@@ -48,6 +48,7 @@ export const ADMIN_WEB_MODULES = Object.freeze([
   { key: "rtc", title: "RTC 审计", status: "planned", priority: "P1", owner: "质检" },
   { key: "contact-audits", title: "电话审计", status: "planned", priority: "P1", owner: "质检" },
   { key: "integrations", title: "OAuth/API", status: "planned", priority: "P0", owner: "开放平台" },
+  { key: "permissions", title: "权限治理", status: "wired", priority: "P0", owner: "安全" },
   { key: "content-settings", title: "内容设置", status: "planned", priority: "P1", owner: "内容" },
   { key: "settings", title: "系统设置", status: "planned", priority: "P0", owner: "运维" }
 ]);
@@ -73,11 +74,11 @@ export const ADMIN_WEB_QUEUES = Object.freeze([
 export const ADMIN_WEB_RBAC = Object.freeze([
   { role: "admin", name: "兼容管理员", scopes: ["*"] },
   { role: "super_admin", name: "超级管理员", scopes: ["*"] },
-  { role: "ops_admin", name: "运营管理员", scopes: ["operations:read", "invite:write", "after_sales:read", "after_sales:review", "order:compensate", "object_cleanup:read", "object_cleanup:write", "outbox:read", "outbox:write", "dispatch:read", "rider:read"] },
-  { role: "finance_admin", name: "财务管理员", scopes: ["operations:read", "refund:read", "refund:write", "wallet:read", "settlement:read"] },
-  { role: "dispatch_admin", name: "调度管理员", scopes: ["operations:read", "dispatch:read", "dispatch:write", "rider:read"] },
-  { role: "support_admin", name: "客服管理员", scopes: ["operations:read", "after_sales:read", "after_sales:event", "support:read", "rtc:audit"] },
-  { role: "security_auditor", name: "安全审计员", scopes: ["audit:read", "risk:read", "system_logs:read"] }
+  { role: "ops_admin", name: "运营管理员", scopes: ["operations:read", "invite:write", "after_sales:read", "after_sales:review", "order:compensate", "object_cleanup:read", "object_cleanup:write", "outbox:read", "outbox:write", "dispatch:read", "rider:read", "rbac:read"] },
+  { role: "finance_admin", name: "财务管理员", scopes: ["operations:read", "refund:read", "refund:write", "wallet:read", "settlement:read", "rbac:read"] },
+  { role: "dispatch_admin", name: "调度管理员", scopes: ["operations:read", "dispatch:read", "dispatch:write", "rider:read", "rbac:read"] },
+  { role: "support_admin", name: "客服管理员", scopes: ["operations:read", "after_sales:read", "after_sales:event", "support:read", "rtc:audit", "rbac:read"] },
+  { role: "security_auditor", name: "安全审计员", scopes: ["audit:read", "risk:read", "system_logs:read", "rbac:read"] }
 ]);
 
 export function getAdminWebModule(key) {

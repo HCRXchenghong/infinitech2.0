@@ -18,7 +18,7 @@ import { ADMIN_WEB_VIEWS, getAdminView } from "./adminViews.mjs";
 import { applySnapshotToAdminView, buildSnapshotKpis, buildSnapshotQueues, snapshotDataFromResult } from "./adminSnapshot.mjs";
 
 test("admin web exposes the first operable control-center modules", () => {
-  for (const key of ["orders", "after-sales", "merchants", "riders", "dispatch", "audit-logs", "refund-settings", "payment", "support", "rtc", "integrations"]) {
+  for (const key of ["orders", "after-sales", "merchants", "riders", "dispatch", "audit-logs", "refund-settings", "payment", "support", "rtc", "integrations", "permissions"]) {
     assert.ok(getAdminWebModule(key), `missing ${key}`);
   }
   assert.ok(ADMIN_WEB_SECTIONS.length >= 4);
@@ -27,6 +27,7 @@ test("admin web exposes the first operable control-center modules", () => {
   assert.ok(ADMIN_WEB_QUEUES.some((item) => item.operationKey === "object-cleanup-stats"));
   assert.ok(ADMIN_WEB_RBAC.some((item) => item.role === "finance_admin" && item.scopes.includes("refund:write")));
   assert.ok(ADMIN_WEB_RBAC.some((item) => item.role === "security_auditor" && item.scopes.includes("audit:read")));
+  assert.ok(ADMIN_WEB_RBAC.every((item) => item.scopes.includes("*") || item.scopes.includes("rbac:read")));
 });
 
 test("admin web operation catalog covers shipped admin API surfaces", () => {
@@ -40,6 +41,8 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
     "after-sales-list",
     "operations-snapshot",
     "audit-logs",
+    "rbac-policy",
+    "rbac-change-request",
     "object-cleanup-stats",
     "object-cleanup-candidates",
     "outbox-stats",
@@ -57,7 +60,7 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
 });
 
 test("admin web ships P0 business views with actions and safeguards", () => {
-  for (const key of ["orders", "after-sales", "merchants", "riders", "rider-performance", "dispatch", "audit-logs", "refund-settings"]) {
+  for (const key of ["orders", "after-sales", "merchants", "riders", "rider-performance", "dispatch", "audit-logs", "refund-settings", "permissions"]) {
     const view = getAdminView(key);
     assert.equal(view.key, key);
     assert.ok(view.metrics.length >= 4, `missing metrics for ${key}`);
@@ -69,6 +72,7 @@ test("admin web ships P0 business views with actions and safeguards", () => {
   assert.ok(ADMIN_WEB_VIEWS.merchants.actions.includes("merchant-invite"));
   assert.ok(ADMIN_WEB_VIEWS.riders.actions.includes("station-riders"));
   assert.ok(ADMIN_WEB_VIEWS.dispatch.actions.includes("station-orders"));
+  assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-change-request"));
 });
 
 test("admin request builder normalizes auth query path and body", () => {
@@ -88,6 +92,10 @@ test("admin request builder normalizes auth query path and body", () => {
   const auditRequest = buildAdminRequest(getAdminOperation("audit-logs"), { actor_type: "admin", actor_id: "admin_1", target_type: "order", after: "2026-05-22T00:00:00Z", before: "2026-05-22T12:00:00Z", limit: 5 }, "Bearer admin.token");
   assert.equal(auditRequest.url, "/api/admin/audit-logs?actor_type=admin&actor_id=admin_1&target_type=order&after=2026-05-22T00%3A00%3A00Z&before=2026-05-22T12%3A00%3A00Z&limit=5");
   assert.equal(auditRequest.headers.Authorization, "Bearer admin.token");
+
+  const rbacRequest = buildAdminRequest(getAdminOperation("rbac-change-request"), { role: "support_admin", requested_scopes: "after_sales:read, rbac:read, rbac:read", reason: "support recertification" }, "admin.token");
+  assert.equal(rbacRequest.url, "/api/admin/rbac/change-requests");
+  assert.deepEqual(JSON.parse(rbacRequest.body), { role: "support_admin", requested_scopes: ["after_sales:read", "rbac:read"], reason: "support recertification" });
 
   const loginFields = fieldsForOperation(getAdminOperation("admin-login"));
   assert.deepEqual(loginFields.map((field) => field.key), ["account_id", "password"]);
@@ -181,6 +189,8 @@ test("admin audit filters normalize ranges presets and target routes", () => {
 
   const outboxRoute = auditTargetRoute({ target_type: "outbox_event", action: "admin.outbox.replayed" });
   assert.deepEqual(outboxRoute, { module: "dashboard", operation: "outbox-events", label: "Outbox 事件" });
+  const rbacRoute = auditTargetRoute({ target_type: "admin_rbac_role", action: "admin.rbac.change_requested" });
+  assert.deepEqual(rbacRoute, { module: "permissions", operation: "rbac-policy", label: "权限治理" });
   const fallbackRoute = auditTargetRoute({ target_type: "unknown", action: "admin.merchant_invite.created" });
   assert.equal(fallbackRoute.module, "merchants");
 });

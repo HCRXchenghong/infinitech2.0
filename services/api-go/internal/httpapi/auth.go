@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -42,11 +43,15 @@ const (
 	AdminScopeOutboxWrite        = "outbox:write"
 	AdminScopeRefundRead         = "refund:read"
 	AdminScopeRefundWrite        = "refund:write"
+	AdminScopeRBACRead           = "rbac:read"
+	AdminScopeRBACWrite          = "rbac:write"
 	AdminScopeRiderRead          = "rider:read"
 	AdminScopeSettlementRead     = "settlement:read"
 	AdminScopeSystemLogsRead     = "system_logs:read"
 	AdminScopeWalletRead         = "wallet:read"
 )
+
+const adminRBACPolicyVersion = "2026-05-24.rbac.v1"
 
 var (
 	errUnauthorized = errors.New("unauthorized")
@@ -116,6 +121,14 @@ func (p Principal) CanManageRefunds() bool {
 
 func (p Principal) CanReadOperationsSnapshot() bool {
 	return p.HasAdminScope(AdminScopeOperationsRead)
+}
+
+func (p Principal) CanReadRBACPolicy() bool {
+	return p.HasAdminScope(AdminScopeRBACRead) || p.HasAdminScope(AdminScopeRBACWrite)
+}
+
+func (p Principal) CanManageRBACPolicy() bool {
+	return p.HasAdminScope(AdminScopeRBACWrite)
 }
 
 func (p Principal) CanReadAdminAfterSales() bool {
@@ -373,10 +386,12 @@ var adminRoleScopes = map[string]map[string]struct{}{
 		AdminScopeOrderCompensate,
 		AdminScopeOutboxRead,
 		AdminScopeOutboxWrite,
+		AdminScopeRBACRead,
 		AdminScopeRiderRead,
 	),
 	RoleFinanceAdmin: scopeSet(
 		AdminScopeOperationsRead,
+		AdminScopeRBACRead,
 		AdminScopeRefundRead,
 		AdminScopeRefundWrite,
 		AdminScopeSettlementRead,
@@ -386,15 +401,203 @@ var adminRoleScopes = map[string]map[string]struct{}{
 		AdminScopeDispatchRead,
 		AdminScopeDispatchWrite,
 		AdminScopeOperationsRead,
+		AdminScopeRBACRead,
 		AdminScopeRiderRead,
 	),
 	RoleSupportAdmin: scopeSet(
 		AdminScopeAfterSalesEvent,
 		AdminScopeAfterSalesRead,
 		AdminScopeOperationsRead,
+		AdminScopeRBACRead,
 	),
 	RoleSecurityAuditor: scopeSet(
 		AdminScopeAuditRead,
+		AdminScopeRBACRead,
 		AdminScopeSystemLogsRead,
 	),
+}
+
+type AdminScopePolicy struct {
+	Key         string `json:"key"`
+	Category    string `json:"category"`
+	Description string `json:"description"`
+	RiskLevel   string `json:"risk_level"`
+}
+
+type AdminRolePolicy struct {
+	Role        string   `json:"role"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Scopes      []string `json:"scopes"`
+	BuiltIn     bool     `json:"built_in"`
+	ReadOnly    bool     `json:"read_only"`
+	DataDomain  string   `json:"data_domain"`
+}
+
+type AdminRBACPolicy struct {
+	Version             string             `json:"version"`
+	Roles               []AdminRolePolicy  `json:"roles"`
+	Scopes              []AdminScopePolicy `json:"scopes"`
+	CurrentRole         string             `json:"current_role"`
+	CurrentRoleScopes   []string           `json:"current_role_scopes"`
+	CanRequestChanges   bool               `json:"can_request_changes"`
+	ChangeApprovalModel string             `json:"change_approval_model"`
+	Notes               []string           `json:"notes"`
+}
+
+var adminRolePolicyCatalog = []AdminRolePolicy{
+	{
+		Role:        RoleAdmin,
+		Name:        "Legacy Admin",
+		Description: "Compatibility administrator. Keeps full access while older bootstrap flows migrate to super_admin.",
+		BuiltIn:     true,
+		ReadOnly:    true,
+		DataDomain:  "platform",
+	},
+	{
+		Role:        RoleSuperAdmin,
+		Name:        "Super Admin",
+		Description: "Full platform administrator. Owns RBAC policy change requests and emergency operations.",
+		BuiltIn:     true,
+		ReadOnly:    false,
+		DataDomain:  "platform",
+	},
+	{
+		Role:        RoleOpsAdmin,
+		Name:        "Operations Admin",
+		Description: "Runs onboarding, after-sales review, object cleanup, outbox recovery and order compensation.",
+		BuiltIn:     true,
+		ReadOnly:    false,
+		DataDomain:  "platform",
+	},
+	{
+		Role:        RoleFinanceAdmin,
+		Name:        "Finance Admin",
+		Description: "Handles refund policy, refund operations, wallet visibility and settlement read models.",
+		BuiltIn:     true,
+		ReadOnly:    false,
+		DataDomain:  "finance",
+	},
+	{
+		Role:        RoleDispatchAdmin,
+		Name:        "Dispatch Admin",
+		Description: "Reads and manages dispatch work, station rider views and dispatch task configuration.",
+		BuiltIn:     true,
+		ReadOnly:    false,
+		DataDomain:  "dispatch",
+	},
+	{
+		Role:        RoleSupportAdmin,
+		Name:        "Support Admin",
+		Description: "Reads after-sales queues and adds customer-service events without approving refunds.",
+		BuiltIn:     true,
+		ReadOnly:    false,
+		DataDomain:  "support",
+	},
+	{
+		Role:        RoleSecurityAuditor,
+		Name:        "Security Auditor",
+		Description: "Reads audit logs and security policy metadata without operational write access.",
+		BuiltIn:     true,
+		ReadOnly:    true,
+		DataDomain:  "security",
+	},
+}
+
+var adminScopePolicyCatalog = []AdminScopePolicy{
+	{Key: AdminScopeAll, Category: "system", Description: "All backoffice permissions.", RiskLevel: "critical"},
+	{Key: AdminScopeAfterSalesEvent, Category: "support", Description: "Add customer-service events and evidence to after-sales requests.", RiskLevel: "medium"},
+	{Key: AdminScopeAfterSalesRead, Category: "support", Description: "Read platform after-sales queues and evidence.", RiskLevel: "medium"},
+	{Key: AdminScopeAfterSalesReview, Category: "support", Description: "Review after-sales requests and trigger approved refunds.", RiskLevel: "high"},
+	{Key: AdminScopeAuditRead, Category: "security", Description: "Read operation audit logs.", RiskLevel: "high"},
+	{Key: AdminScopeDispatchRead, Category: "dispatch", Description: "Read dispatch events, station riders and station order queues.", RiskLevel: "medium"},
+	{Key: AdminScopeDispatchWrite, Category: "dispatch", Description: "Run auto assign, timeout reassignment, manual assignment and station task writes.", RiskLevel: "high"},
+	{Key: AdminScopeInviteWrite, Category: "onboarding", Description: "Create merchant, station manager and rider onboarding invites.", RiskLevel: "high"},
+	{Key: AdminScopeObjectCleanupRead, Category: "storage", Description: "Read object cleanup candidates and cleanup statistics.", RiskLevel: "medium"},
+	{Key: AdminScopeObjectCleanupWrite, Category: "storage", Description: "Mark object cleanup completion and failure results.", RiskLevel: "high"},
+	{Key: AdminScopeOperationsRead, Category: "operations", Description: "Read the admin operations snapshot.", RiskLevel: "medium"},
+	{Key: AdminScopeOrderCompensate, Category: "orders", Description: "Run order state compensation for drift recovery.", RiskLevel: "critical"},
+	{Key: AdminScopeOutboxRead, Category: "events", Description: "Read outbox events, stats and relay health.", RiskLevel: "medium"},
+	{Key: AdminScopeOutboxWrite, Category: "events", Description: "Claim, renew, publish, fail and replay outbox events.", RiskLevel: "critical"},
+	{Key: AdminScopeRefundRead, Category: "finance", Description: "Read refund settings and refund policy metadata.", RiskLevel: "medium"},
+	{Key: AdminScopeRefundWrite, Category: "finance", Description: "Change refund settings and execute admin refunds.", RiskLevel: "critical"},
+	{Key: AdminScopeRBACRead, Category: "security", Description: "Read the backoffice RBAC policy matrix.", RiskLevel: "medium"},
+	{Key: AdminScopeRBACWrite, Category: "security", Description: "Request RBAC policy changes and security governance actions.", RiskLevel: "critical"},
+	{Key: AdminScopeRiderRead, Category: "dispatch", Description: "Read rider and rider performance views.", RiskLevel: "medium"},
+	{Key: AdminScopeSettlementRead, Category: "finance", Description: "Read settlement and commission reports.", RiskLevel: "high"},
+	{Key: AdminScopeSystemLogsRead, Category: "security", Description: "Read system log and audit-health surfaces.", RiskLevel: "high"},
+	{Key: AdminScopeWalletRead, Category: "finance", Description: "Read wallet and balance ledgers.", RiskLevel: "high"},
+}
+
+func AdminRBACPolicyForPrincipal(principal Principal) AdminRBACPolicy {
+	roles := make([]AdminRolePolicy, 0, len(adminRolePolicyCatalog))
+	for _, role := range adminRolePolicyCatalog {
+		role.Scopes = AdminScopesForRole(role.Role)
+		roles = append(roles, role)
+	}
+	return AdminRBACPolicy{
+		Version:             adminRBACPolicyVersion,
+		Roles:               roles,
+		Scopes:              append([]AdminScopePolicy(nil), adminScopePolicyCatalog...),
+		CurrentRole:         principal.Role,
+		CurrentRoleScopes:   AdminScopesForRole(principal.Role),
+		CanRequestChanges:   principal.CanManageRBACPolicy(),
+		ChangeApprovalModel: "super_admin_or_legacy_admin_request_with_audit_then_manual_review",
+		Notes: []string{
+			"Built-in scopes are enforced by api-go route guards.",
+			"Change requests are audit-only in this stage and do not mutate the runtime policy automatically.",
+			"Field-level, station-level and merchant-level policy rules are still pending commercial governance work.",
+		},
+	}
+}
+
+func AdminScopesForRole(role string) []string {
+	scopes, ok := adminRoleScopes[strings.TrimSpace(role)]
+	if !ok {
+		return []string{}
+	}
+	if _, ok := scopes[AdminScopeAll]; ok {
+		return []string{AdminScopeAll}
+	}
+	output := make([]string, 0, len(scopes))
+	for scope := range scopes {
+		output = append(output, scope)
+	}
+	sort.Strings(output)
+	return output
+}
+
+func IsBackofficeRoleName(role string) bool {
+	return (Principal{Role: strings.TrimSpace(role), ID: "role_check"}).IsBackofficeRole()
+}
+
+func NormalizeAdminScopeList(scopes []string) ([]string, bool) {
+	seen := map[string]struct{}{}
+	output := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" {
+			continue
+		}
+		if !IsKnownAdminScope(scope) {
+			return nil, false
+		}
+		if _, ok := seen[scope]; ok {
+			continue
+		}
+		seen[scope] = struct{}{}
+		output = append(output, scope)
+	}
+	sort.Strings(output)
+	return output, true
+}
+
+func IsKnownAdminScope(scope string) bool {
+	scope = strings.TrimSpace(scope)
+	for _, item := range adminScopePolicyCatalog {
+		if item.Key == scope {
+			return true
+		}
+	}
+	return false
 }

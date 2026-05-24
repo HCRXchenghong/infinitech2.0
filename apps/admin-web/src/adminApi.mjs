@@ -112,6 +112,28 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     fields: []
   },
   {
+    key: "rbac-policy",
+    title: "RBAC 策略矩阵",
+    method: "GET",
+    path: "/api/admin/rbac/policy",
+    authRequired: true,
+    area: "security",
+    fields: []
+  },
+  {
+    key: "rbac-change-request",
+    title: "提交权限变更申请",
+    method: "POST",
+    path: "/api/admin/rbac/change-requests",
+    authRequired: true,
+    area: "security",
+    fields: [
+      { key: "role", label: "目标角色", type: "select", defaultValue: "support_admin", options: ["ops_admin", "finance_admin", "dispatch_admin", "support_admin", "security_auditor"], required: true },
+      { key: "requested_scopes", label: "申请 scopes", type: "csv", defaultValue: "after_sales:read,after_sales:event,rbac:read", required: true },
+      { key: "reason", label: "申请原因", type: "text", defaultValue: "least privilege recertification", required: true }
+    ]
+  },
+  {
     key: "object-cleanup-stats",
     title: "对象清理统计",
     method: "GET",
@@ -238,6 +260,17 @@ export function fieldsForOperation(operation) {
 }
 
 function normalizeValue(field, value) {
+  if (field.type === "csv") {
+    const rawItems = Array.isArray(value) ? value : String(value ?? "").split(",");
+    const seen = new Set();
+    return rawItems.map((item) => String(item).trim()).filter((item) => {
+      if (!item || seen.has(item)) {
+        return false;
+      }
+      seen.add(item);
+      return true;
+    });
+  }
   if (field.type === "number") {
     const numberValue = Number(value);
     return Number.isFinite(numberValue) ? numberValue : undefined;
@@ -246,6 +279,13 @@ function normalizeValue(field, value) {
     return value.trim();
   }
   return value;
+}
+
+function isEmptyValue(value) {
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+  return value === undefined || value === "";
 }
 
 export function buildAdminRequest(operation, values = {}, token = "") {
@@ -271,10 +311,10 @@ export function buildAdminRequest(operation, values = {}, token = "") {
   const body = {};
   for (const field of operation.fields || []) {
     const value = normalizeValue(field, values[field.key] ?? field.defaultValue ?? "");
-    if (field.required && !value) {
+    if (field.required && isEmptyValue(value)) {
       throw new Error(`${field.label}不能为空`);
     }
-    if (value !== undefined && value !== "") {
+    if (!isEmptyValue(value)) {
       body[field.key] = value;
     }
   }

@@ -178,6 +178,26 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       ["red_packet_return", "平台余额", "红包未领取退回", "红包流水", "资金冻结"]
     ],
     safeguards: ["钱包余额只经流水变化", "退款幂等键必填", "原路退款先入 outbox"]
+  },
+  permissions: {
+    key: "permissions",
+    title: "权限治理",
+    subtitle: "查看服务端真实 RBAC 矩阵，并提交只写审计、不自动生效的权限变更申请。",
+    metrics: [
+      { label: "策略版本", value: "2026-05-24", tone: "blue" },
+      { label: "后台角色", value: "7", tone: "green" },
+      { label: "高危 scope", value: "6", tone: "red" },
+      { label: "变更模式", value: "审批", tone: "amber" }
+    ],
+    actions: ["rbac-policy", "rbac-change-request", "audit-logs"],
+    columns: ["角色", "数据域", "可见权限", "高危动作", "变更方式"],
+    rows: [
+      ["super_admin", "platform", "全部", "rbac:write", "提交申请并审计"],
+      ["ops_admin", "platform", "运营/邀约/售后/outbox", "order:compensate", "需超级管理员申请"],
+      ["finance_admin", "finance", "退款/钱包/结算", "refund:write", "需超级管理员申请"],
+      ["security_auditor", "security", "审计/RBAC 只读", "无写权限", "只读复核"]
+    ],
+    safeguards: ["普通分权角色只能读取策略矩阵", "权限变更申请写入审计但不自动改运行时策略", "字段级和站点/商户数据域仍需继续补齐"]
   }
 });
 

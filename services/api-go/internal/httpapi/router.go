@@ -116,6 +116,8 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("GET /api/admin/after-sales", r.handleAdminAfterSales)
 	r.mux.HandleFunc("GET /api/admin/operations/snapshot", r.handleAdminOperationsSnapshot)
 	r.mux.HandleFunc("GET /api/admin/audit-logs", r.handleAdminAuditLogs)
+	r.mux.HandleFunc("GET /api/admin/rbac/policy", r.handleAdminRBACPolicy)
+	r.mux.HandleFunc("POST /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequest)
 	r.mux.HandleFunc("GET /api/admin/object-storage/cleanup-candidates", r.handleAdminObjectStorageCleanupCandidates)
 	r.mux.HandleFunc("GET /api/admin/object-storage/cleanup-stats", r.handleAdminObjectStorageCleanupStats)
 	r.mux.HandleFunc("POST /api/admin/object-storage/cleanup-complete", r.handleAdminObjectStorageCleanupComplete)
@@ -1287,6 +1289,105 @@ func (r *Router) handleAdminAuditLogs(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 	writeSuccess(w, logs)
+}
+
+func (r *Router) handleAdminRBACPolicy(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanReadRBACPolicy() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	writeSuccess(w, AdminRBACPolicyForPrincipal(principal))
+}
+
+type adminRBACChangeRequestPayload struct {
+	Role            string   `json:"role"`
+	RequestedScopes []string `json:"requested_scopes"`
+	Reason          string   `json:"reason"`
+}
+
+func (r *Router) handleAdminRBACChangeRequest(w http.ResponseWriter, req *http.Request) {
+	var payload adminRBACChangeRequestPayload
+	if !decodeJSON(w, req, &payload) {
+		return
+	}
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanManageRBACPolicy() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	role := strings.TrimSpace(payload.Role)
+	if !IsBackofficeRoleName(role) {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	requestedScopes, valid := NormalizeAdminScopeList(payload.RequestedScopes)
+	if !valid || len(requestedScopes) == 0 {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	if includesAdminScope(requestedScopes, AdminScopeAll) && role != RoleAdmin && role != RoleSuperAdmin {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	reason := strings.TrimSpace(payload.Reason)
+	if reason == "" {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	changeRequestID := "rbac_change_" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
+	currentScopes := AdminScopesForRole(role)
+	audit, err := r.store.RecordAuditLog(platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.rbac.change_requested",
+		TargetType: "admin_rbac_role",
+		TargetID:   role,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+		Payload: map[string]any{
+			"change_request_id": changeRequestID,
+			"current_scopes":    currentScopes,
+			"policy_version":    adminRBACPolicyVersion,
+			"reason":            reason,
+			"requested_scopes":  requestedScopes,
+			"role":              role,
+			"status":            "pending_approval",
+		},
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccessStatus(w, http.StatusCreated, map[string]any{
+		"id":                 changeRequestID,
+		"role":               role,
+		"current_scopes":     currentScopes,
+		"requested_scopes":   requestedScopes,
+		"reason":             reason,
+		"status":             "pending_approval",
+		"policy_version":     adminRBACPolicyVersion,
+		"approval_required":  true,
+		"auto_applied":       false,
+		"audit_log":          audit,
+		"requested_by_role":  principal.Role,
+		"requested_by_admin": principal.ID,
+	})
+}
+
+func includesAdminScope(scopes []string, target string) bool {
+	for _, scope := range scopes {
+		if scope == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Router) recordAuditLog(req *http.Request, principal Principal, action string, targetType string, targetID string, payload map[string]any) error {

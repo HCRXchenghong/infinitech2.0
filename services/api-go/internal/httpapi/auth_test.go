@@ -21,32 +21,32 @@ func TestBackofficeRBACScopeMatrix(t *testing.T) {
 		{
 			name:    "ops admin can operate but not finance",
 			role:    RoleOpsAdmin,
-			allowed: []string{AdminScopeInviteWrite, AdminScopeAfterSalesReview, AdminScopeOrderCompensate, AdminScopeOutboxWrite, AdminScopeObjectCleanupWrite},
-			denied:  []string{AdminScopeRefundWrite, AdminScopeAuditRead, AdminScopeSettlementRead},
+			allowed: []string{AdminScopeInviteWrite, AdminScopeAfterSalesReview, AdminScopeOrderCompensate, AdminScopeOutboxWrite, AdminScopeObjectCleanupWrite, AdminScopeRBACRead},
+			denied:  []string{AdminScopeRefundWrite, AdminScopeAuditRead, AdminScopeRBACWrite, AdminScopeSettlementRead},
 		},
 		{
 			name:    "finance admin owns refund and settlement scopes only",
 			role:    RoleFinanceAdmin,
-			allowed: []string{AdminScopeRefundRead, AdminScopeRefundWrite, AdminScopeWalletRead, AdminScopeSettlementRead},
-			denied:  []string{AdminScopeInviteWrite, AdminScopeOutboxWrite, AdminScopeDispatchWrite, AdminScopeAuditRead},
+			allowed: []string{AdminScopeRefundRead, AdminScopeRefundWrite, AdminScopeRBACRead, AdminScopeWalletRead, AdminScopeSettlementRead},
+			denied:  []string{AdminScopeInviteWrite, AdminScopeOutboxWrite, AdminScopeDispatchWrite, AdminScopeRBACWrite, AdminScopeAuditRead},
 		},
 		{
 			name:    "dispatch admin owns dispatch scopes only",
 			role:    RoleDispatchAdmin,
-			allowed: []string{AdminScopeDispatchRead, AdminScopeDispatchWrite, AdminScopeRiderRead},
-			denied:  []string{AdminScopeRefundWrite, AdminScopeAuditRead, AdminScopeInviteWrite},
+			allowed: []string{AdminScopeDispatchRead, AdminScopeDispatchWrite, AdminScopeRBACRead, AdminScopeRiderRead},
+			denied:  []string{AdminScopeRefundWrite, AdminScopeAuditRead, AdminScopeInviteWrite, AdminScopeRBACWrite},
 		},
 		{
 			name:    "support admin can read and add after sales events but not approve refunds",
 			role:    RoleSupportAdmin,
-			allowed: []string{AdminScopeAfterSalesRead, AdminScopeAfterSalesEvent},
-			denied:  []string{AdminScopeAfterSalesReview, AdminScopeRefundWrite, AdminScopeAuditRead},
+			allowed: []string{AdminScopeAfterSalesRead, AdminScopeAfterSalesEvent, AdminScopeRBACRead},
+			denied:  []string{AdminScopeAfterSalesReview, AdminScopeRefundWrite, AdminScopeAuditRead, AdminScopeRBACWrite},
 		},
 		{
 			name:    "security auditor is read only for audit",
 			role:    RoleSecurityAuditor,
-			allowed: []string{AdminScopeAuditRead, AdminScopeSystemLogsRead},
-			denied:  []string{AdminScopeInviteWrite, AdminScopeRefundWrite, AdminScopeOutboxWrite},
+			allowed: []string{AdminScopeAuditRead, AdminScopeRBACRead, AdminScopeSystemLogsRead},
+			denied:  []string{AdminScopeInviteWrite, AdminScopeRefundWrite, AdminScopeOutboxWrite, AdminScopeRBACWrite},
 		},
 	}
 
@@ -64,6 +64,26 @@ func TestBackofficeRBACScopeMatrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBackofficeRBACPolicyCatalog(t *testing.T) {
+	policy := AdminRBACPolicyForPrincipal(Principal{ID: "admin_1", Role: RoleSuperAdmin})
+	if policy.Version != adminRBACPolicyVersion || !policy.CanRequestChanges {
+		t.Fatalf("expected super admin policy with change access, got %+v", policy)
+	}
+	if len(policy.Roles) < 7 || len(policy.Scopes) < 20 {
+		t.Fatalf("expected built-in roles and scopes, got %+v", policy)
+	}
+	if !IsKnownAdminScope(AdminScopeRBACRead) || !IsKnownAdminScope(AdminScopeRBACWrite) {
+		t.Fatalf("expected RBAC scopes to be catalogued")
+	}
+	normalized, ok := NormalizeAdminScopeList([]string{AdminScopeRefundWrite, AdminScopeRefundWrite, " "})
+	if !ok || len(normalized) != 1 || normalized[0] != AdminScopeRefundWrite {
+		t.Fatalf("expected scope list normalization, got scopes=%+v ok=%v", normalized, ok)
+	}
+	if _, ok := NormalizeAdminScopeList([]string{"unknown:scope"}); ok {
+		t.Fatalf("expected unknown scope to be rejected")
 	}
 }
 

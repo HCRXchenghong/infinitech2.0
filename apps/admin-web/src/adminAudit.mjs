@@ -1,15 +1,20 @@
 const SENSITIVE_KEY_PATTERN = /(password|secret|token|authorization|openid|session|credential|certificate|phone|mobile|email|id_card|identity|file_url|object_key|signature|pay_sign|nonce)/i;
 const PAYLOAD_ALLOWLIST = Object.freeze([
   "amount_fen",
+  "change_request_id",
+  "current_scopes",
   "decision",
   "default_refund_strategy",
   "event_id",
   "idempotency_key",
   "limit",
   "max_attempts",
+  "policy_version",
   "reason",
   "refund_id",
+  "requested_scopes",
   "retry_after_seconds",
+  "role",
   "status",
   "topic",
   "type"
@@ -30,6 +35,7 @@ const AUDIT_TARGET_ROUTES = Object.freeze({
   after_sales: { module: "after-sales", operation: "after-sales-list", label: "售后审核" },
   merchant: { module: "merchants", operation: "merchant-invite", label: "商户资质" },
   merchant_invite: { module: "merchants", operation: "merchant-invite", label: "商户资质" },
+  admin_rbac_role: { module: "permissions", operation: "rbac-policy", label: "权限治理" },
   object_storage_ticket: { module: "after-sales", operation: "object-cleanup-candidates", label: "对象清理" },
   order: { module: "orders", operation: "order-compensate", label: "订单监控" },
   outbox_event: { module: "dashboard", operation: "outbox-events", label: "Outbox 事件" },
@@ -225,6 +231,7 @@ export function auditTargetRoute(log = {}) {
   }
   const action = trim(log.action);
   if (action.includes("after_sales")) return AUDIT_TARGET_ROUTES.after_sales;
+  if (action.includes("rbac")) return AUDIT_TARGET_ROUTES.admin_rbac_role;
   if (action.includes("outbox")) return AUDIT_TARGET_ROUTES.outbox_event;
   if (action.includes("refund")) return AUDIT_TARGET_ROUTES.refund_settings;
   if (action.includes("rider") || action.includes("station")) return AUDIT_TARGET_ROUTES.rider;
