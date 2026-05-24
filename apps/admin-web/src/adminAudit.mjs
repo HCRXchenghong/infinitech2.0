@@ -1,12 +1,19 @@
 const SENSITIVE_KEY_PATTERN = /(password|secret|token|authorization|openid|session|credential|certificate|phone|mobile|email|id_card|identity|file_url|object_key|signature|pay_sign|nonce)/i;
 const PAYLOAD_ALLOWLIST = Object.freeze([
+  "action_filter",
+  "actor_id",
+  "actor_type",
+  "after",
   "amount_fen",
   "applied_scopes",
+  "before",
   "change_request_id",
   "current_scopes",
   "decision",
   "default_refund_strategy",
   "event_id",
+  "export_format",
+  "generated_at",
   "idempotency_key",
   "limit",
   "max_attempts",
@@ -19,6 +26,7 @@ const PAYLOAD_ALLOWLIST = Object.freeze([
   "role",
   "rollback_from_scopes",
   "rollback_to_scopes",
+  "row_count",
   "status",
   "topic",
   "type"
@@ -285,4 +293,19 @@ export function nextAuditBefore(logs = []) {
 export function auditDataFromResult(result) {
   const data = result?.payload?.data;
   return Array.isArray(data) ? data : [];
+}
+
+export function auditExportDataFromResult(result) {
+  const data = result?.payload?.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return null;
+  }
+  return {
+    format: compact(data.format, ""),
+    filename: compact(data.filename, ""),
+    contentType: compact(data.content_type, "text/csv; charset=utf-8"),
+    rowCount: Number(data.row_count || 0),
+    csv: compact(data.csv, ""),
+    generatedAt: compact(data.generated_at, "")
+  };
 }

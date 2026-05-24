@@ -110,6 +110,7 @@ test("admin web has a minimum operable control center", () => {
   assert.match(api, /\/api\/admin\/merchant-invites/);
   assert.match(api, /\/api\/admin\/operations\/snapshot/);
   assert.match(api, /\/api\/admin\/audit-logs/);
+  assert.match(api, /\/api\/admin\/audit-logs\/export/);
   assert.match(api, /\/api\/admin\/rbac\/policy/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests\/:change_request_id\/review/);
@@ -125,6 +126,7 @@ test("admin web has a minimum operable control center", () => {
   assert.match(audit, /summarizeAuditPayload/);
   assert.match(audit, /normalizeAuditFilters/);
   assert.match(audit, /makeAuditFilterPreset/);
+  assert.match(audit, /auditExportDataFromResult/);
   assert.match(audit, /auditTargetRoute/);
   assert.match(audit, /auditIntegrityState/);
   assert.match(audit, /integrity_verified/);
@@ -180,7 +182,9 @@ test("bff keeps browser CORS guard for local admin and uni shells", () => {
   assert.match(tests, /admin api preflight and proxy responses/);
   assert.match(tests, /\/api\/admin\/operations\/snapshot/);
   assert.match(server, /\/api\/admin\/audit-logs/);
+  assert.match(server, /\/api\/admin\/audit-logs\/export/);
   assert.match(tests, /\/api\/admin\/audit-logs/);
+  assert.match(tests, /\/api\/admin\/audit-logs\/export/);
   assert.match(server, /\/api\/admin\/rbac\/policy/);
   assert.match(tests, /\/api\/admin\/rbac\/policy/);
   assert.match(server, /\/api\/admin\/rbac\/change-requests/);
@@ -642,6 +646,9 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(authSession, /dispatch_admin/);
   assert.match(authSession, /support_admin/);
   assert.match(router, /GET \/api\/admin\/audit-logs/);
+  assert.match(router, /GET \/api\/admin\/audit-logs\/export/);
+  assert.match(router, /admin\.audit_logs\.exported/);
+  assert.match(router, /buildAdminAuditLogCSV/);
   assert.match(router, /GET \/api\/admin\/rbac\/policy/);
   assert.match(router, /GET \/api\/admin\/rbac\/change-requests/);
   assert.match(router, /POST \/api\/admin\/rbac\/change-requests/);
@@ -685,6 +692,8 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(router, /latestAdminRBACPolicyAuditForRole/);
   assert.match(router, /record\.RequestedByAdmin == principal\.ID/);
   assert.match(routerTest, /securityAuditorToken/);
+  assert.match(routerTest, /admin\.audit_logs\.exported/);
+  assert.match(routerTest, /integrity_verified/);
   assert.match(routerTest, /TestAdminRBACRoleMatrixHTTPFlow/);
   assert.match(routerTest, /admin\.rbac\.change_requested/);
   assert.match(routerTest, /admin\.rbac\.change_reviewed/);
@@ -718,6 +727,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(routerTest, /must not call standalone RecordObjectStorageCleanupFailure/);
   assert.match(routerTest, /must not call standalone RecordAuditLog/);
   assert.match(bff, /\/api\/admin\/audit-logs/);
+  assert.match(bff, /\/api\/admin\/audit-logs\/export/);
   assert.match(bff, /\/api\/admin\/rbac\/policy/);
   assert.match(bff, /\/api\/admin\/rbac\/change-requests/);
   assert.match(bff, /change-requests\\\/\[\^\/\]\+\\\/review/);

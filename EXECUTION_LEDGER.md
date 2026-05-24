@@ -1761,7 +1761,7 @@
 - 验收证据：
   - `cd services/api-go && go test -count=1 ./...`
   - `npm run verify:architecture`
-- 当前边界：审计已进入规范化 PostgreSQL 表，但仍不是完整商业审计中心。关键业务写操作与审计写入还不是同一个业务事务内的强制原子提交；仍需补细分 RBAC、审计检索页、导出/留存、异常告警、KMS/链式不可抵赖签名和审计归档冷热分层；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版，审计完整性证明已在后续 `DONE-20260523-090` 落地首版。
+- 当前边界：审计已进入规范化 PostgreSQL 表，但仍不是完整商业审计中心。关键业务写操作与审计写入还不是同一个业务事务内的强制原子提交；仍需补细分 RBAC、审计检索页、留存策略、异常告警、KMS/链式不可抵赖签名和审计归档冷热分层；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版，审计完整性证明已在后续 `DONE-20260523-090` 落地首版，审计导出已在后续 `DONE-20260524-102` 落地首版。
 - 文件：
   - `infra/db/migrations/0001_core.sql`
   - `services/api-go/internal/platform/store.go`
@@ -1790,7 +1790,7 @@
 - 验收证据：
   - `npm run test --workspace @infinitech/admin-web`
   - `npm run verify:architecture`
-- 当前边界：这是 Admin Web 审计检索首版，仍不是完整商业审计中心。全域服务端细分 RBAC、关键业务写操作与审计写入同事务强制提交、审计导出/留存、异常告警、KMS/链式不可抵赖签名和冷热归档仍待推进；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版，审计完整性证明已在后续 `DONE-20260523-090` 落地首版。
+- 当前边界：这是 Admin Web 审计检索首版，仍不是完整商业审计中心。全域服务端细分 RBAC、关键业务写操作与审计写入同事务强制提交、审计留存、异常告警、KMS/链式不可抵赖签名和冷热归档仍待推进；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版，审计完整性证明已在后续 `DONE-20260523-090` 落地首版，审计导出已在后续 `DONE-20260524-102` 落地首版。
 - 文件：
   - `apps/admin-web/src/adminAudit.mjs`
   - `apps/admin-web/src/adminApi.mjs`
@@ -1817,7 +1817,7 @@
   - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
   - `npm run verify:architecture`
   - `npm run verify`
-- 当前边界：审计中心仍未达到完整商业审计闭环。全域服务端细分 RBAC、关键业务写操作与审计写入同事务强制提交、审计导出/留存、异常告警、KMS/链式不可抵赖签名和冷热归档仍待推进；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版，审计完整性证明已在后续 `DONE-20260523-090` 落地首版。
+- 当前边界：审计中心仍未达到完整商业审计闭环。全域服务端细分 RBAC、关键业务写操作与审计写入同事务强制提交、审计留存、异常告警、KMS/链式不可抵赖签名和冷热归档仍待推进；审计 payload 服务端白名单/掩码已在后续 `DONE-20260523-089` 落地首版，审计完整性证明已在后续 `DONE-20260523-090` 落地首版，审计导出已在后续 `DONE-20260524-102` 落地首版。
 - 文件：
   - `services/api-go/internal/httpapi/router.go`
   - `services/api-go/internal/httpapi/router_test.go`
@@ -1847,7 +1847,7 @@
 - 验收证据：
   - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
   - `npm run verify:architecture`
-- 当前边界：这是审计服务端只读角色和 payload 安全边界首版，不是完整商业审计闭环。关键业务写操作与审计写入仍需推进到同一业务事务强制提交；全域服务端 RBAC 策略矩阵、审计导出/留存、异常告警、KMS/链式不可抵赖签名、冷热归档和策略治理仍待补齐；审计完整性证明已在后续 `DONE-20260523-090` 落地首版。
+- 当前边界：这是审计服务端只读角色和 payload 安全边界首版，不是完整商业审计闭环。关键业务写操作与审计写入仍需推进到同一业务事务强制提交；全域服务端 RBAC 策略矩阵、审计留存、异常告警、KMS/链式不可抵赖签名、冷热归档和策略治理仍待补齐；审计完整性证明已在后续 `DONE-20260523-090` 落地首版，审计导出已在后续 `DONE-20260524-102` 落地首版。
 - 文件：
   - `services/api-go/internal/httpapi/auth.go`
   - `services/api-go/internal/httpapi/auth_session.go`
@@ -1877,7 +1877,7 @@
   - `npm run test --workspace @infinitech/admin-web`
   - `npm run verify:architecture`
   - `npm run verify`
-- 当前边界：这是审计完整性证明首版，不是法律级不可抵赖归档。关键业务写操作与审计写入仍需推进到同一业务事务强制提交；全域服务端 RBAC、导出/留存、异常告警、KMS/Vault 密钥轮换、链式账本、WORM/冷归档和策略治理仍待补齐。
+- 当前边界：这是审计完整性证明首版，不是法律级不可抵赖归档。关键业务写操作与审计写入仍需推进到同一业务事务强制提交；全域服务端 RBAC、留存策略、异常告警、KMS/Vault 密钥轮换、链式账本、WORM/冷归档和策略治理仍待补齐；审计导出已在后续 `DONE-20260524-102` 落地首版。
 - 文件：
   - `services/api-go/cmd/api/main.go`
   - `services/api-go/internal/platform/contracts.go`
@@ -1909,7 +1909,7 @@
   - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
   - `node --test scripts/check-architecture.mjs`
   - 本轮收尾继续跑 `npm run test --workspace @infinitech/admin-web`、`npm run verify:architecture`、`npm run verify` 和 `git diff --check`
-- 当前边界：这是首个关键配置写路径的业务写入与审计写入同事务提交，不代表所有后台写操作都已完成原子审计；后续 `DONE-20260523-092` 已继续迁移管理端订单退款，`DONE-20260523-093` 已继续迁移售后审核，`DONE-20260523-094` 已继续迁移订单状态补偿。对象清理完成/失败、outbox 领取/续租/发布/失败/重放/批量重放、商户/骑手邀约等写路径仍需继续迁移到同一业务事务强制提交；审计导出/留存、异常告警、KMS/Vault 密钥轮换、链式账本、WORM/冷归档和策略治理仍待补齐。
+- 当前边界：这是首个关键配置写路径的业务写入与审计写入同事务提交，不代表所有后台写操作都已完成原子审计；后续 `DONE-20260523-092` 已继续迁移管理端订单退款，`DONE-20260523-093` 已继续迁移售后审核，`DONE-20260523-094` 已继续迁移订单状态补偿。对象清理完成/失败、outbox 领取/续租/发布/失败/重放/批量重放、商户/骑手邀约等写路径仍需继续迁移到同一业务事务强制提交；审计留存、异常告警、KMS/Vault 密钥轮换、链式账本、WORM/冷归档和策略治理仍待补齐；审计导出已在后续 `DONE-20260524-102` 落地首版。
 - 文件：
   - `services/api-go/internal/platform/repository.go`
   - `services/api-go/internal/platform/store.go`
@@ -2009,7 +2009,7 @@
   - `cd services/api-go && go test -count=1 ./...`
   - `npm run verify`
   - `git diff --check`
-- 当前边界：这是 outbox 运维写路径的业务写入与审计写入同事务首版，不代表审计中心已经完整商业闭环。商户/骑手邀约已在后续 `DONE-20260524-096` 迁移，服务端 RBAC 策略矩阵首版已在后续 `DONE-20260524-097` 落地；剩余后台配置/运营处置/资金风控写路径审计同事务、角色/权限配置 UI、字段级/租户级权限、审计导出/留存、异常告警、KMS/Vault 密钥轮换、链式账本、WORM/冷归档和策略治理仍待补齐。
+- 当前边界：这是 outbox 运维写路径的业务写入与审计写入同事务首版，不代表审计中心已经完整商业闭环。商户/骑手邀约已在后续 `DONE-20260524-096` 迁移，服务端 RBAC 策略矩阵首版已在后续 `DONE-20260524-097` 落地，审计导出已在后续 `DONE-20260524-102` 落地；剩余后台配置/运营处置/资金风控写路径审计同事务、角色/权限配置 UI、字段级/租户级权限、审计留存、异常告警、KMS/Vault 密钥轮换、链式账本、WORM/冷归档和策略治理仍待补齐。
 - 文件：
   - `services/api-go/internal/platform/repository.go`
   - `services/api-go/internal/platform/store.go`
@@ -2034,7 +2034,7 @@
   - `cd services/api-go && go test -count=1 ./...`
   - `npm run verify`
   - `git diff --check`
-- 当前边界：这是商户/骑手/站长邀约写路径的业务写入与审计写入同事务首版，不代表审计中心已经完整商业闭环。服务端 RBAC 策略矩阵首版已在后续 `DONE-20260524-097` 落地；后续仍需继续扫描后台配置、运营处置、资金和风控写路径，并补角色/权限配置 UI、字段级/租户级权限、审计导出/留存、异常告警、KMS/Vault 密钥轮换、链式账本、WORM/冷归档和策略治理。
+- 当前边界：这是商户/骑手/站长邀约写路径的业务写入与审计写入同事务首版，不代表审计中心已经完整商业闭环。服务端 RBAC 策略矩阵首版已在后续 `DONE-20260524-097` 落地，审计导出已在后续 `DONE-20260524-102` 落地；后续仍需继续扫描后台配置、运营处置、资金和风控写路径，并补角色/权限配置 UI、字段级/租户级权限、审计留存、异常告警、KMS/Vault 密钥轮换、链式账本、WORM/冷归档和策略治理。
 - 文件：
   - `services/api-go/internal/platform/repository.go`
   - `services/api-go/internal/platform/store.go`
@@ -2059,7 +2059,7 @@
   - `cd services/api-go && go test -count=1 ./...`
   - `npm run verify`
   - `git diff --check`
-- 当前边界：这是服务端 RBAC 首版，不等于后台权限治理已经商业闭环。后续仍需角色/权限配置 UI、字段级权限、租户/站点数据域、审批流、权限变更审计、菜单隐藏策略、导出留存策略和异常告警。
+- 当前边界：这是服务端 RBAC 首版，不等于后台权限治理已经商业闭环。后续仍需角色/权限配置 UI、字段级权限、租户/站点数据域、审批流、权限变更审计、菜单隐藏策略、留存策略和异常告警；审计导出已在后续 `DONE-20260524-102` 落地首版。
 - 文件：
   - `services/api-go/internal/httpapi/auth.go`
   - `services/api-go/internal/httpapi/auth_test.go`
@@ -2086,7 +2086,7 @@
   - 本轮收尾继续跑 `cd services/api-go && go test -count=1 ./...`
   - 本轮收尾继续跑 `npm run verify`
   - 本轮收尾继续跑 `git diff --check`
-- 当时边界：这是权限治理查询与申请审计首版，不代表权限已可在页面动态审批并自动生效。后续审批/驳回台账已在 `DONE-20260524-099` 落地，手动应用已在 `DONE-20260524-100` 落地；字段级/租户级 RBAC、站点/商户数据域、菜单按权限隐藏、权限导出留存、异常告警和 KMS/链式不可抵赖签名仍未完成。
+- 当时边界：这是权限治理查询与申请审计首版，不代表权限已可在页面动态审批并自动生效。后续审批/驳回台账已在 `DONE-20260524-099` 落地，手动应用已在 `DONE-20260524-100` 落地，审计导出已在 `DONE-20260524-102` 落地；字段级/租户级 RBAC、站点/商户数据域、菜单按权限隐藏、留存策略、异常告警和 KMS/链式不可抵赖签名仍未完成。
 - 文件：
   - `services/api-go/internal/httpapi/auth.go`
   - `services/api-go/internal/httpapi/auth_test.go`
@@ -2118,7 +2118,7 @@
   - `npm run test --workspace @infinitech/bff`
   - `npm run verify:architecture`
   - 本轮收尾继续跑 `npm run verify` 和 `git diff --check`
-- 当时边界：这是审批/驳回台账首版，不是最终权限动态应用系统。后续手动应用已在 `DONE-20260524-100` 落地；运行时策略版本切换、回滚、字段级/租户级权限、产品化审批队列、导出留存、异常告警和 KMS/链式不可抵赖签名仍未完成。
+- 当时边界：这是审批/驳回台账首版，不是最终权限动态应用系统。后续手动应用已在 `DONE-20260524-100` 落地，审计回滚已在 `DONE-20260524-101` 落地，审计导出已在 `DONE-20260524-102` 落地；字段级/租户级权限、产品化审批队列、留存策略、异常告警和 KMS/链式不可抵赖签名仍未完成。
 - 文件：
   - `services/api-go/internal/httpapi/router.go`
   - `services/api-go/internal/httpapi/router_test.go`
@@ -2138,7 +2138,7 @@
   - `npm run test --workspace @infinitech/admin-web`
   - `npm run test --workspace @infinitech/bff`
   - 本轮收尾继续跑 `go test -count=1 ./...`、`npm run verify` 和 `git diff --check`
-- 当时边界：这是运行时权限应用首版，不是完整权限治理后台。后续审计回滚已在 `DONE-20260524-101` 落地；仍需字段级/租户级 RBAC、站点/商户数据域、产品化审批队列、菜单隐藏、导出留存、异常告警和 KMS/链式不可抵赖签名。
+- 当时边界：这是运行时权限应用首版，不是完整权限治理后台。后续审计回滚已在 `DONE-20260524-101` 落地，审计导出已在 `DONE-20260524-102` 落地；仍需字段级/租户级 RBAC、站点/商户数据域、产品化审批队列、菜单隐藏、留存策略、异常告警和 KMS/链式不可抵赖签名。
 - 文件：
   - `services/api-go/internal/httpapi/auth.go`
   - `services/api-go/internal/httpapi/router.go`
@@ -2170,7 +2170,38 @@
   - `npm run verify:architecture`
   - `npm run verify`
   - `git diff --check`
-- 当前边界：这是 RBAC 策略应用后的回滚首版，不是完整权限治理后台。仍需字段级/租户级 RBAC、站点/商户数据域、产品化审批队列、菜单按权限隐藏、导出留存、异常告警和 KMS/链式不可抵赖签名。
+- 当前边界：这是 RBAC 策略应用后的回滚首版，不是完整权限治理后台。后续审计导出已在 `DONE-20260524-102` 落地；仍需字段级/租户级 RBAC、站点/商户数据域、产品化审批队列、菜单按权限隐藏、审计留存、异常告警和 KMS/链式不可抵赖签名。
+- 文件：
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminAudit.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/README.md`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260524-102 管理端审计导出首版
+
+- 日期：2026-05-24
+- 结果：新增 `GET /api/admin/audit-logs/export`，复用审计查询的 actor/action/target/after/before/limit 筛选，返回 CSV 内容、文件名、生成时间、行数和 content type；导出行为本身写入 `admin.audit_logs.exported` 审计，payload 记录筛选条件、导出格式、行数和生成时间。BFF 已允许代理该接口，Admin Web 操作目录与审计页已接入“导出审计 CSV”，审计结果适配器可识别导出响应。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/httpapi`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run test --workspace @infinitech/bff`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify:architecture`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：这是审计 CSV 导出首版，不是完整审计治理。仍需留存策略、WORM/冷热归档、异常告警、导出审批/水印、字段级/租户级权限、KMS/链式不可抵赖签名和审计策略治理。
 - 文件：
   - `services/api-go/internal/httpapi/router.go`
   - `services/api-go/internal/httpapi/router_test.go`
@@ -2209,7 +2240,7 @@
 - 状态：进行中
 - 目标：建立 Go 核心业务 API。
 - 已完成：微信登录签名 token、真实微信 `code2session` provider resolver、auth session 持久化与 logout 撤销、生产默认关闭开发 token、商户邀约/资质、商户员工健康证、商户补充资料、商户主体登录、管理员 bootstrap 登录、骑手/站长邀约注册、骑手/站长主体登录、商户资料、商户订单列表、商户接单/出餐状态机、商户商品管理、商户/骑手保证金、店铺接单门槛、团购下单发券与扫码核销、骑手在线状态、10 分钟后自动派单、拒单顺延派单、派单确认超时自动转派、订单状态机补偿首版、管理端运营快照聚合首版、管理端操作审计日志首版、审计日志 PostgreSQL `audit_logs` 规范化表首版、管理端审计服务端安全边界首版、管理端审计完整性证明首版、管理端服务端 RBAC 策略矩阵首版、平台 outbox 事件首版、outbox relay worker 首版、outbox relay 可运行化与部署骨架、outbox 积压观测首版、outbox 手动恢复/重放首版、outbox 批量恢复/重放首版、outbox 死信隔离首版、outbox relay 租约领取首版、outbox relay 租约续租首版、PostgreSQL outbox 规范化 relay 路径首版、outbox 租约健康观测首版、消费端幂等落库首版、支付/钱包 PostgreSQL 规范化恢复首版、订单创建 PostgreSQL 事务化首版、购物车结算 PostgreSQL 事务化首版、余额支付 PostgreSQL 事务扣减首版、退款策略与余额退款核心闭环首版、payment-worker 原路退款事件规范化首版、退款 PostgreSQL 事务化首版、售后申请与审核核心闭环首版、售后 PostgreSQL 规范化恢复首版、售后审核 PostgreSQL 事务化首版、售后部分退款资金账本首版、售后仲裁与客服介入处理日志首版、售后可退金额与证据上传票据首版、售后证据确认与附件元数据首版、对象存储上传签名配置化首版、售后上传票据账本与确认防伪首版、售后对象存在性 HEAD 校验开关首版、售后上传回调验签与扫描门禁首版、对象扫描 worker 首版、对象扫描 worker ClamAV 适配与下载首版、对象生命周期清理 worker 首版、对象清理失败账本首版、对象清理统计接口首版、派单审计事件 PostgreSQL 规范化恢复首版、商家订单流转 PostgreSQL 事务化首版、骑手取货/送达完成、固定单量完成后免责拒派决策、站长站点骑手/订单视图、站长手动派单、站长任务时长/固定单量配置、站点骑手绩效等级快照、派单事件持久化与查询审计、站点区域匹配首版、店铺、商品、地址、购物车、结算订单、订单列表、订单详情、余额支付、余额支付密码、微信支付预下单/回调验签、骑手抢单、每日一次免责取消的领域实现和 HTTP 接口；用户/商户/骑手/站长/管理员/安全审计员及后台分权角色鉴权骨架；核心 PostgreSQL 迁移；Repository 边界；PostgreSQL-backed Store 快照持久化第一阶段。
-- 补充进展：`DONE-20260523-091` 已完成退款策略配置与 `admin.refund_settings.updated` 审计同事务首版；`DONE-20260523-092` 已完成管理端订单退款与 `admin.order.refunded` 审计同事务首版；`DONE-20260523-093` 已完成售后审核与 `after_sales.reviewed` 审计同事务首版；`DONE-20260523-094` 已完成订单状态补偿与 `admin.order_state.compensated` 审计同事务首版；`DONE-20260524-095` 已完成 outbox 运维 claim/lease renew/publish/fail/replay/batch replay 与审计同事务首版；`DONE-20260524-096` 已完成商户/骑手/站长邀约与审计同事务首版；`DONE-20260524-097` 已完成管理端服务端 RBAC 策略矩阵首版；`DONE-20260524-098` 已完成 RBAC 权限治理查询与变更申请审计首版；`DONE-20260524-099` 已完成 RBAC 权限申请审批/驳回台账首版；`DONE-20260524-100` 已完成 RBAC 权限变更手动应用首版；`DONE-20260524-101` 已完成 RBAC 权限变更审计回滚首版。已迁移的审计同事务路径在 PostgreSQL-backed Store 下均在同一数据库事务内写入业务表、outbox 表或邀约快照与 `audit_logs`。
+- 补充进展：`DONE-20260523-091` 已完成退款策略配置与 `admin.refund_settings.updated` 审计同事务首版；`DONE-20260523-092` 已完成管理端订单退款与 `admin.order.refunded` 审计同事务首版；`DONE-20260523-093` 已完成售后审核与 `after_sales.reviewed` 审计同事务首版；`DONE-20260523-094` 已完成订单状态补偿与 `admin.order_state.compensated` 审计同事务首版；`DONE-20260524-095` 已完成 outbox 运维 claim/lease renew/publish/fail/replay/batch replay 与审计同事务首版；`DONE-20260524-096` 已完成商户/骑手/站长邀约与审计同事务首版；`DONE-20260524-097` 已完成管理端服务端 RBAC 策略矩阵首版；`DONE-20260524-098` 已完成 RBAC 权限治理查询与变更申请审计首版；`DONE-20260524-099` 已完成 RBAC 权限申请审批/驳回台账首版；`DONE-20260524-100` 已完成 RBAC 权限变更手动应用首版；`DONE-20260524-101` 已完成 RBAC 权限变更审计回滚首版；`DONE-20260524-102` 已完成管理端审计导出首版。已迁移的审计同事务路径在 PostgreSQL-backed Store 下均在同一数据库事务内写入业务表、outbox 表或邀约快照与 `audit_logs`。
 - 下一步：继续扫描后台配置、运营处置、资金和风控写路径，把剩余关键写操作迁移到业务写入与审计写入同事务强制提交；补字段级/租户级权限、策略版本回滚和菜单隐藏策略；补真实 Kafka/NATS broker 运维和 relay 积压恢复；继续推进微信原路退款 API 调用、售后对象存储真实签名/回调和提现/结算资金链路。
 - 范围：认证、用户、商户、骑手、店铺、商品、订单、团购、买药、跑腿、钱包、支付、消息、客服、RTC、邀请、配置。
 - 验收：
@@ -2267,9 +2298,9 @@
 
 - 状态：进行中
 - 目标：完成桌面管理端。
-- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、运营快照、操作审计、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 首版矩阵；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、审计检索、退款策略和权限治理等 P0 业务视图首版；P0 KPI、队列和表格已可由运营快照生成，并对展示字段做 HTML 转义；审计中心已支持 actor/action/target/after/before/limit 筛选、before 游标翻页、保存筛选、详情抽屉、跨模块跳转、脱敏 payload 摘要和完整性状态展示；后端已支持 `security_auditor` 只读审计角色、后台分权 RBAC 策略矩阵、RBAC 策略查询、权限变更申请审计、权限申请审批/驳回台账、权限变更手动应用、权限变更审计回滚、审计 payload 服务端白名单/敏感字段掩码和审计完整性证明首版。
-- 补充进展：退款策略保存、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维和商户/骑手邀约后端已改为同事务写入业务结果与审计；管理端服务端 RBAC 策略矩阵首版已落地，Admin Web 审计检索和权限治理页可继续查看完整性状态、服务端规范化 payload、权限申请审计、审批/驳回审计、应用审计和回滚审计。
-- 下一步：补订单详情、商户资质审核详情、骑手/站长管理详情、售后审核详情、业务分页筛选、字段级/租户级 RBAC、剩余后台配置/运营处置/资金风控写路径同事务审计、审计导出/留存/告警、KMS/链式不可抵赖签名和首页卡片/优惠券/圈子饭搭配置页。
+- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、运营快照、操作审计、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 首版矩阵；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、审计检索、退款策略和权限治理等 P0 业务视图首版；P0 KPI、队列和表格已可由运营快照生成，并对展示字段做 HTML 转义；审计中心已支持 actor/action/target/after/before/limit 筛选、before 游标翻页、保存筛选、详情抽屉、跨模块跳转、脱敏 payload 摘要、完整性状态展示和 CSV 导出；后端已支持 `security_auditor` 只读审计角色、后台分权 RBAC 策略矩阵、RBAC 策略查询、权限变更申请审计、权限申请审批/驳回台账、权限变更手动应用、权限变更审计回滚、审计 CSV 导出、审计 payload 服务端白名单/敏感字段掩码和审计完整性证明首版。
+- 补充进展：退款策略保存、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维和商户/骑手邀约后端已改为同事务写入业务结果与审计；管理端服务端 RBAC 策略矩阵首版已落地，Admin Web 审计检索和权限治理页可继续查看完整性状态、服务端规范化 payload、权限申请审计、审批/驳回审计、应用审计、回滚审计和审计 CSV 导出审计。
+- 下一步：补订单详情、商户资质审核详情、骑手/站长管理详情、售后审核详情、业务分页筛选、字段级/租户级 RBAC、剩余后台配置/运营处置/资金风控写路径同事务审计、审计留存/告警、KMS/链式不可抵赖签名和首页卡片/优惠券/圈子饭搭配置页。
 - 范围：订单、售后、用户、商户、骑手绩效等级、商品、精选商品、首页卡片、首页活动、优惠券、圈子/饭搭、团购、买药、跑腿、支付中心、钱包、提现、退款策略、积分会员、通知推送、评价、风控、数据备份恢复、派单规则、骑手计价、群聊红包、客服、RTC、电话联系审计、OAuth/API 管理、系统日志。
 - 验收：
   - 桌面浏览器可完成运营配置和订单处理。
@@ -2289,7 +2320,7 @@
 
 - 状态：进行中
 - 目标：建立面向用户小程序、商户端、骑手端、管理端的聚合层。
-- 已完成：运行时配置、首页模块/卡片、用户端微信登录、商户邀约与主体登录、管理员 bootstrap 登录、骑手/站长邀约与主体登录、店铺/商品/地址/购物车/结算/订单/钱包/微信支付预下单、退款策略/订单退款、商户订单/商品/保证金、骑手调度/保证金、派单事件查询、派单确认超时转派、订单状态机补偿、管理端运营快照代理、管理端操作审计代理、管理端 RBAC 策略查询、权限变更申请、申请列表、审批/驳回、手动应用和审计回滚代理、对象存储清理候选/统计/完成/失败代理、站长任务/绩效核心接口代理、浏览器来源 CORS 白名单与预检处理首版。
+- 已完成：运行时配置、首页模块/卡片、用户端微信登录、商户邀约与主体登录、管理员 bootstrap 登录、骑手/站长邀约与主体登录、店铺/商品/地址/购物车/结算/订单/钱包/微信支付预下单、退款策略/订单退款、商户订单/商品/保证金、骑手调度/保证金、派单事件查询、派单确认超时转派、订单状态机补偿、管理端运营快照代理、管理端操作审计代理、管理端审计导出代理、管理端 RBAC 策略查询、权限变更申请、申请列表、审批/驳回、手动应用和审计回滚代理、对象存储清理候选/统计/完成/失败代理、站长任务/绩效核心接口代理、浏览器来源 CORS 白名单与预检处理首版。
 - 范围：运行时配置、聚合接口、灰度、端侧兼容、错误标准化。
 - 验收：
   - 各端不直接依赖内部领域 API。

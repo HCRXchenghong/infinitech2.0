@@ -3680,9 +3680,14 @@ func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 }
 
 var auditPayloadAllowlist = map[string]struct{}{
+	"action_filter":           {},
+	"actor_id":                {},
+	"actor_type":              {},
+	"after":                   {},
 	"amount_fen":              {},
 	"applied_scopes":          {},
 	"attempts":                {},
+	"before":                  {},
 	"change_request_id":       {},
 	"changed":                 {},
 	"claimed":                 {},
@@ -3695,7 +3700,9 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"evidence_count":          {},
 	"expected_rider_id":       {},
 	"expected_status":         {},
+	"export_format":           {},
 	"expires_at":              {},
+	"generated_at":            {},
 	"idempotency_key":         {},
 	"lease_owner":             {},
 	"lease_seconds":           {},
@@ -3713,6 +3720,7 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"role":                    {},
 	"rollback_from_scopes":    {},
 	"rollback_to_scopes":      {},
+	"row_count":               {},
 	"station_id":              {},
 	"status":                  {},
 	"topic":                   {},

@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"io"
@@ -118,6 +120,7 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("GET /api/admin/after-sales", r.handleAdminAfterSales)
 	r.mux.HandleFunc("GET /api/admin/operations/snapshot", r.handleAdminOperationsSnapshot)
 	r.mux.HandleFunc("GET /api/admin/audit-logs", r.handleAdminAuditLogs)
+	r.mux.HandleFunc("GET /api/admin/audit-logs/export", r.handleAdminAuditLogsExport)
 	r.mux.HandleFunc("GET /api/admin/rbac/policy", r.handleAdminRBACPolicy)
 	r.mux.HandleFunc("GET /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequests)
 	r.mux.HandleFunc("POST /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequest)
@@ -1295,6 +1298,141 @@ func (r *Router) handleAdminAuditLogs(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 	writeSuccess(w, logs)
+}
+
+func (r *Router) handleAdminAuditLogsExport(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanReadAuditLogs() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	query := req.URL.Query()
+	limit, ok := parseOptionalIntQuery(w, query.Get("limit"))
+	if !ok {
+		return
+	}
+	after, ok := parseOptionalTimeQuery(w, query.Get("after"))
+	if !ok {
+		return
+	}
+	before, ok := parseOptionalTimeQuery(w, query.Get("before"))
+	if !ok {
+		return
+	}
+	filter := platform.AuditLogsRequest{
+		ActorType:  query.Get("actor_type"),
+		ActorID:    query.Get("actor_id"),
+		Action:     query.Get("action"),
+		TargetType: query.Get("target_type"),
+		TargetID:   query.Get("target_id"),
+		Limit:      limit,
+		After:      after,
+		Before:     before,
+	}
+	logs, err := r.store.AuditLogs(filter)
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	csvContent, err := buildAdminAuditLogCSV(logs)
+	if err != nil {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	generatedAt := time.Now().UTC()
+	filename := "audit-logs-" + generatedAt.Format("20060102T150405Z") + ".csv"
+	audit, err := r.store.RecordAuditLog(platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.audit_logs.exported",
+		TargetType: "audit_export",
+		TargetID:   filename,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+		Payload:    adminAuditLogExportPayload(query, limit, after, before, len(logs), generatedAt),
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccess(w, map[string]any{
+		"format":       "csv",
+		"content_type": "text/csv; charset=utf-8",
+		"filename":     filename,
+		"generated_at": generatedAt.Format(time.RFC3339Nano),
+		"row_count":    len(logs),
+		"csv":          csvContent,
+		"audit_log":    audit,
+	})
+}
+
+func buildAdminAuditLogCSV(logs []platform.AuditLog) (string, error) {
+	var buffer bytes.Buffer
+	writer := csv.NewWriter(&buffer)
+	header := []string{"id", "created_at", "actor_type", "actor_id", "action", "target_type", "target_id", "request_id", "ip_hash", "integrity_algorithm", "integrity_verified", "payload_json"}
+	if err := writer.Write(header); err != nil {
+		return "", err
+	}
+	for _, log := range logs {
+		payload, err := json.Marshal(log.Payload)
+		if err != nil {
+			return "", err
+		}
+		row := []string{
+			log.ID,
+			log.CreatedAt.Format(time.RFC3339Nano),
+			log.ActorType,
+			log.ActorID,
+			log.Action,
+			log.TargetType,
+			log.TargetID,
+			log.RequestID,
+			log.IPHash,
+			log.IntegrityAlgorithm,
+			strconv.FormatBool(log.IntegrityVerified),
+			string(payload),
+		}
+		if err := writer.Write(row); err != nil {
+			return "", err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return "", err
+	}
+	return buffer.String(), nil
+}
+
+func adminAuditLogExportPayload(query map[string][]string, limit int, after time.Time, before time.Time, rowCount int, generatedAt time.Time) map[string]any {
+	payload := map[string]any{
+		"actor_id":      firstQueryValue(query, "actor_id"),
+		"actor_type":    firstQueryValue(query, "actor_type"),
+		"action_filter": firstQueryValue(query, "action"),
+		"export_format": "csv",
+		"generated_at":  generatedAt.Format(time.RFC3339Nano),
+		"limit":         limit,
+		"row_count":     rowCount,
+		"target_id":     firstQueryValue(query, "target_id"),
+		"target_type":   firstQueryValue(query, "target_type"),
+	}
+	if !after.IsZero() {
+		payload["after"] = after.Format(time.RFC3339Nano)
+	}
+	if !before.IsZero() {
+		payload["before"] = before.Format(time.RFC3339Nano)
+	}
+	return payload
+}
+
+func firstQueryValue(query map[string][]string, key string) string {
+	values := query[key]
+	if len(values) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(values[0])
 }
 
 func (r *Router) handleAdminRBACPolicy(w http.ResponseWriter, req *http.Request) {

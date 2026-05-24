@@ -159,6 +159,24 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	if len(settingsAuditLogs) != 1 || settingsAuditLogs[0].(map[string]any)["target_type"] != "refund_settings" {
 		t.Fatalf("expected refund settings audit log, got %+v", settingsAuditBody)
 	}
+	exportBody := authGetJSON(t, server.URL+"/api/admin/audit-logs/export?target_type=order&target_id="+order.ID+"&limit=5", securityAuditorToken("auditor_1"), http.StatusOK)
+	exportData := exportBody["data"].(map[string]any)
+	if exportData["format"] != "csv" || exportData["row_count"] != float64(2) {
+		t.Fatalf("expected audit export csv metadata, got %+v", exportBody)
+	}
+	exportCSV := exportData["csv"].(string)
+	if !strings.Contains(exportCSV, "admin.order.refunded") || !strings.Contains(exportCSV, "integrity_verified") {
+		t.Fatalf("expected audit export CSV to include refund audit rows and header, got %q", exportCSV)
+	}
+	exportAudit := exportData["audit_log"].(map[string]any)
+	if exportAudit["action"] != "admin.audit_logs.exported" || exportAudit["target_type"] != "audit_export" || exportAudit["actor_type"] != RoleSecurityAuditor {
+		t.Fatalf("expected audit export to be audited, got %+v", exportAudit)
+	}
+	exportAuditLogsBody := authGetJSON(t, server.URL+"/api/admin/audit-logs?action=admin.audit_logs.exported&limit=1", adminToken("admin_1"), http.StatusOK)
+	exportAuditLogs := exportAuditLogsBody["data"].([]any)
+	if len(exportAuditLogs) != 1 || exportAuditLogs[0].(map[string]any)["target_type"] != "audit_export" {
+		t.Fatalf("expected audit export log to be queryable, got %+v", exportAuditLogsBody)
+	}
 }
 
 func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {

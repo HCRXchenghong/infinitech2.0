@@ -187,6 +187,20 @@ test("bff proxies user-facing api routes with authorization", async () => {
       }));
       return;
     }
+    if (req.method === "GET" && req.url === "/api/admin/audit-logs/export?target_type=order&limit=1") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          format: "csv",
+          filename: "audit-logs-20260522T120000Z.csv",
+          row_count: 1,
+          csv: "id,action\\naud_1,admin.order.refunded\\n",
+          authorization: req.headers.authorization
+        }
+      }));
+      return;
+    }
     if (req.method === "GET" && req.url === "/api/admin/rbac/policy") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
@@ -1132,6 +1146,7 @@ test("bff proxies user-facing api routes with authorization", async () => {
   const adminAfterSales = await getJSON(`${baseUrl}/api/admin/after-sales`, "Bearer admin:admin_1");
   const adminOperationsSnapshot = await getJSON(`${baseUrl}/api/admin/operations/snapshot?limit=5&lease_expiring_within_seconds=60&object_cleanup_grace_seconds=60`, "Bearer admin:admin_1");
   const adminAuditLogs = await getJSON(`${baseUrl}/api/admin/audit-logs?target_type=order&limit=1`, "Bearer admin:admin_1");
+  const adminAuditExport = await getJSON(`${baseUrl}/api/admin/audit-logs/export?target_type=order&limit=1`, "Bearer admin:admin_1");
   const adminRBACPolicy = await getJSON(`${baseUrl}/api/admin/rbac/policy`, "Bearer admin:admin_1");
   const adminRBACChanges = await getJSON(`${baseUrl}/api/admin/rbac/change-requests?status=pending_approval&limit=5`, "Bearer admin:admin_1");
   const adminRBACChange = await postJSON(`${baseUrl}/api/admin/rbac/change-requests`, "Bearer admin:admin_1", { role: "support_admin", requested_scopes: ["after_sales:read", "rbac:read"], reason: "support recertification" });
@@ -1273,6 +1288,9 @@ test("bff proxies user-facing api routes with authorization", async () => {
   assert.equal(adminOperationsSnapshot.data.refund_settings.default_refund_strategy, "balance_first");
   assert.equal(adminAuditLogs.data[0].authorization, "Bearer admin:admin_1");
   assert.equal(adminAuditLogs.data[0].action, "admin.order.refunded");
+  assert.equal(adminAuditExport.data.authorization, "Bearer admin:admin_1");
+  assert.equal(adminAuditExport.data.format, "csv");
+  assert.equal(adminAuditExport.data.row_count, 1);
   assert.equal(adminRBACPolicy.data.authorization, "Bearer admin:admin_1");
   assert.equal(adminRBACPolicy.data.can_request_changes, true);
   assert.equal(adminRBACChanges.data.authorization, "Bearer admin:admin_1");
