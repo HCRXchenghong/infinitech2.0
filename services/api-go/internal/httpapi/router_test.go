@@ -270,12 +270,18 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	if verifyAudit["action"] != "admin.audit_archive.verified" || verifyAudit["actor_type"] != RoleSecurityAuditor || verifyAudit["target_id"] != archive["archive_id"] {
 		t.Fatalf("expected archive verification audit, got %+v", verifyAudit)
 	}
+	verificationHistoryBody := authGetJSON(t, server.URL+"/api/admin/audit-logs/archive/verifications?archive_id="+archive["archive_id"].(string)+"&status=verified&limit=5", securityAuditorToken("auditor_1"), http.StatusOK)
+	verificationHistory := verificationHistoryBody["data"].([]any)
+	if len(verificationHistory) != 1 || verificationHistory[0].(map[string]any)["archive_id"] != archive["archive_id"] || verificationHistory[0].(map[string]any)["actual_content_hash"] != archiveObjectHash {
+		t.Fatalf("expected archive verification history, got %+v", verificationHistoryBody)
+	}
 	authGetJSON(t, server.URL+"/api/admin/audit-logs/retention-report", userToken("user_1"), http.StatusForbidden)
 	authPostJSON(t, server.URL+"/api/admin/audit-logs/retention-alerts/emit", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
 	authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/request", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
 	authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/complete", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
 	authGetJSON(t, server.URL+"/api/admin/audit-logs/archive/records?limit=5", securityAuditorToken("auditor_1"), http.StatusOK)
 	authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/verify", userToken("user_1"), `{}`, http.StatusForbidden)
+	authGetJSON(t, server.URL+"/api/admin/audit-logs/archive/verifications?limit=5", userToken("user_1"), http.StatusForbidden)
 }
 
 func auditArchiveHTTPObjectBody(t *testing.T, archive map[string]any) string {

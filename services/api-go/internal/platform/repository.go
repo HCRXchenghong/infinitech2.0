@@ -97,6 +97,7 @@ type Repository interface {
 	CompleteAuditArchive(req AuditArchiveCompletionRequest, audit RecordAuditLogRequest) (*AuditArchiveCompletion, *AuditLog, error)
 	VerifyAuditArchive(req AuditArchiveVerifyRequest, audit RecordAuditLogRequest) (*AuditArchiveVerification, *AuditLog, error)
 	AuditArchives(req AuditArchiveListRequest) ([]AuditArchiveCompletion, error)
+	AuditArchiveVerifications(req AuditArchiveVerificationListRequest) ([]AuditArchiveVerification, error)
 	MarkOutboxEventPublished(req MarkOutboxEventPublishedRequest) (*OutboxEvent, error)
 	MarkOutboxEventPublishedWithAudit(req MarkOutboxEventPublishedRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error)
 	MarkOutboxEventFailed(req MarkOutboxEventFailedRequest) (*OutboxEvent, error)

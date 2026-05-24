@@ -195,6 +195,20 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     ]
   },
   {
+    key: "audit-archive-verifications",
+    title: "归档校验历史",
+    method: "GET",
+    path: "/api/admin/audit-logs/archive/verifications",
+    authRequired: true,
+    area: "ops",
+    queryFields: [
+      { key: "archive_id", label: "归档 ID", type: "text", defaultValue: "" },
+      { key: "status", label: "状态", type: "select", defaultValue: "", options: ["", "verified", "failed"] },
+      { key: "limit", label: "条数", type: "number", defaultValue: 50 }
+    ],
+    fields: []
+  },
+  {
     key: "rbac-policy",
     title: "RBAC 策略矩阵",
     method: "GET",

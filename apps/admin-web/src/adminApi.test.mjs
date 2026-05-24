@@ -6,6 +6,7 @@ import {
   auditArchiveRequestFromResult,
   auditArchiveRecordsFromResult,
   auditArchiveVerificationFromResult,
+  auditArchiveVerificationsFromResult,
   auditExportDataFromResult,
   auditRetentionAlertEmissionFromResult,
   auditRetentionReportFromResult,
@@ -53,6 +54,7 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
     "audit-archive-request",
     "audit-archive-records",
     "audit-archive-verify",
+    "audit-archive-verifications",
     "rbac-policy",
     "rbac-change-requests",
     "rbac-change-request",
@@ -94,6 +96,7 @@ test("admin web ships P0 business views with actions and safeguards", () => {
   assert.ok(ADMIN_WEB_VIEWS["audit-logs"].actions.includes("audit-archive-request"));
   assert.ok(ADMIN_WEB_VIEWS["audit-logs"].actions.includes("audit-archive-records"));
   assert.ok(ADMIN_WEB_VIEWS["audit-logs"].actions.includes("audit-archive-verify"));
+  assert.ok(ADMIN_WEB_VIEWS["audit-logs"].actions.includes("audit-archive-verifications"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-change-request"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-review-request"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-apply-request"));
@@ -144,6 +147,10 @@ test("admin request builder normalizes auth query path and body", () => {
   assert.equal(auditArchiveVerifyRequest.method, "POST");
   assert.equal(auditArchiveVerifyRequest.url, "/api/admin/audit-logs/archive/verify");
   assert.deepEqual(JSON.parse(auditArchiveVerifyRequest.body), { archive_id: "audit_archive_1" });
+
+  const auditArchiveVerificationsRequest = buildAdminRequest(getAdminOperation("audit-archive-verifications"), { archive_id: "audit_archive_1", status: "verified", limit: 5 }, "Bearer admin.token");
+  assert.equal(auditArchiveVerificationsRequest.method, "GET");
+  assert.equal(auditArchiveVerificationsRequest.url, "/api/admin/audit-logs/archive/verifications?archive_id=audit_archive_1&status=verified&limit=5");
 
   const rbacRequest = buildAdminRequest(getAdminOperation("rbac-change-request"), { role: "support_admin", requested_scopes: "after_sales:read, rbac:read, rbac:read", reason: "support recertification" }, "admin.token");
   assert.equal(rbacRequest.url, "/api/admin/rbac/change-requests");
@@ -330,6 +337,44 @@ test("admin audit adapter redacts sensitive payload and builds cursor rows", () 
     auditLogId: "aud_archive_verify_1"
   });
   assert.equal(auditArchiveVerificationFromResult({ payload: { data: { verification: [] } } }), null);
+  assert.deepEqual(auditArchiveVerificationsFromResult({ payload: { data: [{
+    archive_id: "audit_archive_1",
+    status: "verified",
+    storage_key: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl",
+    manifest_hash: "abc",
+    expected_content_hash: "content",
+    actual_content_hash: "content",
+    expected_bytes: 1024,
+    actual_bytes: 1024,
+    archive_id_matched: true,
+    manifest_hash_matched: true,
+    content_hash_matched: true,
+    bytes_matched: true,
+    log_count_matched: true,
+    header_log_count: 1,
+    manifest_entry_count: 1,
+    verified_at: "2026-05-24T00:00:03Z"
+  }] } }), [{
+    archiveId: "audit_archive_1",
+    status: "verified",
+    storageKey: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl",
+    manifestHash: "abc",
+    expectedContentHash: "content",
+    actualContentHash: "content",
+    expectedBytes: 1024,
+    actualBytes: 1024,
+    archiveIdMatched: true,
+    manifestHashMatched: true,
+    contentHashMatched: true,
+    bytesMatched: true,
+    logCountMatched: true,
+    headerLogCount: 1,
+    manifestEntryCount: 1,
+    errorCode: "",
+    verifiedAt: "2026-05-24T00:00:03Z",
+    auditLogId: ""
+  }]);
+  assert.deepEqual(auditArchiveVerificationsFromResult({ payload: { data: {} } }), []);
 
   const tamperedRows = buildAuditRows([{ ...logs[0], integrity_verified: false }]);
   assert.equal(tamperedRows[0].integrityLabel, "未通过");

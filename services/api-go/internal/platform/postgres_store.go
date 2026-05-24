@@ -6919,6 +6919,22 @@ func (s *PostgresStore) VerifyAuditArchive(req AuditArchiveVerifyRequest, audit 
 	return verification, log, nil
 }
 
+func (s *PostgresStore) AuditArchiveVerifications(req AuditArchiveVerificationListRequest) ([]AuditArchiveVerification, error) {
+	req = normalizeAuditArchiveVerificationListRequest(req)
+	logs, err := s.AuditLogs(AuditLogsRequest{
+		Action:     auditArchiveVerifiedAction,
+		TargetType: "audit_archive",
+		TargetID:   req.ArchiveID,
+		Limit:      req.Limit,
+		After:      req.After,
+		Before:     req.Before,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return auditArchiveVerificationsFromLogs(req, logs), nil
+}
+
 func (s *PostgresStore) AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error) {
 	profile, err := s.Store.AcceptMerchantInvite(req)
 	return profile, s.persistAfter(err)

@@ -3844,6 +3844,22 @@ func (s *Store) VerifyAuditArchive(req AuditArchiveVerifyRequest, audit RecordAu
 	return verification, log, nil
 }
 
+func (s *Store) AuditArchiveVerifications(req AuditArchiveVerificationListRequest) ([]AuditArchiveVerification, error) {
+	req = normalizeAuditArchiveVerificationListRequest(req)
+	logs, err := s.AuditLogs(AuditLogsRequest{
+		Action:     auditArchiveVerifiedAction,
+		TargetType: "audit_archive",
+		TargetID:   req.ArchiveID,
+		Limit:      req.Limit,
+		After:      req.After,
+		Before:     req.Before,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return auditArchiveVerificationsFromLogs(req, logs), nil
+}
+
 func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 	req.ActorType = strings.TrimSpace(req.ActorType)
 	req.ActorID = strings.TrimSpace(req.ActorID)
@@ -3866,20 +3882,22 @@ func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 }
 
 const (
-	defaultAuditRetentionDays        = 2555
-	defaultAuditHotDays              = 180
-	defaultAuditIntegritySampleLimit = 500
-	maxAuditIntegritySampleLimit     = 5000
-	auditRetentionAlertTopic         = "audit.retention_alerts"
-	defaultAuditArchiveLimit         = 500
-	maxAuditArchiveLimit             = 5000
-	defaultAuditArchiveListLimit     = 100
-	maxAuditArchiveListLimit         = 1000
-	defaultAuditArchiveStoragePrefix = "worm://audit-logs"
-	auditArchiveManifestAlgorithm    = "sha256:v1"
-	auditArchiveRequestedTopic       = "audit.archive_requested"
-	auditArchiveCompletedAction      = "admin.audit_archive.completed"
-	auditArchiveVerifiedAction       = "admin.audit_archive.verified"
+	defaultAuditRetentionDays                = 2555
+	defaultAuditHotDays                      = 180
+	defaultAuditIntegritySampleLimit         = 500
+	maxAuditIntegritySampleLimit             = 5000
+	auditRetentionAlertTopic                 = "audit.retention_alerts"
+	defaultAuditArchiveLimit                 = 500
+	maxAuditArchiveLimit                     = 5000
+	defaultAuditArchiveListLimit             = 100
+	maxAuditArchiveListLimit                 = 1000
+	defaultAuditArchiveStoragePrefix         = "worm://audit-logs"
+	defaultAuditArchiveVerificationListLimit = 100
+	maxAuditArchiveVerificationListLimit     = 1000
+	auditArchiveManifestAlgorithm            = "sha256:v1"
+	auditArchiveRequestedTopic               = "audit.archive_requested"
+	auditArchiveCompletedAction              = "admin.audit_archive.completed"
+	auditArchiveVerifiedAction               = "admin.audit_archive.verified"
 )
 
 var defaultCriticalAuditActions = []string{
@@ -4471,6 +4489,79 @@ func auditArchiveCompletionsFromLogs(logs []AuditLog) []AuditArchiveCompletion {
 	return completions
 }
 
+func normalizeAuditArchiveVerificationListRequest(req AuditArchiveVerificationListRequest) AuditArchiveVerificationListRequest {
+	req.ArchiveID = strings.TrimSpace(req.ArchiveID)
+	req.Status = strings.TrimSpace(req.Status)
+	if req.Limit <= 0 {
+		req.Limit = defaultAuditArchiveVerificationListLimit
+	}
+	if req.Limit > maxAuditArchiveVerificationListLimit {
+		req.Limit = maxAuditArchiveVerificationListLimit
+	}
+	if !req.After.IsZero() {
+		req.After = req.After.UTC()
+	}
+	if !req.Before.IsZero() {
+		req.Before = req.Before.UTC()
+	}
+	return req
+}
+
+func auditArchiveVerificationsFromLogs(req AuditArchiveVerificationListRequest, logs []AuditLog) []AuditArchiveVerification {
+	req = normalizeAuditArchiveVerificationListRequest(req)
+	verifications := make([]AuditArchiveVerification, 0, len(logs))
+	for _, log := range logs {
+		verification, ok := auditArchiveVerificationFromAuditLog(log)
+		if !ok {
+			continue
+		}
+		if req.Status != "" && verification.Status != req.Status {
+			continue
+		}
+		verifications = append(verifications, verification)
+	}
+	return verifications
+}
+
+func auditArchiveVerificationFromAuditLog(log AuditLog) (AuditArchiveVerification, bool) {
+	if log.Action != auditArchiveVerifiedAction || log.TargetType != "audit_archive" {
+		return AuditArchiveVerification{}, false
+	}
+	archiveID := strings.TrimSpace(log.TargetID)
+	if archiveID == "" {
+		archiveID = auditPayloadString(log.Payload, "archive_id")
+	}
+	if archiveID == "" {
+		return AuditArchiveVerification{}, false
+	}
+	verifiedAt := auditPayloadTime(log.Payload, "verified_at")
+	if verifiedAt.IsZero() {
+		verifiedAt = log.CreatedAt
+	}
+	verification := AuditArchiveVerification{
+		ArchiveID:           archiveID,
+		Status:              auditPayloadStringWithDefault(log.Payload, "status", "unknown"),
+		StorageKey:          auditPayloadString(log.Payload, "storage_key"),
+		ManifestAlgorithm:   auditPayloadString(log.Payload, "manifest_algorithm"),
+		ManifestHash:        auditPayloadString(log.Payload, "manifest_hash"),
+		ExpectedContentHash: auditPayloadString(log.Payload, "expected_content_hash"),
+		ActualContentHash:   auditPayloadString(log.Payload, "actual_content_hash"),
+		ExpectedBytes:       auditPayloadInt64(log.Payload, "expected_bytes"),
+		ActualBytes:         auditPayloadInt64(log.Payload, "actual_bytes"),
+		ArchiveIDMatched:    auditPayloadBool(log.Payload, "archive_id_matched"),
+		ManifestHashMatched: auditPayloadBool(log.Payload, "manifest_hash_matched"),
+		ContentHashMatched:  auditPayloadBool(log.Payload, "content_hash_matched"),
+		BytesMatched:        auditPayloadBool(log.Payload, "bytes_matched"),
+		LogCountMatched:     auditPayloadBool(log.Payload, "log_count_matched"),
+		HeaderLogCount:      auditPayloadInt(log.Payload, "header_log_count"),
+		ManifestEntryCount:  auditPayloadInt(log.Payload, "manifest_entry_count"),
+		ErrorCode:           auditPayloadString(log.Payload, "error_code"),
+		ErrorMessage:        auditPayloadString(log.Payload, "error_message"),
+		VerifiedAt:          normalizeAuditLogTime(verifiedAt),
+	}
+	return verification, true
+}
+
 func auditArchiveCompletionFromAuditLog(log AuditLog) (AuditArchiveCompletion, bool) {
 	if log.Action != auditArchiveCompletedAction || log.TargetType != "audit_archive" {
 		return AuditArchiveCompletion{}, false
@@ -4678,6 +4769,48 @@ func auditPayloadInt64(payload map[string]any, key string) int64 {
 		return int64(floatParsed)
 	default:
 		return 0
+	}
+}
+
+func auditPayloadInt(payload map[string]any, key string) int {
+	return int(auditPayloadInt64(payload, key))
+}
+
+func auditPayloadBool(payload map[string]any, key string) bool {
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1", "yes", "y":
+			return true
+		default:
+			return false
+		}
+	case int:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case int32:
+		return typed != 0
+	case float64:
+		return typed != 0
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return parsed != 0
+		}
+		floatParsed, err := typed.Float64()
+		if err != nil {
+			return false
+		}
+		return floatParsed != 0
+	default:
+		return false
 	}
 }
 

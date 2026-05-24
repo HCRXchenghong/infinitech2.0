@@ -125,6 +125,7 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("POST /api/admin/audit-logs/retention-alerts/emit", r.handleAdminEmitAuditRetentionAlerts)
 	r.mux.HandleFunc("POST /api/admin/audit-logs/archive/request", r.handleAdminRequestAuditArchive)
 	r.mux.HandleFunc("GET /api/admin/audit-logs/archive/records", r.handleAdminAuditArchiveRecords)
+	r.mux.HandleFunc("GET /api/admin/audit-logs/archive/verifications", r.handleAdminAuditArchiveVerifications)
 	r.mux.HandleFunc("POST /api/admin/audit-logs/archive/complete", r.handleAdminCompleteAuditArchive)
 	r.mux.HandleFunc("POST /api/admin/audit-logs/archive/verify", r.handleAdminVerifyAuditArchive)
 	r.mux.HandleFunc("GET /api/admin/rbac/policy", r.handleAdminRBACPolicy)
@@ -1650,6 +1651,42 @@ func (r *Router) handleAdminCompleteAuditArchive(w http.ResponseWriter, req *htt
 		"archive":   archive,
 		"audit_log": audit,
 	})
+}
+
+func (r *Router) handleAdminAuditArchiveVerifications(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanReadAuditLogs() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	query := req.URL.Query()
+	limit, ok := parseOptionalIntQuery(w, query.Get("limit"))
+	if !ok {
+		return
+	}
+	after, ok := parseOptionalTimeQuery(w, query.Get("after"))
+	if !ok {
+		return
+	}
+	before, ok := parseOptionalTimeQuery(w, query.Get("before"))
+	if !ok {
+		return
+	}
+	verifications, err := r.store.AuditArchiveVerifications(platform.AuditArchiveVerificationListRequest{
+		ArchiveID: query.Get("archive_id"),
+		Status:    query.Get("status"),
+		Limit:     limit,
+		After:     after,
+		Before:    before,
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccess(w, verifications)
 }
 
 func (r *Router) handleAdminVerifyAuditArchive(w http.ResponseWriter, req *http.Request) {

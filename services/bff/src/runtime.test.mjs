@@ -278,6 +278,22 @@ test("bff proxies user-facing api routes with authorization", async () => {
       }));
       return;
     }
+    if (req.method === "GET" && req.url === "/api/admin/audit-logs/archive/verifications?archive_id=audit_archive_1&status=verified&limit=5") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: [{
+          archive_id: "audit_archive_1",
+          status: "verified",
+          storage_key: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl",
+          actual_content_hash: "content_hash_bff",
+          content_hash_matched: true,
+          manifest_hash_matched: true,
+          authorization: req.headers.authorization
+        }]
+      }));
+      return;
+    }
     if (req.method === "POST" && req.url === "/api/admin/audit-logs/archive/complete") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
@@ -1269,6 +1285,7 @@ test("bff proxies user-facing api routes with authorization", async () => {
   const adminAuditRetentionAlert = await postJSON(`${baseUrl}/api/admin/audit-logs/retention-alerts/emit`, "Bearer admin:admin_1", { retention_days: 2555, hot_days: 180, integrity_sample_limit: 500 });
   const adminAuditArchive = await postJSON(`${baseUrl}/api/admin/audit-logs/archive/request`, "Bearer admin:admin_1", { hot_days: 180, limit: 500, storage_prefix: "worm://audit-logs" });
   const adminAuditArchiveRecords = await getJSON(`${baseUrl}/api/admin/audit-logs/archive/records?archive_id=audit_archive_1&limit=5`, "Bearer admin:admin_1");
+  const adminAuditArchiveVerifications = await getJSON(`${baseUrl}/api/admin/audit-logs/archive/verifications?archive_id=audit_archive_1&status=verified&limit=5`, "Bearer admin:admin_1");
   const adminAuditArchiveComplete = await postJSON(`${baseUrl}/api/admin/audit-logs/archive/complete`, "Bearer admin:admin_1", { archive_id: "audit_archive_1", storage_key: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl", manifest_algorithm: "sha256:v1", manifest_hash: "abc", content_hash: "content_hash_bff", bytes: 1024 });
   const adminAuditArchiveVerify = await postJSON(`${baseUrl}/api/admin/audit-logs/archive/verify`, "Bearer admin:admin_1", { archive_id: "audit_archive_1" });
   const adminRBACPolicy = await getJSON(`${baseUrl}/api/admin/rbac/policy`, "Bearer admin:admin_1");
@@ -1426,6 +1443,9 @@ test("bff proxies user-facing api routes with authorization", async () => {
   assert.equal(adminAuditArchive.data.outbox_event.event_type, "audit.archive_requested");
   assert.equal(adminAuditArchiveRecords.data[0].authorization, "Bearer admin:admin_1");
   assert.equal(adminAuditArchiveRecords.data[0].status, "archived");
+  assert.equal(adminAuditArchiveVerifications.data[0].authorization, "Bearer admin:admin_1");
+  assert.equal(adminAuditArchiveVerifications.data[0].status, "verified");
+  assert.equal(adminAuditArchiveVerifications.data[0].actual_content_hash, "content_hash_bff");
   assert.equal(adminAuditArchiveComplete.data.archive.authorization, "Bearer admin:admin_1");
   assert.equal(adminAuditArchiveComplete.data.audit_log.action, "admin.audit_archive.completed");
   assert.equal(adminAuditArchiveVerify.data.verification.authorization, "Bearer admin:admin_1");

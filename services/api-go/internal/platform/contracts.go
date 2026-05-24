@@ -1543,6 +1543,14 @@ type AuditArchiveListRequest struct {
 	Before    time.Time `json:"before"`
 }
 
+type AuditArchiveVerificationListRequest struct {
+	ArchiveID string    `json:"archive_id"`
+	Status    string    `json:"status"`
+	Limit     int       `json:"limit"`
+	After     time.Time `json:"after"`
+	Before    time.Time `json:"before"`
+}
+
 func DefaultHomeModules() []HomeModule {
 	return []HomeModule{
 		{Key: "takeout", Title: "外卖", Route: "/pages/shop/list/index", Icon: "takeout", Enabled: true, SortOrder: 10, Scene: "home"},

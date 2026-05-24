@@ -412,12 +412,7 @@ export function auditArchiveRecordsFromResult(result) {
     }));
 }
 
-export function auditArchiveVerificationFromResult(result) {
-  const data = result?.payload?.data;
-  const verification = data?.verification;
-  if (!verification || typeof verification !== "object" || Array.isArray(verification)) {
-    return null;
-  }
+function mapAuditArchiveVerification(verification, auditLogId = "") {
   return {
     archiveId: compact(verification.archive_id, ""),
     status: compact(verification.status, "unknown"),
@@ -436,6 +431,25 @@ export function auditArchiveVerificationFromResult(result) {
     manifestEntryCount: Number(verification.manifest_entry_count || 0),
     errorCode: compact(verification.error_code, ""),
     verifiedAt: compact(verification.verified_at, ""),
-    auditLogId: compact(data.audit_log?.id, "")
+    auditLogId: compact(auditLogId, "")
   };
+}
+
+export function auditArchiveVerificationFromResult(result) {
+  const data = result?.payload?.data;
+  const verification = data?.verification;
+  if (!verification || typeof verification !== "object" || Array.isArray(verification)) {
+    return null;
+  }
+  return mapAuditArchiveVerification(verification, data.audit_log?.id);
+}
+
+export function auditArchiveVerificationsFromResult(result) {
+  const data = result?.payload?.data;
+  if (!Array.isArray(data)) {
+    return [];
+  }
+  return data
+    .filter((item) => item && typeof item === "object" && !Array.isArray(item))
+    .map((item) => mapAuditArchiveVerification(item));
 }

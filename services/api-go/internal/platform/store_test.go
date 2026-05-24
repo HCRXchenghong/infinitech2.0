@@ -3757,6 +3757,20 @@ func TestRequestAuditArchiveBuildsManifestOutboxAndAudit(t *testing.T) {
 	if verificationAudit == nil || verificationAudit.Action != "admin.audit_archive.verified" || verificationAudit.Payload["status"] != "verified" || verificationAudit.Payload["actual_content_hash"] != archiveObjectHash {
 		t.Fatalf("expected verification audit log, got %+v", verificationAudit)
 	}
+	verifications, err := store.AuditArchiveVerifications(AuditArchiveVerificationListRequest{ArchiveID: archive.ArchiveID, Status: "verified", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(verifications) != 1 || verifications[0].ArchiveID != archive.ArchiveID || verifications[0].Status != "verified" || verifications[0].ActualContentHash != archiveObjectHash {
+		t.Fatalf("expected archive verification history to be queryable, got %+v", verifications)
+	}
+	failedVerifications, err := store.AuditArchiveVerifications(AuditArchiveVerificationListRequest{ArchiveID: archive.ArchiveID, Status: "failed", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(failedVerifications) != 0 {
+		t.Fatalf("expected status filter to exclude successful verification, got %+v", failedVerifications)
+	}
 	archives, err := store.AuditArchives(AuditArchiveListRequest{ArchiveID: archive.ArchiveID, Limit: 10})
 	if err != nil {
 		t.Fatal(err)

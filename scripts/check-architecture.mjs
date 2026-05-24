@@ -117,9 +117,11 @@ test("admin web has a minimum operable control center", () => {
   assert.match(api, /\/api\/admin\/audit-logs\/archive\/request/);
   assert.match(api, /\/api\/admin\/audit-logs\/archive\/records/);
   assert.match(api, /\/api\/admin\/audit-logs\/archive\/verify/);
+  assert.match(api, /\/api\/admin\/audit-logs\/archive\/verifications/);
   assert.match(audit, /auditArchiveRequestFromResult/);
   assert.match(audit, /auditArchiveRecordsFromResult/);
   assert.match(audit, /auditArchiveVerificationFromResult/);
+  assert.match(audit, /auditArchiveVerificationsFromResult/);
   assert.match(api, /\/api\/admin\/rbac\/policy/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests\/:change_request_id\/review/);
