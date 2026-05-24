@@ -203,8 +203,23 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	if alertAudit["action"] != "admin.audit_retention_alerts.emitted" || alertAudit["target_type"] != "audit_retention_alerts" {
 		t.Fatalf("expected alert emission to be audited, got %+v", alertAudit)
 	}
+	archiveBody := authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/request", adminToken("admin_1"), `{"hot_days":1,"limit":10,"storage_prefix":"worm://audit-logs","now":"2027-05-24T12:00:00Z"}`, http.StatusOK)
+	archiveData := archiveBody["data"].(map[string]any)
+	archive := archiveData["archive"].(map[string]any)
+	if archive["status"] != "requested" || archive["log_count"].(float64) == 0 || archive["manifest_hash"] == "" || archive["outbox_event_id"] == "" {
+		t.Fatalf("expected audit archive request with manifest and outbox, got %+v", archiveBody)
+	}
+	archiveEvent := archiveData["outbox_event"].(map[string]any)
+	if archiveEvent["topic"] != "audit.archive_requested" || archiveEvent["event_type"] != "audit.archive_requested" {
+		t.Fatalf("expected audit archive outbox event, got %+v", archiveEvent)
+	}
+	archiveAudit := archiveData["audit_log"].(map[string]any)
+	if archiveAudit["action"] != "admin.audit_archive.requested" || archiveAudit["target_type"] != "audit_archive" {
+		t.Fatalf("expected audit archive request to be audited, got %+v", archiveAudit)
+	}
 	authGetJSON(t, server.URL+"/api/admin/audit-logs/retention-report", userToken("user_1"), http.StatusForbidden)
 	authPostJSON(t, server.URL+"/api/admin/audit-logs/retention-alerts/emit", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
+	authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/request", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
 }
 
 func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {

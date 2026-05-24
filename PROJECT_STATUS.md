@@ -2,7 +2,7 @@
 
 更新时间：2026-05-24
 目标仓库：`https://github.com/HCRXchenghong/infinitech2.0`  
-当前结论：项目已经完成架构基线、monorepo 骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化、outbox/对象存储、管理端审计、审计导出首版、审计留存/告警健康报告首版、审计留存告警 outbox 投递首版、服务端 RBAC 策略矩阵、RBAC 权限治理查询/变更申请审计、权限申请审批/驳回台账、权限变更手动应用和权限变更审计回滚首版等多条商业化底座链路；但还没有完成真实生产支付、真实 IM/RTC、完整管理端、真实高可用基础设施、10 万在线压测和容灾演练，所以不能宣称已经商业级可上线，只能说正在按商业级标准推进。
+当前结论：项目已经完成架构基线、monorepo 骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化、outbox/对象存储、管理端审计、审计导出首版、审计留存/告警健康报告首版、审计留存告警 outbox 投递首版、审计 WORM/冷归档请求首版、服务端 RBAC 策略矩阵、RBAC 权限治理查询/变更申请审计、权限申请审批/驳回台账、权限变更手动应用和权限变更审计回滚首版等多条商业化底座链路；但还没有完成真实生产支付、真实 IM/RTC、完整管理端、真实高可用基础设施、10 万在线压测和容灾演练，所以不能宣称已经商业级可上线，只能说正在按商业级标准推进。
 
 最近完成、当前未完成和下一批优先级已汇总到 `docs/product/recent-progress-roadmap.md`。这份文档用于快速查看最近提交后的项目状态、商业级阻塞项和后续推进顺序。
 
@@ -20,6 +20,7 @@
 - 管理端审计导出首版，新增 `/api/admin/audit-logs/export`，支持按审计筛选条件导出 CSV，导出行为本身写入 `admin.audit_logs.exported` 审计，BFF 与 Admin Web 已接入。
 - 管理端审计留存/告警健康报告首版，新增 `/api/admin/audit-logs/retention-report`，按 7 年留存、180 天热存、完整性抽样、导出事件、关键动作覆盖生成 `ok`/`warning`/`critical` 状态和告警列表，BFF 与 Admin Web 已接入。
 - 管理端审计留存告警 outbox 投递首版，新增 `/api/admin/audit-logs/retention-alerts/emit`，按审计健康报告生成 `audit.retention_alerts` 可靠事件并写入 `admin.audit_retention_alerts.emitted` 审计，notification-worker 已订阅。
+- 管理端审计 WORM/冷归档请求首版，新增 `/api/admin/audit-logs/archive/request`，按热存窗口筛选冷归档候选，生成可验证 manifest hash 和归档路径，投递 `audit.archive_requested` outbox 事件并写入 `admin.audit_archive.requested` 审计，BFF、Admin Web 和 outbox-relay-worker 已接入。
 - 管理端审计服务端安全边界首版，新增 `security_auditor` 只读审计角色，并把 audit payload 白名单/敏感字段掩码下沉到 Store 与 PostgreSQL 路径。
 - 管理端审计完整性证明首版，审计日志返回 `integrity_algorithm`、`integrity_hash`、`integrity_verified`，本地默认 `sha256:v1`，生产配置 `AUDIT_LOG_SIGNING_SECRET` 后使用 `hmac-sha256:v1` 检测审计字段或白名单 payload 篡改。
 - 管理端服务端 RBAC 策略矩阵首版，新增 `super_admin`、`ops_admin`、`finance_admin`、`dispatch_admin`、`support_admin` 等后台角色和服务端 scope，邀约、退款、售后、对象清理、outbox、调度、运营快照和审计入口已按权限边界守护。
@@ -31,7 +32,7 @@
 
 当前最重要的未完成项：
 
-- 字段级/租户级 RBAC、权限变更产品化审批队列、审计 WORM/冷热归档、真实告警渠道投递、KMS/链式不可抵赖签名和审计策略治理。
+- 字段级/租户级 RBAC、权限变更产品化审批队列、真实 WORM 对象存储写入/冷热归档 worker、真实告警渠道投递、KMS/链式不可抵赖签名和审计策略治理。
 - 剩余关键业务写操作与审计写入同事务强制提交，继续扫描后台配置、运营处置、资金和风控写路径。
 - 真实微信支付、微信原路退款、对账、提现、商户结算和骑手收入。
 - 真实 IM、客服工作台、RTC 信令与通话审计。
@@ -39,7 +40,7 @@
 
 下一批计划：
 
-- 第一批补后台审计中心 WORM/冷热归档、真实告警渠道投递、RBAC 产品化审批页、字段级/租户级权限和菜单按权限隐藏。
+- 第一批补后台审计中心真实 WORM 对象存储写入/冷热归档 worker、真实告警渠道投递、RBAC 产品化审批页、字段级/租户级权限和菜单按权限隐藏。
 - 第二批补管理端订单/售后/商户资质/骑手站长详情页。
 - 第三批补真实资金链路。
 - 第四批补 IM 与 RTC。
@@ -208,6 +209,7 @@
 - 管理端已新增审计导出首版：`GET /api/admin/audit-logs/export` 使用同一套 actor/action/target/after/before/limit 筛选条件导出 CSV，返回 filename、row_count、generated_at 和 CSV 内容；导出动作写入 `admin.audit_logs.exported` 审计，记录导出筛选、行数和格式，BFF 与 Admin Web 操作目录已接入。
 - 管理端已新增审计留存/告警健康报告首版：`GET /api/admin/audit-logs/retention-report` 使用默认 2555 天留存、180 天热存和 500 条完整性抽样，统计总日志数、最早/最新时间、过期日志、冷归档候选、完整性失败、导出事件和关键审计动作覆盖，返回 `ok`、`warning` 或 `critical` 状态与告警列表；PostgreSQL-backed Store 使用规范化 `audit_logs` 聚合查询，BFF 与 Admin Web 操作目录已接入。
 - 管理端已新增审计留存告警 outbox 投递首版：`POST /api/admin/audit-logs/retention-alerts/emit` 复用留存报告口径，把 critical/warning 告警投递为 `audit.retention_alerts` outbox 事件，并写入 `admin.audit_retention_alerts.emitted` 审计；新增 `audit:write` scope，`security_auditor` 仍保持只读，notification-worker 已订阅该 topic。
+- 管理端已新增审计 WORM/冷归档请求首版：`POST /api/admin/audit-logs/archive/request` 使用热存窗口和 limit 筛选冷归档候选，生成 `sha256:v1` manifest hash、归档路径和 manifest entries，投递 `audit.archive_requested` outbox 事件并写入 `admin.audit_archive.requested` 审计；新增请求只允许 `audit:write`，`security_auditor` 保持只读，outbox-relay-worker 默认 relay 该 topic。该能力仍是归档请求/manifest 首版，真实 WORM 对象存储写入和删除/保留策略执行待补。
 - 管理端已新增审计服务端安全边界首版，`security_auditor` 可只读审计账本但不能执行后台写操作；`auth_sessions` 与身份迁移允许该主体类型；审计 payload 在服务端白名单过滤后才写入或返回，`object_key` 等敏感允许字段会被掩码，password、token、phone、nested/raw_request 等非白名单或敏感字段会被丢弃。
 - 管理端已新增审计完整性证明首版，`audit_logs` 表和 API 返回 `integrity_algorithm`、`integrity_hash`、`integrity_verified`；内存 Store 与 PostgreSQL 写入会签封规范化审计字段和服务端白名单 payload，查询时验证是否被篡改；Admin Web 审计中心可展示完整性状态、算法和哈希。
 - 管理端已新增退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维与商户/骑手邀约审计同事务首版，HTTP 退款策略保存入口改走 `SaveRefundSettingsWithAudit`，管理端订单退款入口改走 `RefundOrderWithAudit`，售后审核入口改走 `ReviewAfterSalesWithAudit`，订单状态补偿入口改走 `CompensateOrderStateWithAudit`，对象清理完成/失败入口改走 `CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit`，outbox 运维入口改走 `ClaimOutboxEventsWithAudit`、`RenewOutboxEventLeaseWithAudit`、`MarkOutboxEventPublishedWithAudit`、`MarkOutboxEventFailedWithAudit`、`ReplayOutboxEventWithAudit` 和 `ReplayOutboxEventsWithAudit`，商户/骑手邀约入口改走 `CreateMerchantInviteWithAudit` 与 `CreateRiderInviteWithAudit`；PostgreSQL-backed Store 分别使用单个数据库事务同时写入业务表、`platform_outbox_events` 或邀约快照与 `audit_logs`，并由 HTTP 防回退测试、Store 原子审计测试和架构守卫固定路径。
@@ -224,9 +226,9 @@
 未完成：
 
 - 桌面管理端完整业务页面和详情页。
-- 管理端 P0 视图已能读取运营快照生成首批表格/指标，关键写操作已有审计账本、审计检索页、审计 CSV 导出、审计留存/告警健康报告、审计留存告警 outbox 投递、服务端 RBAC 策略矩阵、RBAC 查询/变更申请审计、审批/驳回台账、手动应用、审计回滚和完整性证明首版；仍需补订单/售后/资质详情抽屉、审核表单、字段级/租户级权限、WORM/冷热归档、真实告警渠道投递、KMS/链式不可抵赖签名。
+- 管理端 P0 视图已能读取运营快照生成首批表格/指标，关键写操作已有审计账本、审计检索页、审计 CSV 导出、审计留存/告警健康报告、审计留存告警 outbox 投递、审计 WORM/冷归档请求、服务端 RBAC 策略矩阵、RBAC 查询/变更申请审计、审批/驳回台账、手动应用、审计回滚和完整性证明首版；仍需补订单/售后/资质详情抽屉、审核表单、字段级/租户级权限、真实 WORM 对象存储写入/冷热归档 worker、真实告警渠道投递、KMS/链式不可抵赖签名。
 - 移动管理端实际页面。
-- 字段级/租户级 RBAC、权限变更产品化审批页面、WORM/冷热归档、真实告警渠道投递、KMS/链式不可抵赖签名和审计策略治理。
+- 字段级/租户级 RBAC、权限变更产品化审批页面、真实 WORM 对象存储写入/冷热归档 worker、真实告警渠道投递、KMS/链式不可抵赖签名和审计策略治理。
 - 订单、售后、用户、商户、骑手、首页卡片、优惠券、圈子/饭搭、团购、买药、跑腿、客服、RTC、OAuth/API、对象存储告警等后台面板。
 
 ### 3.7 核心 API 和数据链路
@@ -314,7 +316,7 @@
 - 用户邀请页和邀请奖励闭环。
 - 优惠券、红包、群聊资金闭环的 API 实装。
 - 评价、收藏、积分会员、推送、风控完整闭环。
-- 字段级/租户级 RBAC、剩余业务写操作与审计写入同事务强制提交、WORM/冷热归档、真实告警渠道投递、KMS/链式签名和完整审计后台。
+- 字段级/租户级 RBAC、剩余业务写操作与审计写入同事务强制提交、真实 WORM 对象存储写入/冷热归档 worker、真实告警渠道投递、KMS/链式签名和完整审计后台。
 
 ### 3.8 BFF
 
@@ -497,12 +499,13 @@ npm run verify:architecture
 - 已做审计导出首版：审计 CSV 导出复用检索筛选条件，导出动作写入 `admin.audit_logs.exported`，导出 payload 只保留格式、行数、筛选条件和生成时间。
 - 已做审计留存/告警健康报告首版：审计报告按留存窗口、热存窗口、完整性抽样、导出事件和关键动作覆盖生成状态与告警；这只是报告能力，不是 WORM 归档或真实渠道告警。
 - 已做审计留存告警 outbox 投递首版：留存报告中的告警可通过 `POST /api/admin/audit-logs/retention-alerts/emit` 进入 `audit.retention_alerts` 可靠事件队列，并写入 `admin.audit_retention_alerts.emitted` 审计；这仍不是短信、企业微信、电话等真实渠道投递。
+- 已做审计 WORM/冷归档请求首版：冷归档请求可通过 `POST /api/admin/audit-logs/archive/request` 生成归档 manifest、manifest hash、归档路径和 `audit.archive_requested` outbox 事件，并写入 `admin.audit_archive.requested` 审计；这仍不是实际 WORM 对象存储写入、留存锁定或自动清理。
 - 已做审计服务端安全边界首版：`security_auditor` 只读审计角色、审计 payload 服务端白名单和敏感字段掩码。
 - 已做审计完整性证明首版：`sha256:v1`/`hmac-sha256:v1` 签封审计规范化字段和白名单 payload，Admin Web 可展示验证状态。
 - 已做退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维与商户/骑手邀约审计同事务首版：后台退款策略保存会在仓储级原子路径内同时更新配置和写入审计，管理端订单退款会在仓储级原子路径内同时写入退款业务账本和审计，售后审核会在仓储级原子路径内同时写入审核结果、必要退款和审计，订单状态补偿会在仓储级原子路径内同时写入修复结果和审计，对象清理完成/失败会在仓储级原子路径内同时写入上传票据清理状态和审计，outbox 运维会在仓储级原子路径内同时更新 outbox 事件状态和审计，商户/骑手邀约会在仓储级原子路径内同时生成最终邀约和审计。
 - 已做管理端服务端 RBAC 策略矩阵首版：`ops_admin`、`finance_admin`、`dispatch_admin`、`support_admin`、`security_auditor` 等角色已由服务端 scope 守护关键后台路由。
 - 已做 RBAC 权限治理查询、变更申请、审批/驳回台账、手动应用与审计回滚首版：后台可读取真实服务端矩阵，`admin`/`super_admin` 可提交待审批权限申请并写入审计，另一名管理员可审批或驳回并写入审计；已审批申请可手动应用到运行时权限矩阵并写入 `admin.rbac.change_applied`，当前已应用申请可按应用前 scopes 回滚并写入 `admin.rbac.change_rolled_back`，服务启动会按应用/回滚审计重放恢复策略。
-- 下一步：把订单/售后/商户/骑手视图继续拆详情页与审核表单，并补字段级/租户级 RBAC、剩余后台配置/运营处置/资金风控写路径审计同事务、WORM/冷热归档、真实告警渠道投递和 KMS/链式不可抵赖签名。
+- 下一步：把订单/售后/商户/骑手视图继续拆详情页与审核表单，并补字段级/租户级 RBAC、剩余后台配置/运营处置/资金风控写路径审计同事务、真实 WORM 对象存储写入/冷热归档 worker、真实告警渠道投递和 KMS/链式不可抵赖签名。
 
 ### 第 3 优先级：微信支付生产链路
 

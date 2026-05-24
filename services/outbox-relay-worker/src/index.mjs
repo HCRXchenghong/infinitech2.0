@@ -5,7 +5,9 @@ export const defaultRelayTopics = [
   "order.completed",
   "dispatch.assigned",
   "dispatch.timeout",
-  "dispatch.status_changed"
+  "dispatch.status_changed",
+  "audit.retention_alerts",
+  "audit.archive_requested"
 ];
 export const defaultPollIntervalMs = 5000;
 export const defaultBatchLimit = 100;

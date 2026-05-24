@@ -3,6 +3,7 @@ import test from "node:test";
 import { ADMIN_API_OPERATIONS, buildAdminRequest, executeAdminOperation, fieldsForOperation, getAdminOperation } from "./adminApi.mjs";
 import {
   auditDataFromResult,
+  auditArchiveRequestFromResult,
   auditExportDataFromResult,
   auditRetentionAlertEmissionFromResult,
   auditRetentionReportFromResult,
@@ -47,6 +48,7 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
     "audit-logs-export",
     "audit-retention-report",
     "audit-retention-alert-emit",
+    "audit-archive-request",
     "rbac-policy",
     "rbac-change-requests",
     "rbac-change-request",
@@ -85,6 +87,7 @@ test("admin web ships P0 business views with actions and safeguards", () => {
   assert.ok(ADMIN_WEB_VIEWS["audit-logs"].actions.includes("audit-logs-export"));
   assert.ok(ADMIN_WEB_VIEWS["audit-logs"].actions.includes("audit-retention-report"));
   assert.ok(ADMIN_WEB_VIEWS["audit-logs"].actions.includes("audit-retention-alert-emit"));
+  assert.ok(ADMIN_WEB_VIEWS["audit-logs"].actions.includes("audit-archive-request"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-change-request"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-review-request"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-apply-request"));
@@ -121,6 +124,11 @@ test("admin request builder normalizes auth query path and body", () => {
   assert.equal(auditRetentionAlertRequest.method, "POST");
   assert.equal(auditRetentionAlertRequest.url, "/api/admin/audit-logs/retention-alerts/emit");
   assert.deepEqual(JSON.parse(auditRetentionAlertRequest.body), { retention_days: 2555, hot_days: 180, integrity_sample_limit: 500 });
+
+  const auditArchiveRequest = buildAdminRequest(getAdminOperation("audit-archive-request"), { hot_days: 180, limit: 500, storage_prefix: "worm://audit-logs" }, "Bearer admin.token");
+  assert.equal(auditArchiveRequest.method, "POST");
+  assert.equal(auditArchiveRequest.url, "/api/admin/audit-logs/archive/request");
+  assert.deepEqual(JSON.parse(auditArchiveRequest.body), { hot_days: 180, limit: 500, storage_prefix: "worm://audit-logs" });
 
   const rbacRequest = buildAdminRequest(getAdminOperation("rbac-change-request"), { role: "support_admin", requested_scopes: "after_sales:read, rbac:read, rbac:read", reason: "support recertification" }, "admin.token");
   assert.equal(rbacRequest.url, "/api/admin/rbac/change-requests");
@@ -230,6 +238,19 @@ test("admin audit adapter redacts sensitive payload and builds cursor rows", () 
     auditLogId: "aud_1"
   });
   assert.equal(auditRetentionAlertEmissionFromResult({ payload: { data: { emission: [] } } }), null);
+  assert.deepEqual(auditArchiveRequestFromResult({ payload: { data: { archive: { archive_id: "audit_archive_1", status: "requested", topic: "audit.archive_requested", storage_key: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl", log_count: 2, integrity_failures: 0, manifest_algorithm: "sha256:v1", manifest_hash: "abc", outbox_event_id: "obe_archive_1" }, audit_log: { id: "aud_archive_1" } } } }), {
+    archiveId: "audit_archive_1",
+    status: "requested",
+    topic: "audit.archive_requested",
+    storageKey: "worm://audit-logs/2026/05/24/audit_archive_1.jsonl",
+    logCount: 2,
+    integrityFailures: 0,
+    manifestAlgorithm: "sha256:v1",
+    manifestHash: "abc",
+    outboxEventId: "obe_archive_1",
+    auditLogId: "aud_archive_1"
+  });
+  assert.equal(auditArchiveRequestFromResult({ payload: { data: { archive: [] } } }), null);
 
   const tamperedRows = buildAuditRows([{ ...logs[0], integrity_verified: false }]);
   assert.equal(tamperedRows[0].integrityLabel, "未通过");

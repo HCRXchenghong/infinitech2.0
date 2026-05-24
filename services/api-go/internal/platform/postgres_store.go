@@ -6765,6 +6765,60 @@ func (s *PostgresStore) EmitAuditRetentionAlerts(req AuditRetentionAlertEmission
 	return emission, cloneOutboxEvent(event), cloneAuditLog(log), nil
 }
 
+func (s *PostgresStore) RequestAuditArchive(req AuditArchiveRequest, audit RecordAuditLogRequest) (*AuditArchiveRequestResult, *OutboxEvent, *AuditLog, error) {
+	req = normalizeAuditArchiveRequest(req)
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = req.Now
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, log, err
+	}
+	if log.Action != "admin.audit_archive.requested" || log.TargetType != "audit_archive" {
+		return nil, nil, log, ErrInvalidArgument
+	}
+
+	ctx := context.Background()
+	coldArchiveCutoff := req.Now.AddDate(0, 0, -req.HotDays)
+	logs, err := s.loadSQLAuditLogs(ctx, AuditLogsRequest{Before: coldArchiveCutoff, Limit: req.Limit})
+	if err != nil {
+		return nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	result := auditArchiveRequestFromLogs(req, logs)
+	log.TargetID = result.ArchiveID
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	var event *OutboxEvent
+	if result.LogCount > 0 {
+		event, err = insertOrGetSQLOutboxEvent(ctx, tx, *auditArchiveOutboxEvent(result))
+		if err != nil {
+			return nil, nil, log, errors.Join(ErrPersistence, err)
+		}
+		result.OutboxEventID = event.ID
+	}
+	log.Payload = auditArchiveRequestAuditPayload(result)
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, event, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, event, log, errors.Join(ErrPersistence, err)
+	}
+	events := []OutboxEvent{}
+	if event != nil {
+		events = append(events, *event)
+	}
+	if err := s.applyOutboxEventsAndAuditAfterCommit(ctx, events, log); err != nil {
+		return result, event, log, err
+	}
+	return result, cloneOutboxEvent(event), cloneAuditLog(log), nil
+}
+
 func (s *PostgresStore) AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error) {
 	profile, err := s.Store.AcceptMerchantInvite(req)
 	return profile, s.persistAfter(err)

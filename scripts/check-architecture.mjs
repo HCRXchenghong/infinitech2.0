@@ -113,6 +113,8 @@ test("admin web has a minimum operable control center", () => {
   assert.match(api, /\/api\/admin\/audit-logs\/export/);
   assert.match(api, /\/api\/admin\/audit-logs\/retention-report/);
   assert.match(api, /\/api\/admin\/audit-logs\/retention-alerts\/emit/);
+  assert.match(api, /\/api\/admin\/audit-logs\/archive\/request/);
+  assert.match(audit, /auditArchiveRequestFromResult/);
   assert.match(api, /\/api\/admin\/rbac\/policy/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests\/:change_request_id\/review/);
@@ -189,10 +191,12 @@ test("bff keeps browser CORS guard for local admin and uni shells", () => {
   assert.match(server, /\/api\/admin\/audit-logs\/export/);
   assert.match(server, /\/api\/admin\/audit-logs\/retention-report/);
   assert.match(server, /\/api\/admin\/audit-logs\/retention-alerts\/emit/);
+  assert.match(server, /\/api\/admin\/audit-logs\/archive\/request/);
   assert.match(tests, /\/api\/admin\/audit-logs/);
   assert.match(tests, /\/api\/admin\/audit-logs\/export/);
   assert.match(tests, /\/api\/admin\/audit-logs\/retention-report/);
   assert.match(tests, /\/api\/admin\/audit-logs\/retention-alerts\/emit/);
+  assert.match(tests, /\/api\/admin\/audit-logs\/archive\/request/);
   assert.match(server, /\/api\/admin\/rbac\/policy/);
   assert.match(tests, /\/api\/admin\/rbac\/policy/);
   assert.match(server, /\/api\/admin\/rbac\/change-requests/);
@@ -445,6 +449,8 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(contracts, /IntegrityVerified\s+bool\s+`json:"integrity_verified"`/);
   assert.match(contracts, /type AuditRetentionReport struct/);
   assert.match(contracts, /type AuditRetentionAlertEmission struct/);
+  assert.match(contracts, /type AuditArchiveRequestResult struct/);
+  assert.match(contracts, /ManifestEntries\s+\[\]AuditArchiveManifestEntry\s+`json:"manifest_entries"`/);
   assert.match(contracts, /IntegrityFailures\s+int\s+`json:"integrity_failures"`/);
   assert.match(contracts, /MissingCriticalActions\s+\[\]string\s+`json:"missing_critical_actions"`/);
   assert.match(contracts, /After\s+time\.Time/);
@@ -452,6 +458,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(repository, /AuditLogs/);
   assert.match(repository, /AuditRetentionReport/);
   assert.match(repository, /EmitAuditRetentionAlerts/);
+  assert.match(repository, /RequestAuditArchive/);
   assert.match(repository, /SaveRefundSettingsWithAudit\(req SaveRefundSettingsRequest, audit RecordAuditLogRequest\)/);
   assert.match(repository, /CreateMerchantInviteWithAudit\(req CreateMerchantInviteRequest, audit RecordAuditLogRequest\)/);
   assert.match(repository, /CreateRiderInviteWithAudit\(req CreateRiderInviteRequest, audit RecordAuditLogRequest\)/);
@@ -470,10 +477,14 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(store, /func \(s \*Store\) AuditLogs/);
   assert.match(store, /func \(s \*Store\) AuditRetentionReport/);
   assert.match(store, /func \(s \*Store\) EmitAuditRetentionAlerts/);
+  assert.match(store, /func \(s \*Store\) RequestAuditArchive/);
   assert.match(store, /defaultAuditRetentionDays\s+= 2555/);
   assert.match(store, /auditRetentionAlertTopic\s+= "audit\.retention_alerts"/);
+  assert.match(store, /auditArchiveRequestedTopic\s+= "audit\.archive_requested"/);
   assert.match(store, /auditRetentionReportFromLogs/);
   assert.match(store, /auditRetentionAlertOutboxPayload/);
+  assert.match(store, /auditArchiveManifestHash/);
+  assert.match(store, /auditArchiveOutboxPayload/);
   assert.match(store, /audit\.integrity_failed/);
   assert.match(store, /audit\.archive_due/);
   assert.match(store, /func \(s \*Store\) SaveRefundSettingsWithAudit/);
@@ -531,6 +542,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(storeTest, /TestAuditLogIntegrityDetectsTamperedHMACPayload/);
   assert.match(storeTest, /TestAuditRetentionReportFlagsRetentionCoverageAndIntegrity/);
   assert.match(storeTest, /TestEmitAuditRetentionAlertsEnqueuesOutboxAndAudit/);
+  assert.match(storeTest, /TestRequestAuditArchiveBuildsManifestOutboxAndAudit/);
   assert.match(storeTest, /TestSaveRefundSettingsWithAuditRecordsVerifiedAudit/);
   assert.match(storeTest, /TestCreateMerchantInviteWithAuditRecordsVerifiedAudit/);
   assert.match(storeTest, /TestCreateRiderInviteWithAuditRecordsVerifiedAudit/);
@@ -562,6 +574,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(postgresStore, /func \(s \*PostgresStore\) AuditLogs/);
   assert.match(postgresStore, /func \(s \*PostgresStore\) AuditRetentionReport/);
   assert.match(postgresStore, /func \(s \*PostgresStore\) EmitAuditRetentionAlerts/);
+  assert.match(postgresStore, /func \(s \*PostgresStore\) RequestAuditArchive/);
   assert.match(postgresStore, /insertOrGetSQLOutboxEvent/);
   assert.match(postgresStore, /COUNT\(\*\) FILTER \(WHERE created_at < \$1\)/);
   assert.match(postgresStore, /COUNT\(\*\) FILTER \(WHERE action = 'admin\.audit_logs\.exported'\)/);
@@ -680,11 +693,14 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(router, /GET \/api\/admin\/audit-logs\/export/);
   assert.match(router, /GET \/api\/admin\/audit-logs\/retention-report/);
   assert.match(router, /POST \/api\/admin\/audit-logs\/retention-alerts\/emit/);
+  assert.match(router, /POST \/api\/admin\/audit-logs\/archive\/request/);
   assert.match(router, /admin\.audit_logs\.exported/);
   assert.match(router, /admin\.audit_retention_alerts\.emitted/);
+  assert.match(router, /admin\.audit_archive\.requested/);
   assert.match(router, /buildAdminAuditLogCSV/);
   assert.match(router, /AuditRetentionReport/);
   assert.match(router, /EmitAuditRetentionAlerts/);
+  assert.match(router, /RequestAuditArchive/);
   assert.match(router, /GET \/api\/admin\/rbac\/policy/);
   assert.match(router, /GET \/api\/admin\/rbac\/change-requests/);
   assert.match(router, /POST \/api\/admin\/rbac\/change-requests/);
@@ -732,6 +748,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(routerTest, /admin\.audit_logs\.exported/);
   assert.match(routerTest, /retention-report/);
   assert.match(routerTest, /retention-alerts\/emit/);
+  assert.match(routerTest, /archive\/request/);
   assert.match(routerTest, /integrity_verified/);
   assert.match(routerTest, /TestAdminRBACRoleMatrixHTTPFlow/);
   assert.match(routerTest, /admin\.rbac\.change_requested/);
@@ -769,6 +786,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(bff, /\/api\/admin\/audit-logs\/export/);
   assert.match(bff, /\/api\/admin\/audit-logs\/retention-report/);
   assert.match(bff, /\/api\/admin\/audit-logs\/retention-alerts\/emit/);
+  assert.match(bff, /\/api\/admin\/audit-logs\/archive\/request/);
   assert.match(bff, /\/api\/admin\/rbac\/policy/);
   assert.match(bff, /\/api\/admin\/rbac\/change-requests/);
   assert.match(bff, /change-requests\\\/\[\^\/\]\+\\\/review/);
@@ -1013,6 +1031,9 @@ test("outbox stats expose relay lease health signals", () => {
 test("outbox relay worker is wired into deployment skeletons", () => {
   const compose = readFileSync(join(root, "infra/docker/compose.yml"), "utf8");
   const k8s = readFileSync(join(root, "infra/k8s/base/app-stack.yaml"), "utf8");
+  const worker = readFileSync(join(root, "services/outbox-relay-worker/src/index.mjs"), "utf8");
+  assert.match(worker, /audit\.retention_alerts/);
+  assert.match(worker, /audit\.archive_requested/);
   assert.match(compose, /outbox-relay-worker:/);
   assert.match(compose, /OUTBOX_RELAY_TOPICS:/);
   assert.match(compose, /OUTBOX_RELAY_BATCH_LIMIT:/);

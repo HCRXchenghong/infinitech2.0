@@ -123,6 +123,7 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("GET /api/admin/audit-logs/export", r.handleAdminAuditLogsExport)
 	r.mux.HandleFunc("GET /api/admin/audit-logs/retention-report", r.handleAdminAuditRetentionReport)
 	r.mux.HandleFunc("POST /api/admin/audit-logs/retention-alerts/emit", r.handleAdminEmitAuditRetentionAlerts)
+	r.mux.HandleFunc("POST /api/admin/audit-logs/archive/request", r.handleAdminRequestAuditArchive)
 	r.mux.HandleFunc("GET /api/admin/rbac/policy", r.handleAdminRBACPolicy)
 	r.mux.HandleFunc("GET /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequests)
 	r.mux.HandleFunc("POST /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequest)
@@ -1525,6 +1526,56 @@ func (r *Router) handleAdminEmitAuditRetentionAlerts(w http.ResponseWriter, req 
 	}
 	writeSuccess(w, map[string]any{
 		"emission":     emission,
+		"outbox_event": event,
+		"audit_log":    audit,
+	})
+}
+
+type adminAuditArchiveRequestPayload struct {
+	HotDays       int       `json:"hot_days"`
+	Limit         int       `json:"limit"`
+	StoragePrefix string    `json:"storage_prefix"`
+	Now           time.Time `json:"now"`
+}
+
+func (r *Router) handleAdminRequestAuditArchive(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanManageAuditLogs() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	var payload adminAuditArchiveRequestPayload
+	if !decodeJSON(w, req, &payload) {
+		return
+	}
+	if payload.HotDays < 0 || payload.Limit < 0 {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	archive, event, audit, err := r.store.RequestAuditArchive(platform.AuditArchiveRequest{
+		HotDays:       payload.HotDays,
+		Limit:         payload.Limit,
+		StoragePrefix: payload.StoragePrefix,
+		Now:           payload.Now,
+	}, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.audit_archive.requested",
+		TargetType: "audit_archive",
+		TargetID:   "pending",
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+		CreatedAt:  payload.Now,
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccess(w, map[string]any{
+		"archive":      archive,
 		"outbox_event": event,
 		"audit_log":    audit,
 	})

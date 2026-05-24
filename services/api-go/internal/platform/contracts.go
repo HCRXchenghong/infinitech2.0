@@ -1443,6 +1443,44 @@ type AuditRetentionAlertEmission struct {
 	Report         *AuditRetentionReport `json:"report"`
 }
 
+type AuditArchiveRequest struct {
+	HotDays       int       `json:"hot_days"`
+	Limit         int       `json:"limit"`
+	StoragePrefix string    `json:"storage_prefix"`
+	Now           time.Time `json:"now"`
+}
+
+type AuditArchiveManifestEntry struct {
+	ID                 string    `json:"id"`
+	CreatedAt          time.Time `json:"created_at"`
+	Action             string    `json:"action"`
+	TargetType         string    `json:"target_type"`
+	TargetID           string    `json:"target_id"`
+	IntegrityAlgorithm string    `json:"integrity_algorithm"`
+	IntegrityHash      string    `json:"integrity_hash"`
+	IntegrityVerified  bool      `json:"integrity_verified"`
+}
+
+type AuditArchiveRequestResult struct {
+	ArchiveID         string                      `json:"archive_id"`
+	Status            string                      `json:"status"`
+	Topic             string                      `json:"topic"`
+	StoragePrefix     string                      `json:"storage_prefix"`
+	StorageKey        string                      `json:"storage_key"`
+	HotDays           int                         `json:"hot_days"`
+	ColdArchiveCutoff time.Time                   `json:"cold_archive_cutoff"`
+	LogCount          int                         `json:"log_count"`
+	IntegrityFailures int                         `json:"integrity_failures"`
+	OldestCreatedAt   time.Time                   `json:"oldest_created_at"`
+	NewestCreatedAt   time.Time                   `json:"newest_created_at"`
+	ManifestAlgorithm string                      `json:"manifest_algorithm"`
+	ManifestHash      string                      `json:"manifest_hash"`
+	ManifestEntries   []AuditArchiveManifestEntry `json:"manifest_entries"`
+	OutboxEventID     string                      `json:"outbox_event_id"`
+	IdempotencyKey    string                      `json:"idempotency_key"`
+	RequestedAt       time.Time                   `json:"requested_at"`
+}
+
 func DefaultHomeModules() []HomeModule {
 	return []HomeModule{
 		{Key: "takeout", Title: "外卖", Route: "/pages/shop/list/index", Icon: "takeout", Enabled: true, SortOrder: 10, Scene: "home"},

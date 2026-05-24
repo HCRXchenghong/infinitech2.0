@@ -70,6 +70,7 @@ function isApiProxyRoute(method, pathname) {
   if (method === "GET" && pathname === "/api/admin/audit-logs/export") return true;
   if (method === "GET" && pathname === "/api/admin/audit-logs/retention-report") return true;
   if (method === "POST" && pathname === "/api/admin/audit-logs/retention-alerts/emit") return true;
+  if (method === "POST" && pathname === "/api/admin/audit-logs/archive/request") return true;
   if (method === "GET" && pathname === "/api/admin/rbac/policy") return true;
   if (method === "GET" && pathname === "/api/admin/rbac/change-requests") return true;
   if (method === "POST" && pathname === "/api/admin/rbac/change-requests") return true;

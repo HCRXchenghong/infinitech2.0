@@ -349,3 +349,23 @@ export function auditRetentionAlertEmissionFromResult(result) {
     auditLogId: compact(data.audit_log?.id, "")
   };
 }
+
+export function auditArchiveRequestFromResult(result) {
+  const data = result?.payload?.data;
+  const archive = data?.archive;
+  if (!archive || typeof archive !== "object" || Array.isArray(archive)) {
+    return null;
+  }
+  return {
+    archiveId: compact(archive.archive_id, ""),
+    status: compact(archive.status, "unknown"),
+    topic: compact(archive.topic, ""),
+    storageKey: compact(archive.storage_key, ""),
+    logCount: Number(archive.log_count || 0),
+    integrityFailures: Number(archive.integrity_failures || 0),
+    manifestAlgorithm: compact(archive.manifest_algorithm, ""),
+    manifestHash: compact(archive.manifest_hash, ""),
+    outboxEventId: compact(archive.outbox_event_id, ""),
+    auditLogId: compact(data.audit_log?.id, "")
+  };
+}

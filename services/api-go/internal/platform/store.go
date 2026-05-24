@@ -3723,6 +3723,51 @@ func (s *Store) EmitAuditRetentionAlerts(req AuditRetentionAlertEmissionRequest,
 	return emission, eventCopy, auditLog, nil
 }
 
+func (s *Store) RequestAuditArchive(req AuditArchiveRequest, audit RecordAuditLogRequest) (*AuditArchiveRequestResult, *OutboxEvent, *AuditLog, error) {
+	req = normalizeAuditArchiveRequest(req)
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = req.Now
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, log, err
+	}
+	if log.Action != "admin.audit_archive.requested" || log.TargetType != "audit_archive" {
+		return nil, nil, log, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	logs := make([]AuditLog, 0, len(s.auditLogs))
+	for _, auditLog := range s.auditLogs {
+		output := cloneAuditLog(auditLog)
+		output.IntegrityVerified = verifyAuditLogIntegrity(*output, s.auditLogSigningSecret)
+		logs = append(logs, *output)
+	}
+	result := auditArchiveRequestFromLogs(req, logs)
+	var event *OutboxEvent
+	if result.LogCount > 0 {
+		event = s.enqueueOutboxEventLocked(
+			auditArchiveRequestedTopic,
+			"audit_archive",
+			result.ArchiveID,
+			"audit.archive_requested",
+			result.IdempotencyKey,
+			auditArchiveOutboxPayload(result),
+			result.RequestedAt,
+		)
+		if event != nil {
+			result.OutboxEventID = event.ID
+		}
+	}
+	log.TargetID = result.ArchiveID
+	log.Payload = auditArchiveRequestAuditPayload(result)
+	auditLog := s.appendAuditLogLocked(log)
+	eventCopy := cloneOutboxEvent(event)
+
+	return result, eventCopy, auditLog, nil
+}
+
 func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 	req.ActorType = strings.TrimSpace(req.ActorType)
 	req.ActorID = strings.TrimSpace(req.ActorID)
@@ -3750,6 +3795,11 @@ const (
 	defaultAuditIntegritySampleLimit = 500
 	maxAuditIntegritySampleLimit     = 5000
 	auditRetentionAlertTopic         = "audit.retention_alerts"
+	defaultAuditArchiveLimit         = 500
+	maxAuditArchiveLimit             = 5000
+	defaultAuditArchiveStoragePrefix = "worm://audit-logs"
+	auditArchiveManifestAlgorithm    = "sha256:v1"
+	auditArchiveRequestedTopic       = "audit.archive_requested"
 )
 
 var defaultCriticalAuditActions = []string{
@@ -4063,9 +4113,193 @@ func auditRetentionAlertEmissionAuditPayload(emission *AuditRetentionAlertEmissi
 	return payload
 }
 
+func normalizeAuditArchiveRequest(req AuditArchiveRequest) AuditArchiveRequest {
+	if req.Now.IsZero() {
+		req.Now = time.Now().UTC()
+	} else {
+		req.Now = req.Now.UTC()
+	}
+	if req.HotDays <= 0 {
+		req.HotDays = defaultAuditHotDays
+	}
+	if req.Limit <= 0 {
+		req.Limit = defaultAuditArchiveLimit
+	}
+	if req.Limit > maxAuditArchiveLimit {
+		req.Limit = maxAuditArchiveLimit
+	}
+	req.StoragePrefix = strings.TrimRight(strings.TrimSpace(req.StoragePrefix), "/")
+	if req.StoragePrefix == "" {
+		req.StoragePrefix = defaultAuditArchiveStoragePrefix
+	}
+	return req
+}
+
+func auditArchiveRequestFromLogs(req AuditArchiveRequest, logs []AuditLog) *AuditArchiveRequestResult {
+	req = normalizeAuditArchiveRequest(req)
+	cutoff := req.Now.AddDate(0, 0, -req.HotDays)
+	sort.SliceStable(logs, func(i, j int) bool {
+		if !logs[i].CreatedAt.Equal(logs[j].CreatedAt) {
+			return logs[i].CreatedAt.Before(logs[j].CreatedAt)
+		}
+		return logs[i].ID < logs[j].ID
+	})
+
+	result := &AuditArchiveRequestResult{
+		Status:            "skipped",
+		Topic:             auditArchiveRequestedTopic,
+		StoragePrefix:     req.StoragePrefix,
+		HotDays:           req.HotDays,
+		ColdArchiveCutoff: cutoff,
+		ManifestAlgorithm: auditArchiveManifestAlgorithm,
+		ManifestEntries:   []AuditArchiveManifestEntry{},
+		RequestedAt:       req.Now,
+	}
+	for _, log := range logs {
+		createdAt := normalizeAuditLogTime(log.CreatedAt)
+		if !createdAt.Before(cutoff) {
+			continue
+		}
+		entry := AuditArchiveManifestEntry{
+			ID:                 strings.TrimSpace(log.ID),
+			CreatedAt:          createdAt,
+			Action:             strings.TrimSpace(log.Action),
+			TargetType:         strings.TrimSpace(log.TargetType),
+			TargetID:           strings.TrimSpace(log.TargetID),
+			IntegrityAlgorithm: strings.TrimSpace(log.IntegrityAlgorithm),
+			IntegrityHash:      strings.TrimSpace(log.IntegrityHash),
+			IntegrityVerified:  log.IntegrityVerified,
+		}
+		if !entry.IntegrityVerified {
+			result.IntegrityFailures++
+		}
+		if result.OldestCreatedAt.IsZero() || createdAt.Before(result.OldestCreatedAt) {
+			result.OldestCreatedAt = createdAt
+		}
+		if result.NewestCreatedAt.IsZero() || createdAt.After(result.NewestCreatedAt) {
+			result.NewestCreatedAt = createdAt
+		}
+		result.ManifestEntries = append(result.ManifestEntries, entry)
+		if len(result.ManifestEntries) >= req.Limit {
+			break
+		}
+	}
+	result.LogCount = len(result.ManifestEntries)
+	if result.LogCount == 0 {
+		result.ArchiveID = "audit_archive_empty_" + req.Now.Format("20060102")
+		return result
+	}
+	manifestHash := auditArchiveManifestHash(result)
+	result.ManifestHash = manifestHash
+	result.ArchiveID = "audit_archive_" + shortHash(manifestHash)
+	result.StorageKey = result.StoragePrefix + "/" + req.Now.Format("2006/01/02") + "/" + result.ArchiveID + ".jsonl"
+	result.IdempotencyKey = strings.Join([]string{
+		"audit_archive",
+		req.Now.Format("2006-01-02"),
+		fmt.Sprintf("hot:%d", req.HotDays),
+		fmt.Sprintf("limit:%d", req.Limit),
+		"manifest:" + shortHash(manifestHash),
+	}, ":")
+	result.Status = "requested"
+	if result.IntegrityFailures > 0 {
+		result.Status = "requested_with_integrity_warnings"
+	}
+	return result
+}
+
+func auditArchiveManifestHash(result *AuditArchiveRequestResult) string {
+	if result == nil {
+		return ""
+	}
+	payload := map[string]any{
+		"manifest_version":    "audit_archive_manifest:v1",
+		"hot_days":            result.HotDays,
+		"cold_archive_cutoff": result.ColdArchiveCutoff.Format(time.RFC3339Nano),
+		"requested_at":        result.RequestedAt.Format(time.RFC3339Nano),
+		"log_count":           result.LogCount,
+		"integrity_failures":  result.IntegrityFailures,
+		"entries":             result.ManifestEntries,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
+}
+
+func auditArchiveOutboxEvent(result *AuditArchiveRequestResult) *OutboxEvent {
+	if result == nil || strings.TrimSpace(result.IdempotencyKey) == "" {
+		return nil
+	}
+	now := result.RequestedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	eventID := "obe_audit_archive_" + shortHash(result.IdempotencyKey)
+	result.OutboxEventID = eventID
+	return &OutboxEvent{
+		ID:             eventID,
+		Topic:          auditArchiveRequestedTopic,
+		AggregateType:  "audit_archive",
+		AggregateID:    result.ArchiveID,
+		EventType:      "audit.archive_requested",
+		IdempotencyKey: result.IdempotencyKey,
+		Payload:        auditArchiveOutboxPayload(result),
+		Status:         OutboxStatusPending,
+		AvailableAt:    now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+}
+
+func auditArchiveOutboxPayload(result *AuditArchiveRequestResult) map[string]any {
+	if result == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"archive_id":          result.ArchiveID,
+		"status":              result.Status,
+		"storage_prefix":      result.StoragePrefix,
+		"storage_key":         result.StorageKey,
+		"hot_days":            result.HotDays,
+		"cold_archive_cutoff": result.ColdArchiveCutoff.Format(time.RFC3339Nano),
+		"log_count":           result.LogCount,
+		"integrity_failures":  result.IntegrityFailures,
+		"manifest_algorithm":  result.ManifestAlgorithm,
+		"manifest_hash":       result.ManifestHash,
+		"manifest_entries":    result.ManifestEntries,
+		"requested_at":        result.RequestedAt.Format(time.RFC3339Nano),
+		"idempotency_key":     result.IdempotencyKey,
+	}
+}
+
+func auditArchiveRequestAuditPayload(result *AuditArchiveRequestResult) map[string]any {
+	if result == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"archive_id":          result.ArchiveID,
+		"status":              result.Status,
+		"topic":               result.Topic,
+		"storage_prefix":      result.StoragePrefix,
+		"storage_key":         result.StorageKey,
+		"hot_days":            result.HotDays,
+		"cold_archive_cutoff": result.ColdArchiveCutoff.Format(time.RFC3339Nano),
+		"log_count":           result.LogCount,
+		"integrity_failures":  result.IntegrityFailures,
+		"manifest_algorithm":  result.ManifestAlgorithm,
+		"manifest_hash":       result.ManifestHash,
+		"outbox_event_id":     result.OutboxEventID,
+	}
+}
+
 var auditPayloadAllowlist = map[string]struct{}{
 	"action_filter":           {},
 	"alert_count":             {},
+	"archive_id":              {},
 	"actor_id":                {},
 	"actor_type":              {},
 	"after":                   {},
@@ -4077,6 +4311,7 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"changed":                 {},
 	"claimed":                 {},
 	"cleanup_attempts":        {},
+	"cold_archive_cutoff":     {},
 	"cold_archive_due_logs":   {},
 	"compensation_type":       {},
 	"critical_count":          {},
@@ -4097,6 +4332,9 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"lease_owner":             {},
 	"lease_seconds":           {},
 	"limit":                   {},
+	"log_count":               {},
+	"manifest_algorithm":      {},
+	"manifest_hash":           {},
 	"object_key":              {},
 	"outbox_event_id":         {},
 	"previous_scopes":         {},
@@ -4115,6 +4353,8 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"row_count":               {},
 	"station_id":              {},
 	"status":                  {},
+	"storage_key":             {},
+	"storage_prefix":          {},
 	"topic":                   {},
 	"type":                    {},
 	"warning_count":           {},

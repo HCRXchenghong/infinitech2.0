@@ -158,6 +158,19 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     ]
   },
   {
+    key: "audit-archive-request",
+    title: "请求 WORM 归档",
+    method: "POST",
+    path: "/api/admin/audit-logs/archive/request",
+    authRequired: true,
+    area: "ops",
+    fields: [
+      { key: "hot_days", label: "热存天数", type: "number", defaultValue: 180 },
+      { key: "limit", label: "归档条数", type: "number", defaultValue: 500 },
+      { key: "storage_prefix", label: "归档前缀", type: "text", defaultValue: "worm://audit-logs" }
+    ]
+  },
+  {
     key: "rbac-policy",
     title: "RBAC 策略矩阵",
     method: "GET",

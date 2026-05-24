@@ -3615,6 +3615,71 @@ func TestEmitAuditRetentionAlertsEnqueuesOutboxAndAudit(t *testing.T) {
 	}
 }
 
+func TestRequestAuditArchiveBuildsManifestOutboxAndAudit(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("audit-archive-secret")
+	now := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
+	oldLog, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   "ord_archive",
+		Payload:    map[string]any{"amount_fen": int64(1200), "idempotency_key": "refund_archive"},
+		CreatedAt:  now.AddDate(0, 0, -10),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.refund_settings.updated",
+		TargetType: "refund_settings",
+		TargetID:   "default",
+		Payload:    map[string]any{"default_refund_strategy": RefundStrategyBalanceFirst},
+		CreatedAt:  now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	archive, event, audit, err := store.RequestAuditArchive(AuditArchiveRequest{
+		HotDays:       1,
+		Limit:         10,
+		StoragePrefix: "worm://audit-logs",
+		Now:           now,
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.audit_archive.requested",
+		TargetType: "audit_archive",
+		TargetID:   "pending",
+		CreatedAt:  now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.Status != "requested" || archive.LogCount != 1 || archive.ManifestHash == "" || archive.ManifestAlgorithm != auditArchiveManifestAlgorithm {
+		t.Fatalf("expected requested audit archive manifest, got %+v", archive)
+	}
+	if len(archive.ManifestEntries) != 1 || archive.ManifestEntries[0].ID != oldLog.ID || !archive.ManifestEntries[0].IntegrityVerified {
+		t.Fatalf("expected archive manifest to contain only cold verified log, got %+v", archive.ManifestEntries)
+	}
+	if event == nil || event.Topic != "audit.archive_requested" || event.EventType != "audit.archive_requested" || event.AggregateID != archive.ArchiveID {
+		t.Fatalf("expected audit archive outbox event, got %+v", event)
+	}
+	if audit == nil || audit.Action != "admin.audit_archive.requested" || audit.TargetID != archive.ArchiveID || audit.Payload["manifest_hash"] != archive.ManifestHash || audit.Payload["outbox_event_id"] != event.ID {
+		t.Fatalf("expected audit log for archive request, got %+v", audit)
+	}
+	events, err := store.OutboxEvents(OutboxEventsRequest{Topic: "audit.archive_requested", Now: now, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].ID != event.ID || events[0].Payload["manifest_hash"] != archive.ManifestHash {
+		t.Fatalf("expected archive request outbox event to be queryable, got %+v", events)
+	}
+}
+
 func mustPaidDispatchOrder(t *testing.T, store *Store, suffix string) *Order {
 	t.Helper()
 	userID := "user_" + suffix
