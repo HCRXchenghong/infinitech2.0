@@ -3711,6 +3711,8 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"requested_scopes":        {},
 	"retry_after_seconds":     {},
 	"role":                    {},
+	"rollback_from_scopes":    {},
+	"rollback_to_scopes":      {},
 	"station_id":              {},
 	"status":                  {},
 	"topic":                   {},

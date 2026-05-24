@@ -17,6 +17,8 @@ const PAYLOAD_ALLOWLIST = Object.freeze([
   "requested_scopes",
   "retry_after_seconds",
   "role",
+  "rollback_from_scopes",
+  "rollback_to_scopes",
   "status",
   "topic",
   "type"

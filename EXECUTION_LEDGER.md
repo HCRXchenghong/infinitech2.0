@@ -2138,7 +2138,7 @@
   - `npm run test --workspace @infinitech/admin-web`
   - `npm run test --workspace @infinitech/bff`
   - 本轮收尾继续跑 `go test -count=1 ./...`、`npm run verify` 和 `git diff --check`
-- 当前边界：这是运行时权限应用首版，不是完整权限治理后台。仍需字段级/租户级 RBAC、站点/商户数据域、产品化审批队列、策略回滚、菜单隐藏、导出留存、异常告警和 KMS/链式不可抵赖签名。
+- 当时边界：这是运行时权限应用首版，不是完整权限治理后台。后续审计回滚已在 `DONE-20260524-101` 落地；仍需字段级/租户级 RBAC、站点/商户数据域、产品化审批队列、菜单隐藏、导出留存、异常告警和 KMS/链式不可抵赖签名。
 - 文件：
   - `services/api-go/internal/httpapi/auth.go`
   - `services/api-go/internal/httpapi/router.go`
@@ -2156,6 +2156,37 @@
   - `docs/product/recent-progress-roadmap.md`
   - `docs/product/commercial-readiness-checklist.md`
   - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260524-101 RBAC 权限变更审计回滚首版
+
+- 日期：2026-05-24
+- 结果：在 RBAC 权限变更手动应用之后补齐审计回滚链路。新增 `POST /api/admin/rbac/change-requests/{id}/rollback`，只允许当前仍处于 `applied` 状态的申请回滚到应用前 scopes；服务端禁止申请人直接回滚自己的申请，并在回滚前校验该申请仍是目标角色最新一次生效策略事件，且当前运行时 scopes 仍等于该申请应用后的 scopes，避免覆盖后续策略变更。回滚动作写入 `admin.rbac.change_rolled_back` 审计，payload 记录 change request、目标角色、回滚前 scopes、回滚到 scopes、策略版本和原因。RBAC 申请台账新增 `rolled_back` 状态和 `rolled_back_count`，`api-go` 启动时会按 `admin.rbac.change_applied` 与 `admin.rbac.change_rolled_back` 审计时间顺序重放运行时策略，避免重启后丢失回滚结果。BFF 与 Admin Web 操作目录已接入回滚入口，审计 payload 白名单补充 `rollback_from_scopes` 和 `rollback_to_scopes`。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/httpapi`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run test --workspace @infinitech/bff`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify:architecture`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：这是 RBAC 策略应用后的回滚首版，不是完整权限治理后台。仍需字段级/租户级 RBAC、站点/商户数据域、产品化审批队列、菜单按权限隐藏、导出留存、异常告警和 KMS/链式不可抵赖签名。
+- 文件：
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminAudit.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/README.md`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
   - `EXECUTION_LEDGER.md`
 
 ## 进行中
@@ -2178,7 +2209,7 @@
 - 状态：进行中
 - 目标：建立 Go 核心业务 API。
 - 已完成：微信登录签名 token、真实微信 `code2session` provider resolver、auth session 持久化与 logout 撤销、生产默认关闭开发 token、商户邀约/资质、商户员工健康证、商户补充资料、商户主体登录、管理员 bootstrap 登录、骑手/站长邀约注册、骑手/站长主体登录、商户资料、商户订单列表、商户接单/出餐状态机、商户商品管理、商户/骑手保证金、店铺接单门槛、团购下单发券与扫码核销、骑手在线状态、10 分钟后自动派单、拒单顺延派单、派单确认超时自动转派、订单状态机补偿首版、管理端运营快照聚合首版、管理端操作审计日志首版、审计日志 PostgreSQL `audit_logs` 规范化表首版、管理端审计服务端安全边界首版、管理端审计完整性证明首版、管理端服务端 RBAC 策略矩阵首版、平台 outbox 事件首版、outbox relay worker 首版、outbox relay 可运行化与部署骨架、outbox 积压观测首版、outbox 手动恢复/重放首版、outbox 批量恢复/重放首版、outbox 死信隔离首版、outbox relay 租约领取首版、outbox relay 租约续租首版、PostgreSQL outbox 规范化 relay 路径首版、outbox 租约健康观测首版、消费端幂等落库首版、支付/钱包 PostgreSQL 规范化恢复首版、订单创建 PostgreSQL 事务化首版、购物车结算 PostgreSQL 事务化首版、余额支付 PostgreSQL 事务扣减首版、退款策略与余额退款核心闭环首版、payment-worker 原路退款事件规范化首版、退款 PostgreSQL 事务化首版、售后申请与审核核心闭环首版、售后 PostgreSQL 规范化恢复首版、售后审核 PostgreSQL 事务化首版、售后部分退款资金账本首版、售后仲裁与客服介入处理日志首版、售后可退金额与证据上传票据首版、售后证据确认与附件元数据首版、对象存储上传签名配置化首版、售后上传票据账本与确认防伪首版、售后对象存在性 HEAD 校验开关首版、售后上传回调验签与扫描门禁首版、对象扫描 worker 首版、对象扫描 worker ClamAV 适配与下载首版、对象生命周期清理 worker 首版、对象清理失败账本首版、对象清理统计接口首版、派单审计事件 PostgreSQL 规范化恢复首版、商家订单流转 PostgreSQL 事务化首版、骑手取货/送达完成、固定单量完成后免责拒派决策、站长站点骑手/订单视图、站长手动派单、站长任务时长/固定单量配置、站点骑手绩效等级快照、派单事件持久化与查询审计、站点区域匹配首版、店铺、商品、地址、购物车、结算订单、订单列表、订单详情、余额支付、余额支付密码、微信支付预下单/回调验签、骑手抢单、每日一次免责取消的领域实现和 HTTP 接口；用户/商户/骑手/站长/管理员/安全审计员及后台分权角色鉴权骨架；核心 PostgreSQL 迁移；Repository 边界；PostgreSQL-backed Store 快照持久化第一阶段。
-- 补充进展：`DONE-20260523-091` 已完成退款策略配置与 `admin.refund_settings.updated` 审计同事务首版；`DONE-20260523-092` 已完成管理端订单退款与 `admin.order.refunded` 审计同事务首版；`DONE-20260523-093` 已完成售后审核与 `after_sales.reviewed` 审计同事务首版；`DONE-20260523-094` 已完成订单状态补偿与 `admin.order_state.compensated` 审计同事务首版；`DONE-20260524-095` 已完成 outbox 运维 claim/lease renew/publish/fail/replay/batch replay 与审计同事务首版；`DONE-20260524-096` 已完成商户/骑手/站长邀约与审计同事务首版；`DONE-20260524-097` 已完成管理端服务端 RBAC 策略矩阵首版；`DONE-20260524-098` 已完成 RBAC 权限治理查询与变更申请审计首版；`DONE-20260524-099` 已完成 RBAC 权限申请审批/驳回台账首版；`DONE-20260524-100` 已完成 RBAC 权限变更手动应用首版。已迁移的审计同事务路径在 PostgreSQL-backed Store 下均在同一数据库事务内写入业务表、outbox 表或邀约快照与 `audit_logs`。
+- 补充进展：`DONE-20260523-091` 已完成退款策略配置与 `admin.refund_settings.updated` 审计同事务首版；`DONE-20260523-092` 已完成管理端订单退款与 `admin.order.refunded` 审计同事务首版；`DONE-20260523-093` 已完成售后审核与 `after_sales.reviewed` 审计同事务首版；`DONE-20260523-094` 已完成订单状态补偿与 `admin.order_state.compensated` 审计同事务首版；`DONE-20260524-095` 已完成 outbox 运维 claim/lease renew/publish/fail/replay/batch replay 与审计同事务首版；`DONE-20260524-096` 已完成商户/骑手/站长邀约与审计同事务首版；`DONE-20260524-097` 已完成管理端服务端 RBAC 策略矩阵首版；`DONE-20260524-098` 已完成 RBAC 权限治理查询与变更申请审计首版；`DONE-20260524-099` 已完成 RBAC 权限申请审批/驳回台账首版；`DONE-20260524-100` 已完成 RBAC 权限变更手动应用首版；`DONE-20260524-101` 已完成 RBAC 权限变更审计回滚首版。已迁移的审计同事务路径在 PostgreSQL-backed Store 下均在同一数据库事务内写入业务表、outbox 表或邀约快照与 `audit_logs`。
 - 下一步：继续扫描后台配置、运营处置、资金和风控写路径，把剩余关键写操作迁移到业务写入与审计写入同事务强制提交；补字段级/租户级权限、策略版本回滚和菜单隐藏策略；补真实 Kafka/NATS broker 运维和 relay 积压恢复；继续推进微信原路退款 API 调用、售后对象存储真实签名/回调和提现/结算资金链路。
 - 范围：认证、用户、商户、骑手、店铺、商品、订单、团购、买药、跑腿、钱包、支付、消息、客服、RTC、邀请、配置。
 - 验收：
@@ -2236,9 +2267,9 @@
 
 - 状态：进行中
 - 目标：完成桌面管理端。
-- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、运营快照、操作审计、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 首版矩阵；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、审计检索、退款策略和权限治理等 P0 业务视图首版；P0 KPI、队列和表格已可由运营快照生成，并对展示字段做 HTML 转义；审计中心已支持 actor/action/target/after/before/limit 筛选、before 游标翻页、保存筛选、详情抽屉、跨模块跳转、脱敏 payload 摘要和完整性状态展示；后端已支持 `security_auditor` 只读审计角色、后台分权 RBAC 策略矩阵、RBAC 策略查询、权限变更申请审计、权限申请审批/驳回台账、权限变更手动应用、审计 payload 服务端白名单/敏感字段掩码和审计完整性证明首版。
-- 补充进展：退款策略保存、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维和商户/骑手邀约后端已改为同事务写入业务结果与审计；管理端服务端 RBAC 策略矩阵首版已落地，Admin Web 审计检索和权限治理页可继续查看完整性状态、服务端规范化 payload、权限申请审计、审批/驳回审计和应用审计。
-- 下一步：补订单详情、商户资质审核详情、骑手/站长管理详情、售后审核详情、业务分页筛选、字段级/租户级 RBAC、策略回滚、剩余后台配置/运营处置/资金风控写路径同事务审计、审计导出/留存/告警、KMS/链式不可抵赖签名和首页卡片/优惠券/圈子饭搭配置页。
+- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、运营快照、操作审计、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 首版矩阵；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、审计检索、退款策略和权限治理等 P0 业务视图首版；P0 KPI、队列和表格已可由运营快照生成，并对展示字段做 HTML 转义；审计中心已支持 actor/action/target/after/before/limit 筛选、before 游标翻页、保存筛选、详情抽屉、跨模块跳转、脱敏 payload 摘要和完整性状态展示；后端已支持 `security_auditor` 只读审计角色、后台分权 RBAC 策略矩阵、RBAC 策略查询、权限变更申请审计、权限申请审批/驳回台账、权限变更手动应用、权限变更审计回滚、审计 payload 服务端白名单/敏感字段掩码和审计完整性证明首版。
+- 补充进展：退款策略保存、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维和商户/骑手邀约后端已改为同事务写入业务结果与审计；管理端服务端 RBAC 策略矩阵首版已落地，Admin Web 审计检索和权限治理页可继续查看完整性状态、服务端规范化 payload、权限申请审计、审批/驳回审计、应用审计和回滚审计。
+- 下一步：补订单详情、商户资质审核详情、骑手/站长管理详情、售后审核详情、业务分页筛选、字段级/租户级 RBAC、剩余后台配置/运营处置/资金风控写路径同事务审计、审计导出/留存/告警、KMS/链式不可抵赖签名和首页卡片/优惠券/圈子饭搭配置页。
 - 范围：订单、售后、用户、商户、骑手绩效等级、商品、精选商品、首页卡片、首页活动、优惠券、圈子/饭搭、团购、买药、跑腿、支付中心、钱包、提现、退款策略、积分会员、通知推送、评价、风控、数据备份恢复、派单规则、骑手计价、群聊红包、客服、RTC、电话联系审计、OAuth/API 管理、系统日志。
 - 验收：
   - 桌面浏览器可完成运营配置和订单处理。
@@ -2258,7 +2289,7 @@
 
 - 状态：进行中
 - 目标：建立面向用户小程序、商户端、骑手端、管理端的聚合层。
-- 已完成：运行时配置、首页模块/卡片、用户端微信登录、商户邀约与主体登录、管理员 bootstrap 登录、骑手/站长邀约与主体登录、店铺/商品/地址/购物车/结算/订单/钱包/微信支付预下单、退款策略/订单退款、商户订单/商品/保证金、骑手调度/保证金、派单事件查询、派单确认超时转派、订单状态机补偿、管理端运营快照代理、管理端操作审计代理、管理端 RBAC 策略查询、权限变更申请、申请列表、审批/驳回和手动应用代理、对象存储清理候选/统计/完成/失败代理、站长任务/绩效核心接口代理、浏览器来源 CORS 白名单与预检处理首版。
+- 已完成：运行时配置、首页模块/卡片、用户端微信登录、商户邀约与主体登录、管理员 bootstrap 登录、骑手/站长邀约与主体登录、店铺/商品/地址/购物车/结算/订单/钱包/微信支付预下单、退款策略/订单退款、商户订单/商品/保证金、骑手调度/保证金、派单事件查询、派单确认超时转派、订单状态机补偿、管理端运营快照代理、管理端操作审计代理、管理端 RBAC 策略查询、权限变更申请、申请列表、审批/驳回、手动应用和审计回滚代理、对象存储清理候选/统计/完成/失败代理、站长任务/绩效核心接口代理、浏览器来源 CORS 白名单与预检处理首版。
 - 范围：运行时配置、聚合接口、灰度、端侧兼容、错误标准化。
 - 验收：
   - 各端不直接依赖内部领域 API。

@@ -233,16 +233,15 @@ func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {
 	if appliedRequest["status"] != "applied" || appliedRequest["applied"] != true || appliedData["runtime_applied"] != true {
 		t.Fatalf("expected applied RBAC request, got %+v", applied)
 	}
+	if len(appliedRequest["previous_scopes"].([]any)) == 0 {
+		t.Fatalf("expected applied RBAC request to retain previous scopes for rollback, got %+v", appliedRequest)
+	}
 	applyAudit := appliedData["audit_log"].(map[string]any)
 	if applyAudit["action"] != "admin.rbac.change_applied" || applyAudit["target_type"] != "admin_rbac_role" || applyAudit["target_id"] != RoleFinanceAdmin {
 		t.Fatalf("expected RBAC apply audit log, got %+v", applyAudit)
 	}
 	authGetJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_2"), http.StatusOK)
 	authPutJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_2"), `{"default_refund_strategy":"balance_first"}`, http.StatusForbidden)
-	resetAdminRBACRoleScopeOverrides()
-	restoredServer := httptest.NewServer(NewRouter(store))
-	defer restoredServer.Close()
-	authPutJSON(t, restoredServer.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_3"), `{"default_refund_strategy":"balance_first"}`, http.StatusForbidden)
 	approvedChanges := authGetJSON(t, server.URL+"/api/admin/rbac/change-requests?status=approved&limit=5", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusOK)
 	approvedItems := approvedChanges["data"].(map[string]any)["items"].([]any)
 	if len(approvedItems) != 0 {
@@ -253,8 +252,39 @@ func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {
 	if len(appliedItems) != 1 || appliedItems[0].(map[string]any)["status"] != "applied" {
 		t.Fatalf("expected applied request in RBAC ledger, got %+v", appliedChanges)
 	}
+	resetAdminRBACRoleScopeOverrides()
+	restoredServer := httptest.NewServer(NewRouter(store))
+	defer restoredServer.Close()
+	authPutJSON(t, restoredServer.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_3"), `{"default_refund_strategy":"balance_first"}`, http.StatusForbidden)
+	authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/rollback", roleToken(RoleSuperAdmin, "super_1"), `{"reason":"requester cannot rollback"}`, http.StatusConflict)
+	rolledBack := authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/rollback", roleToken(RoleSuperAdmin, "super_3"), `{"reason":"restore previous finance runtime policy"}`, http.StatusOK)
+	rolledBackData := rolledBack["data"].(map[string]any)
+	rolledBackRequest := rolledBackData["change_request"].(map[string]any)
+	if rolledBackRequest["status"] != "rolled_back" || rolledBackRequest["rolled_back"] != true || rolledBackData["runtime_applied"] != true || rolledBackData["rolled_back"] != true {
+		t.Fatalf("expected rolled back RBAC request, got %+v", rolledBack)
+	}
+	rollbackAudit := rolledBackData["audit_log"].(map[string]any)
+	if rollbackAudit["action"] != "admin.rbac.change_rolled_back" || rollbackAudit["target_type"] != "admin_rbac_role" || rollbackAudit["target_id"] != RoleFinanceAdmin {
+		t.Fatalf("expected RBAC rollback audit log, got %+v", rollbackAudit)
+	}
+	authPutJSON(t, server.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_4"), `{"default_refund_strategy":"balance_first"}`, http.StatusOK)
+	resetAdminRBACRoleScopeOverrides()
+	rollbackRestoredServer := httptest.NewServer(NewRouter(store))
+	defer rollbackRestoredServer.Close()
+	authPutJSON(t, rollbackRestoredServer.URL+"/api/admin/refund-settings", roleToken(RoleFinanceAdmin, "finance_5"), `{"default_refund_strategy":"balance_first"}`, http.StatusOK)
+	postRollbackAppliedChanges := authGetJSON(t, server.URL+"/api/admin/rbac/change-requests?status=applied&limit=5", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusOK)
+	postRollbackAppliedItems := postRollbackAppliedChanges["data"].(map[string]any)["items"].([]any)
+	if len(postRollbackAppliedItems) != 0 {
+		t.Fatalf("expected rolled back request to leave applied filter, got %+v", postRollbackAppliedChanges)
+	}
+	rolledBackChanges := authGetJSON(t, server.URL+"/api/admin/rbac/change-requests?status=rolled_back&limit=5", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusOK)
+	rolledBackItems := rolledBackChanges["data"].(map[string]any)["items"].([]any)
+	if len(rolledBackItems) != 1 || rolledBackItems[0].(map[string]any)["status"] != "rolled_back" || rolledBackChanges["data"].(map[string]any)["rolled_back_count"] != float64(1) {
+		t.Fatalf("expected rolled back request in RBAC ledger, got %+v", rolledBackChanges)
+	}
 	authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/review", roleToken(RoleSuperAdmin, "super_3"), `{"decision":"reject","reason":"already reviewed"}`, http.StatusConflict)
 	authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/apply", roleToken(RoleSuperAdmin, "super_3"), `{"reason":"already applied"}`, http.StatusConflict)
+	authPostJSON(t, server.URL+"/api/admin/rbac/change-requests/"+changeRequestID+"/rollback", roleToken(RoleSuperAdmin, "super_2"), `{"reason":"already rolled back"}`, http.StatusConflict)
 }
 
 func TestAdminRefundSettingsHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {

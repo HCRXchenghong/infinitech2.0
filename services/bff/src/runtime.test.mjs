@@ -269,6 +269,25 @@ test("bff proxies user-facing api routes with authorization", async () => {
       });
       return;
     }
+    if (req.method === "POST" && req.url === "/api/admin/rbac/change-requests/rbac_change_1/rollback") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            change_request: { id: "rbac_change_1", status: "rolled_back", rollback: JSON.parse(body) },
+            runtime_applied: true,
+            rolled_back: true,
+            authorization: req.headers.authorization
+          }
+        }));
+      });
+      return;
+    }
     if (req.method === "GET" && req.url === "/api/admin/object-storage/cleanup-candidates?limit=1&grace_seconds=60") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
@@ -1118,6 +1137,7 @@ test("bff proxies user-facing api routes with authorization", async () => {
   const adminRBACChange = await postJSON(`${baseUrl}/api/admin/rbac/change-requests`, "Bearer admin:admin_1", { role: "support_admin", requested_scopes: ["after_sales:read", "rbac:read"], reason: "support recertification" });
   const adminRBACReview = await postJSON(`${baseUrl}/api/admin/rbac/change-requests/rbac_change_1/review`, "Bearer admin:admin_2", { decision: "approve", reason: "least privilege approved" });
   const adminRBACApply = await postJSON(`${baseUrl}/api/admin/rbac/change-requests/rbac_change_1/apply`, "Bearer admin:admin_2", { reason: "apply approved runtime policy" });
+  const adminRBACRollback = await postJSON(`${baseUrl}/api/admin/rbac/change-requests/rbac_change_1/rollback`, "Bearer admin:admin_3", { reason: "rollback runtime policy" });
   const objectCleanupCandidates = await getJSON(`${baseUrl}/api/admin/object-storage/cleanup-candidates?limit=1&grace_seconds=60`, "Bearer admin:admin_1");
   const objectCleanupStats = await getJSON(`${baseUrl}/api/admin/object-storage/cleanup-stats?grace_seconds=60`, "Bearer admin:admin_1");
   const failedObjectCleanup = await postJSON(`${baseUrl}/api/admin/object-storage/cleanup-failed`, "Bearer admin:admin_1", { ticket_id: "aset_1", object_key: "after-sales/asr_1/sig/evidence.jpg", reason: "expired_unconfirmed", error: "delete denied" });
@@ -1266,6 +1286,10 @@ test("bff proxies user-facing api routes with authorization", async () => {
   assert.equal(adminRBACApply.data.authorization, "Bearer admin:admin_2");
   assert.equal(adminRBACApply.data.change_request.status, "applied");
   assert.equal(adminRBACApply.data.runtime_applied, true);
+  assert.equal(adminRBACRollback.data.authorization, "Bearer admin:admin_3");
+  assert.equal(adminRBACRollback.data.change_request.status, "rolled_back");
+  assert.equal(adminRBACRollback.data.runtime_applied, true);
+  assert.equal(adminRBACRollback.data.rolled_back, true);
   assert.equal(objectCleanupCandidates.data[0].authorization, "Bearer admin:admin_1");
   assert.equal(objectCleanupCandidates.data[0].reason, "expired_unconfirmed");
   assert.equal(objectCleanupStats.data.authorization, "Bearer admin:admin_1");

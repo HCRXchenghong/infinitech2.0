@@ -2,7 +2,7 @@
 
 更新时间：2026-05-24
 目标仓库：`https://github.com/HCRXchenghong/infinitech2.0`  
-当前结论：项目已经完成架构基线、monorepo 骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化、outbox/对象存储、管理端审计、服务端 RBAC 策略矩阵、RBAC 权限治理查询/变更申请审计、权限申请审批/驳回台账和权限变更手动应用首版等多条商业化底座链路；但还没有完成真实生产支付、真实 IM/RTC、完整管理端、真实高可用基础设施、10 万在线压测和容灾演练，所以不能宣称已经商业级可上线，只能说正在按商业级标准推进。
+当前结论：项目已经完成架构基线、monorepo 骨架、首批端侧页面、核心 API 大量业务闭环、BFF 代理、Worker 骨架、PostgreSQL 规范化、outbox/对象存储、管理端审计、服务端 RBAC 策略矩阵、RBAC 权限治理查询/变更申请审计、权限申请审批/驳回台账、权限变更手动应用和权限变更审计回滚首版等多条商业化底座链路；但还没有完成真实生产支付、真实 IM/RTC、完整管理端、真实高可用基础设施、10 万在线压测和容灾演练，所以不能宣称已经商业级可上线，只能说正在按商业级标准推进。
 
 最近完成、当前未完成和下一批优先级已汇总到 `docs/product/recent-progress-roadmap.md`。这份文档用于快速查看最近提交后的项目状态、商业级阻塞项和后续推进顺序。
 
@@ -23,11 +23,12 @@
 - RBAC 权限治理查询与变更申请审计首版，新增 `/api/admin/rbac/policy` 和 `/api/admin/rbac/change-requests`，BFF 与 Admin Web “权限治理”模块已接入；权限变更申请只写入审计并保持 `pending_approval`，当前不会自动修改运行时权限。
 - RBAC 权限申请审批/驳回台账首版，新增权限申请列表与 `/api/admin/rbac/change-requests/{id}/review` 审批入口，审批人不能审批自己提交的申请，审批/驳回继续写入审计，运行时生效必须走单独应用动作。
 - RBAC 权限变更手动应用首版，新增 `/api/admin/rbac/change-requests/{id}/apply`，只允许已审批申请进入运行时权限矩阵，应用动作写入 `admin.rbac.change_applied` 审计，API 启动时会从应用审计日志重放已应用策略。
+- RBAC 权限变更审计回滚首版，新增 `/api/admin/rbac/change-requests/{id}/rollback`，只允许目标角色最新且当前仍已应用的申请按应用前 scopes 回滚，回滚动作写入 `admin.rbac.change_rolled_back` 审计，API 启动时会按应用/回滚审计时间顺序重放运行时策略。
 - 退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维与商户/骑手邀约审计同事务首版，`PUT /api/admin/refund-settings` 通过 `SaveRefundSettingsWithAudit` 同事务更新退款策略并写入审计，`POST /api/orders/{orderID}/refund` 通过 `RefundOrderWithAudit` 同事务写入退款业务账本和 `admin.order.refunded` 审计，`POST /api/after-sales/{requestID}/review` 通过 `ReviewAfterSalesWithAudit` 同事务写入售后审核、必要退款和 `after_sales.reviewed` 审计，`POST /api/admin/orders/{orderID}/state/compensate` 通过 `CompensateOrderStateWithAudit` 同事务写入状态补偿结果和 `admin.order_state.compensated` 审计，`POST /api/admin/object-storage/cleanup-complete` 与 `POST /api/admin/object-storage/cleanup-failed` 分别通过 `CompleteObjectStorageCleanupWithAudit`、`RecordObjectStorageCleanupFailureWithAudit` 同事务写入对象清理结果和审计，outbox claim/lease renew/publish/fail/replay/batch replay 分别通过 `ClaimOutboxEventsWithAudit`、`RenewOutboxEventLeaseWithAudit`、`MarkOutboxEventPublishedWithAudit`、`MarkOutboxEventFailedWithAudit`、`ReplayOutboxEventWithAudit`、`ReplayOutboxEventsWithAudit` 同事务更新 `platform_outbox_events` 和 `audit_logs`；商户/骑手/站长邀约创建通过 `CreateMerchantInviteWithAudit`、`CreateRiderInviteWithAudit` 同事务写入最终邀约和审计。
 
 当前最重要的未完成项：
 
-- 字段级/租户级 RBAC、权限变更产品化审批队列、策略回滚、审计导出、留存、异常告警、KMS/链式不可抵赖签名和审计策略治理。
+- 字段级/租户级 RBAC、权限变更产品化审批队列、审计导出、留存、异常告警、KMS/链式不可抵赖签名和审计策略治理。
 - 剩余关键业务写操作与审计写入同事务强制提交，继续扫描后台配置、运营处置、资金和风控写路径。
 - 真实微信支付、微信原路退款、对账、提现、商户结算和骑手收入。
 - 真实 IM、客服工作台、RTC 信令与通话审计。
@@ -35,7 +36,7 @@
 
 下一批计划：
 
-- 第一批补后台审计中心、RBAC 产品化审批页、策略回滚和字段级/租户级权限。
+- 第一批补后台审计中心、RBAC 产品化审批页、字段级/租户级权限和菜单按权限隐藏。
 - 第二批补管理端订单/售后/商户资质/骑手站长详情页。
 - 第三批补真实资金链路。
 - 第四批补 IM 与 RTC。
@@ -208,6 +209,7 @@
 - 管理端已新增 RBAC 权限治理查询与变更申请审计首版：`GET /api/admin/rbac/policy` 返回服务端真实 RBAC 矩阵、策略版本和当前角色能力；`POST /api/admin/rbac/change-requests` 仅允许 `admin`/`super_admin` 提交变更申请，申请写入 `admin.rbac.change_requested` 审计并保持待审批；BFF 与 Admin Web “权限治理”模块已接入。
 - 管理端已新增 RBAC 权限申请审批/驳回台账首版：`GET /api/admin/rbac/change-requests` 可从审计账本重建申请状态，`POST /api/admin/rbac/change-requests/{id}/review` 可审批或驳回，禁止同一管理员自审，审批结果写入 `admin.rbac.change_reviewed` 审计。
 - 管理端已新增 RBAC 权限变更手动应用首版：`POST /api/admin/rbac/change-requests/{id}/apply` 只允许已审批申请应用到运行时权限矩阵，禁止提交人直接应用自己的申请，应用动作写入 `admin.rbac.change_applied` 审计；`api-go` 启动时会从 `admin.rbac.change_applied` 审计日志恢复已应用策略。
+- 管理端已新增 RBAC 权限变更审计回滚首版：`POST /api/admin/rbac/change-requests/{id}/rollback` 只允许目标角色最新且当前仍处于已应用状态的申请回滚到应用前 scopes，禁止申请人直接回滚自己的申请，回滚动作写入 `admin.rbac.change_rolled_back` 审计；`api-go` 启动时会按应用/回滚审计时间顺序恢复运行时策略。
 - BFF 已补浏览器来源 CORS 白名单和 `OPTIONS` 预检处理，默认覆盖本地管理端/uni 调试来源，并可通过 `BFF_ALLOWED_ORIGINS` 配置部署来源。
 - `apps/admin-uni` 骨架。
 - `packages/admin-core` 已定义关键运营模块。
@@ -216,9 +218,9 @@
 未完成：
 
 - 桌面管理端完整业务页面和详情页。
-- 管理端 P0 视图已能读取运营快照生成首批表格/指标，关键写操作已有审计账本、审计检索页、服务端 RBAC 策略矩阵、RBAC 查询/变更申请审计、审批/驳回台账、手动应用和完整性证明首版；仍需补订单/售后/资质详情抽屉、审核表单、字段级/租户级权限、策略回滚、审计导出/留存/告警、KMS/链式不可抵赖签名。
+- 管理端 P0 视图已能读取运营快照生成首批表格/指标，关键写操作已有审计账本、审计检索页、服务端 RBAC 策略矩阵、RBAC 查询/变更申请审计、审批/驳回台账、手动应用、审计回滚和完整性证明首版；仍需补订单/售后/资质详情抽屉、审核表单、字段级/租户级权限、审计导出/留存/告警、KMS/链式不可抵赖签名。
 - 移动管理端实际页面。
-- 字段级/租户级 RBAC、权限变更产品化审批页面、策略回滚、审计导出留存、异常告警、KMS/链式不可抵赖签名和审计策略治理。
+- 字段级/租户级 RBAC、权限变更产品化审批页面、审计导出留存、异常告警、KMS/链式不可抵赖签名和审计策略治理。
 - 订单、售后、用户、商户、骑手、首页卡片、优惠券、圈子/饭搭、团购、买药、跑腿、客服、RTC、OAuth/API、对象存储告警等后台面板。
 
 ### 3.7 核心 API 和数据链路
@@ -273,7 +275,7 @@
 - 审计日志 PostgreSQL 规范化表首版：`PostgresStore` 确保 `audit_logs` 表/索引存在，把旧快照审计幂等补入表，通过 `platform_sequences` 行级锁生成审计 `aud_N`，PostgreSQL 查询路径直接读取规范化表。
 - 管理端审计完整性证明首版：审计日志签封规范化字段和白名单 payload，返回 `integrity_algorithm`、`integrity_hash`、`integrity_verified`，本地默认 SHA256，生产可用 `AUDIT_LOG_SIGNING_SECRET` 启用 HMAC。
 - 退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维与商户/骑手邀约审计同事务首版：`SaveRefundSettingsWithAudit` 将退款策略配置写入和 `admin.refund_settings.updated` 审计写入收敛到仓储级原子路径；`RefundOrderWithAudit` 将管理端订单退款业务账本和 `admin.order.refunded` 审计写入收敛到仓储级原子路径；`ReviewAfterSalesWithAudit` 将售后审核、必要退款和 `after_sales.reviewed` 审计写入收敛到仓储级原子路径；`CompensateOrderStateWithAudit` 将订单状态补偿和 `admin.order_state.compensated` 审计写入收敛到仓储级原子路径；`CompleteObjectStorageCleanupWithAudit` 与 `RecordObjectStorageCleanupFailureWithAudit` 将对象清理完成/失败票据状态和 `admin.object_cleanup.completed`/`admin.object_cleanup.failed` 审计写入收敛到仓储级原子路径；outbox claim/lease renew/publish/fail/replay/batch replay 通过对应 `WithAudit` 仓储方法在同一事务内更新 `platform_outbox_events` 与 `audit_logs`；商户/骑手/站长邀约通过 `CreateMerchantInviteWithAudit` 与 `CreateRiderInviteWithAudit` 把最终生成 token 的邀约和审计写入收敛到仓储级原子路径。
-- 管理端服务端 RBAC 策略矩阵与权限治理查询/申请/审批/应用审计首版：新增后台角色和 scope 常量，核心后台路由已按 `CanManageInvites`、`CanManageRefunds`、`CanReadAdminAfterSales`、`CanManageDispatch`、`CanReadOutbox`、`CanManageOutbox` 等服务端策略守护，`GET /api/admin/rbac/policy` 可读取真实矩阵，`GET /api/admin/rbac/change-requests` 可读取申请台账，`POST /api/admin/rbac/change-requests` 可写入待审批申请审计，`POST /api/admin/rbac/change-requests/{id}/review` 可写入审批/驳回审计，`POST /api/admin/rbac/change-requests/{id}/apply` 可把已审批申请应用到运行时权限矩阵并写入应用审计，`auth_sessions` 和迁移允许新增后台主体类型。
+- 管理端服务端 RBAC 策略矩阵与权限治理查询/申请/审批/应用/回滚审计首版：新增后台角色和 scope 常量，核心后台路由已按 `CanManageInvites`、`CanManageRefunds`、`CanReadAdminAfterSales`、`CanManageDispatch`、`CanReadOutbox`、`CanManageOutbox` 等服务端策略守护，`GET /api/admin/rbac/policy` 可读取真实矩阵，`GET /api/admin/rbac/change-requests` 可读取申请台账，`POST /api/admin/rbac/change-requests` 可写入待审批申请审计，`POST /api/admin/rbac/change-requests/{id}/review` 可写入审批/驳回审计，`POST /api/admin/rbac/change-requests/{id}/apply` 可把已审批申请应用到运行时权限矩阵并写入应用审计，`POST /api/admin/rbac/change-requests/{id}/rollback` 可把当前已应用申请回滚到应用前 scopes 并写入回滚审计，`auth_sessions` 和迁移允许新增后台主体类型。
 - 对象生命周期清理 worker 首版。
 - 对象清理失败账本首版。
 - 对象清理统计接口首版。
@@ -306,7 +308,7 @@
 - 用户邀请页和邀请奖励闭环。
 - 优惠券、红包、群聊资金闭环的 API 实装。
 - 评价、收藏、积分会员、推送、风控完整闭环。
-- 字段级/租户级 RBAC、策略回滚、剩余业务写操作与审计写入同事务强制提交、审计导出/留存/告警、KMS/链式签名和完整审计后台。
+- 字段级/租户级 RBAC、剩余业务写操作与审计写入同事务强制提交、审计导出/留存/告警、KMS/链式签名和完整审计后台。
 
 ### 3.8 BFF
 
@@ -490,8 +492,8 @@ npm run verify:architecture
 - 已做审计完整性证明首版：`sha256:v1`/`hmac-sha256:v1` 签封审计规范化字段和白名单 payload，Admin Web 可展示验证状态。
 - 已做退款策略配置、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维与商户/骑手邀约审计同事务首版：后台退款策略保存会在仓储级原子路径内同时更新配置和写入审计，管理端订单退款会在仓储级原子路径内同时写入退款业务账本和审计，售后审核会在仓储级原子路径内同时写入审核结果、必要退款和审计，订单状态补偿会在仓储级原子路径内同时写入修复结果和审计，对象清理完成/失败会在仓储级原子路径内同时写入上传票据清理状态和审计，outbox 运维会在仓储级原子路径内同时更新 outbox 事件状态和审计，商户/骑手邀约会在仓储级原子路径内同时生成最终邀约和审计。
 - 已做管理端服务端 RBAC 策略矩阵首版：`ops_admin`、`finance_admin`、`dispatch_admin`、`support_admin`、`security_auditor` 等角色已由服务端 scope 守护关键后台路由。
-- 已做 RBAC 权限治理查询、变更申请、审批/驳回台账与手动应用首版：后台可读取真实服务端矩阵，`admin`/`super_admin` 可提交待审批权限申请并写入审计，另一名管理员可审批或驳回并写入审计；已审批申请可手动应用到运行时权限矩阵并写入 `admin.rbac.change_applied`，服务启动会从应用审计恢复策略。
-- 下一步：把订单/售后/商户/骑手视图继续拆详情页与审核表单，并补字段级/租户级 RBAC、策略回滚、剩余后台配置/运营处置/资金风控写路径审计同事务、审计导出留存、异常告警和 KMS/链式不可抵赖签名。
+- 已做 RBAC 权限治理查询、变更申请、审批/驳回台账、手动应用与审计回滚首版：后台可读取真实服务端矩阵，`admin`/`super_admin` 可提交待审批权限申请并写入审计，另一名管理员可审批或驳回并写入审计；已审批申请可手动应用到运行时权限矩阵并写入 `admin.rbac.change_applied`，当前已应用申请可按应用前 scopes 回滚并写入 `admin.rbac.change_rolled_back`，服务启动会按应用/回滚审计重放恢复策略。
+- 下一步：把订单/售后/商户/骑手视图继续拆详情页与审核表单，并补字段级/租户级 RBAC、剩余后台配置/运营处置/资金风控写路径审计同事务、审计导出留存、异常告警和 KMS/链式不可抵赖签名。
 
 ### 第 3 优先级：微信支付生产链路
 

@@ -72,6 +72,7 @@ function isApiProxyRoute(method, pathname) {
   if (method === "POST" && pathname === "/api/admin/rbac/change-requests") return true;
   if (method === "POST" && /^\/api\/admin\/rbac\/change-requests\/[^/]+\/review$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/admin\/rbac\/change-requests\/[^/]+\/apply$/.test(pathname)) return true;
+  if (method === "POST" && /^\/api\/admin\/rbac\/change-requests\/[^/]+\/rollback$/.test(pathname)) return true;
   if (method === "GET" && pathname === "/api/admin/object-storage/cleanup-candidates") return true;
   if (method === "GET" && pathname === "/api/admin/object-storage/cleanup-stats") return true;
   if (method === "POST" && pathname === "/api/admin/object-storage/cleanup-complete") return true;

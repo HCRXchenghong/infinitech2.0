@@ -128,7 +128,7 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     authRequired: true,
     area: "security",
     queryFields: [
-      { key: "status", label: "状态", type: "select", defaultValue: "pending_approval", options: ["", "pending_approval", "approved", "rejected", "applied"] },
+      { key: "status", label: "状态", type: "select", defaultValue: "pending_approval", options: ["", "pending_approval", "approved", "rejected", "applied", "rolled_back"] },
       { key: "limit", label: "条数", type: "number", defaultValue: 20 }
     ],
     fields: []
@@ -173,6 +173,20 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     ],
     fields: [
       { key: "reason", label: "应用原因", type: "text", defaultValue: "approved scope change applied to runtime policy", required: true }
+    ]
+  },
+  {
+    key: "rbac-rollback-request",
+    title: "回滚已应用权限",
+    method: "POST",
+    path: "/api/admin/rbac/change-requests/:change_request_id/rollback",
+    authRequired: true,
+    area: "security",
+    pathFields: [
+      { key: "change_request_id", label: "申请 ID", type: "text", defaultValue: "rbac_change_1", required: true }
+    ],
+    fields: [
+      { key: "reason", label: "回滚原因", type: "text", defaultValue: "restore previous audited runtime policy", required: true }
     ]
   },
   {
