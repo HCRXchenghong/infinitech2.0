@@ -6,16 +6,34 @@ const PAYLOAD_ALLOWLIST = Object.freeze([
   "after",
   "amount_fen",
   "applied_scopes",
+  "archive_id",
+  "archive_id_matched",
+  "actual_bytes",
+  "actual_content_hash",
   "before",
+  "bytes",
+  "bytes_matched",
   "change_request_id",
+  "content_hash",
+  "content_hash_matched",
   "current_scopes",
   "decision",
   "default_refund_strategy",
+  "error_code",
+  "error_message",
   "event_id",
+  "expected_bytes",
+  "expected_content_hash",
   "export_format",
   "generated_at",
+  "header_log_count",
   "idempotency_key",
   "limit",
+  "log_count_matched",
+  "manifest_algorithm",
+  "manifest_entry_count",
+  "manifest_hash",
+  "manifest_hash_matched",
   "max_attempts",
   "policy_version",
   "previous_scopes",
@@ -28,8 +46,10 @@ const PAYLOAD_ALLOWLIST = Object.freeze([
   "rollback_to_scopes",
   "row_count",
   "status",
+  "storage_key",
   "topic",
-  "type"
+  "type",
+  "verified_at"
 ]);
 
 export const AUDIT_FILTER_DEFAULTS = Object.freeze({
@@ -390,4 +410,32 @@ export function auditArchiveRecordsFromResult(result) {
       completedAt: compact(item.completed_at, ""),
       outboxEventId: compact(item.outbox_event_id, "")
     }));
+}
+
+export function auditArchiveVerificationFromResult(result) {
+  const data = result?.payload?.data;
+  const verification = data?.verification;
+  if (!verification || typeof verification !== "object" || Array.isArray(verification)) {
+    return null;
+  }
+  return {
+    archiveId: compact(verification.archive_id, ""),
+    status: compact(verification.status, "unknown"),
+    storageKey: compact(verification.storage_key, ""),
+    manifestHash: compact(verification.manifest_hash, ""),
+    expectedContentHash: compact(verification.expected_content_hash, ""),
+    actualContentHash: compact(verification.actual_content_hash, ""),
+    expectedBytes: Number(verification.expected_bytes || 0),
+    actualBytes: Number(verification.actual_bytes || 0),
+    archiveIdMatched: verification.archive_id_matched === true,
+    manifestHashMatched: verification.manifest_hash_matched === true,
+    contentHashMatched: verification.content_hash_matched === true,
+    bytesMatched: verification.bytes_matched === true,
+    logCountMatched: verification.log_count_matched === true,
+    headerLogCount: Number(verification.header_log_count || 0),
+    manifestEntryCount: Number(verification.manifest_entry_count || 0),
+    errorCode: compact(verification.error_code, ""),
+    verifiedAt: compact(verification.verified_at, ""),
+    auditLogId: compact(data.audit_log?.id, "")
+  };
 }

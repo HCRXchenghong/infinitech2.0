@@ -184,6 +184,17 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     fields: []
   },
   {
+    key: "audit-archive-verify",
+    title: "校验归档对象",
+    method: "POST",
+    path: "/api/admin/audit-logs/archive/verify",
+    authRequired: true,
+    area: "ops",
+    fields: [
+      { key: "archive_id", label: "归档 ID", type: "text", defaultValue: "audit_archive_1", required: true }
+    ]
+  },
+  {
     key: "rbac-policy",
     title: "RBAC 策略矩阵",
     method: "GET",

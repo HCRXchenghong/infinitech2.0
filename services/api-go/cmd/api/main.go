@@ -139,14 +139,17 @@ func configureObjectStorage(store objectStorageConfigurator) {
 		UploadBaseURL:                   env("OBJECT_STORAGE_UPLOAD_BASE_URL", "https://object-storage.infinitech.local/upload"),
 		PublicBaseURL:                   env("OBJECT_STORAGE_PUBLIC_BASE_URL", "https://cdn.infinitech.local"),
 		HeadBaseURL:                     env("OBJECT_STORAGE_HEAD_BASE_URL", env("OBJECT_STORAGE_PUBLIC_BASE_URL", "https://cdn.infinitech.local")),
+		AuditArchiveDownloadBaseURL:     env("AUDIT_ARCHIVE_DOWNLOAD_BASE_URL", "https://object-storage.infinitech.local/audit-archives"),
 		SigningSecret:                   os.Getenv("OBJECT_STORAGE_SIGNING_SECRET"),
 		CallbackSigningSecret:           os.Getenv("OBJECT_STORAGE_CALLBACK_SIGNING_SECRET"),
 		TicketTTL:                       time.Duration(envInt64("OBJECT_STORAGE_TICKET_TTL_SECONDS", 15*60)) * time.Second,
 		MaxUploadBytes:                  envInt64("OBJECT_STORAGE_MAX_UPLOAD_BYTES", platform.AfterSalesEvidenceMaxBytes),
+		AuditArchiveMaxDownloadBytes:    envInt64("AUDIT_ARCHIVE_MAX_DOWNLOAD_BYTES", 100*1024*1024),
 		RequireHeadVerification:         envBool("OBJECT_STORAGE_REQUIRE_HEAD_VERIFICATION", false),
 		RequireUploadCallbackForConfirm: envBool("OBJECT_STORAGE_REQUIRE_UPLOAD_CALLBACK", false),
 		RequireScanApprovalForConfirm:   envBool("OBJECT_STORAGE_REQUIRE_SCAN_APPROVAL", false),
 		HeadTimeout:                     time.Duration(envInt64("OBJECT_STORAGE_HEAD_TIMEOUT_SECONDS", 3)) * time.Second,
+		AuditArchiveDownloadTimeout:     time.Duration(envInt64("AUDIT_ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS", 10)) * time.Second,
 	}
 	if err := store.ConfigureObjectStorage(config); err != nil {
 		log.Fatalf("configure object storage: %v", err)

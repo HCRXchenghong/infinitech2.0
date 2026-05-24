@@ -1509,6 +1509,33 @@ type AuditArchiveCompletion struct {
 	CompletedAt       time.Time `json:"completed_at"`
 }
 
+type AuditArchiveVerifyRequest struct {
+	ArchiveID string    `json:"archive_id"`
+	Now       time.Time `json:"now"`
+}
+
+type AuditArchiveVerification struct {
+	ArchiveID           string    `json:"archive_id"`
+	Status              string    `json:"status"`
+	StorageKey          string    `json:"storage_key"`
+	ManifestAlgorithm   string    `json:"manifest_algorithm"`
+	ManifestHash        string    `json:"manifest_hash"`
+	ExpectedContentHash string    `json:"expected_content_hash"`
+	ActualContentHash   string    `json:"actual_content_hash"`
+	ExpectedBytes       int64     `json:"expected_bytes"`
+	ActualBytes         int64     `json:"actual_bytes"`
+	ArchiveIDMatched    bool      `json:"archive_id_matched"`
+	ManifestHashMatched bool      `json:"manifest_hash_matched"`
+	ContentHashMatched  bool      `json:"content_hash_matched"`
+	BytesMatched        bool      `json:"bytes_matched"`
+	LogCountMatched     bool      `json:"log_count_matched"`
+	HeaderLogCount      int       `json:"header_log_count"`
+	ManifestEntryCount  int       `json:"manifest_entry_count"`
+	ErrorCode           string    `json:"error_code,omitempty"`
+	ErrorMessage        string    `json:"error_message,omitempty"`
+	VerifiedAt          time.Time `json:"verified_at"`
+}
+
 type AuditArchiveListRequest struct {
 	ArchiveID string    `json:"archive_id"`
 	Limit     int       `json:"limit"`

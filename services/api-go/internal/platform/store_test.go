@@ -1,6 +1,9 @@
 package platform
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -3618,6 +3621,29 @@ func TestEmitAuditRetentionAlertsEnqueuesOutboxAndAudit(t *testing.T) {
 func TestRequestAuditArchiveBuildsManifestOutboxAndAudit(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	store.ConfigureAuditLogIntegrity("audit-archive-secret")
+	archiveObjects := map[string]string{}
+	archiveServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		objectPath := strings.TrimPrefix(req.URL.Path, "/")
+		body, ok := archiveObjects[objectPath]
+		if !ok {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer archiveServer.Close()
+	if err := store.ConfigureObjectStorage(ObjectStorageConfig{
+		Provider:                     ObjectStorageProviderMinIO,
+		Bucket:                       "audit-test",
+		UploadBaseURL:                "https://upload.example.test",
+		PublicBaseURL:                "https://cdn.example.test",
+		HeadBaseURL:                  "https://cdn.example.test",
+		AuditArchiveDownloadBaseURL:  archiveServer.URL,
+		AuditArchiveMaxDownloadBytes: 1024 * 1024,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
 	oldLog, err := store.RecordAuditLog(RecordAuditLogRequest{
 		ActorType:  "admin",
@@ -3678,13 +3704,18 @@ func TestRequestAuditArchiveBuildsManifestOutboxAndAudit(t *testing.T) {
 	if len(events) != 1 || events[0].ID != event.ID || events[0].Payload["manifest_hash"] != archive.ManifestHash {
 		t.Fatalf("expected archive request outbox event to be queryable, got %+v", events)
 	}
+	archiveObject := auditArchiveObjectBodyForTest(t, archive)
+	archiveObjectHashBytes := sha256.Sum256([]byte(archiveObject))
+	archiveObjectHash := hex.EncodeToString(archiveObjectHashBytes[:])
+	archiveObjects[auditArchiveObjectPathForTest(archive.StorageKey)] = archiveObject
+
 	completion, completionAudit, err := store.CompleteAuditArchive(AuditArchiveCompletionRequest{
 		ArchiveID:         archive.ArchiveID,
 		StorageKey:        archive.StorageKey,
 		ManifestAlgorithm: archive.ManifestAlgorithm,
 		ManifestHash:      archive.ManifestHash,
-		ContentHash:       "content_hash_archive",
-		Bytes:             512,
+		ContentHash:       archiveObjectHash,
+		Bytes:             int64(len(archiveObject)),
 		ObjectLockMode:    "COMPLIANCE",
 		RetainUntil:       now.AddDate(7, 0, 0),
 		OutboxEventID:     event.ID,
@@ -3700,11 +3731,31 @@ func TestRequestAuditArchiveBuildsManifestOutboxAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completion.Status != "archived" || completion.ArchiveID != archive.ArchiveID || completion.ContentHash != "content_hash_archive" || completion.Bytes != 512 {
+	if completion.Status != "archived" || completion.ArchiveID != archive.ArchiveID || completion.ContentHash != archiveObjectHash || completion.Bytes != int64(len(archiveObject)) {
 		t.Fatalf("expected completed archive evidence, got %+v", completion)
 	}
-	if completionAudit == nil || completionAudit.Action != "admin.audit_archive.completed" || completionAudit.TargetID != archive.ArchiveID || completionAudit.Payload["content_hash"] != "content_hash_archive" {
+	if completionAudit == nil || completionAudit.Action != "admin.audit_archive.completed" || completionAudit.TargetID != archive.ArchiveID || completionAudit.Payload["content_hash"] != archiveObjectHash {
 		t.Fatalf("expected audit log for archive completion, got %+v", completionAudit)
+	}
+	verification, verificationAudit, err := store.VerifyAuditArchive(AuditArchiveVerifyRequest{
+		ArchiveID: archive.ArchiveID,
+		Now:       now.Add(2 * time.Minute),
+	}, RecordAuditLogRequest{
+		ActorType:  "security_auditor",
+		ActorID:    "auditor_1",
+		Action:     "admin.audit_archive.verified",
+		TargetType: "audit_archive",
+		TargetID:   archive.ArchiveID,
+		CreatedAt:  now.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verification.Status != "verified" || !verification.ContentHashMatched || !verification.ManifestHashMatched || !verification.BytesMatched || !verification.LogCountMatched {
+		t.Fatalf("expected verified archive object, got %+v", verification)
+	}
+	if verificationAudit == nil || verificationAudit.Action != "admin.audit_archive.verified" || verificationAudit.Payload["status"] != "verified" || verificationAudit.Payload["actual_content_hash"] != archiveObjectHash {
+		t.Fatalf("expected verification audit log, got %+v", verificationAudit)
 	}
 	archives, err := store.AuditArchives(AuditArchiveListRequest{ArchiveID: archive.ArchiveID, Limit: 10})
 	if err != nil {
@@ -3718,8 +3769,8 @@ func TestRequestAuditArchiveBuildsManifestOutboxAndAudit(t *testing.T) {
 		StorageKey:        archive.StorageKey,
 		ManifestAlgorithm: archive.ManifestAlgorithm,
 		ManifestHash:      archive.ManifestHash,
-		ContentHash:       "content_hash_archive",
-		Bytes:             512,
+		ContentHash:       archiveObjectHash,
+		Bytes:             int64(len(archiveObject)),
 		ObjectLockMode:    "COMPLIANCE",
 		RetainUntil:       now.AddDate(7, 0, 0),
 		OutboxEventID:     event.ID,
@@ -3745,6 +3796,55 @@ func TestRequestAuditArchiveBuildsManifestOutboxAndAudit(t *testing.T) {
 	if len(archivesAfterReplay) != 1 {
 		t.Fatalf("expected duplicate completion to keep one archive record, got %+v", archivesAfterReplay)
 	}
+}
+
+func auditArchiveObjectBodyForTest(t *testing.T, archive *AuditArchiveRequestResult) string {
+	t.Helper()
+	header := map[string]any{
+		"type":                "audit_archive_manifest",
+		"manifest_version":    "audit_archive_manifest:v1",
+		"archive_id":          archive.ArchiveID,
+		"status":              archive.Status,
+		"storage_prefix":      archive.StoragePrefix,
+		"storage_key":         archive.StorageKey,
+		"hot_days":            archive.HotDays,
+		"cold_archive_cutoff": archive.ColdArchiveCutoff.Format(time.RFC3339Nano),
+		"requested_at":        archive.RequestedAt.Format(time.RFC3339Nano),
+		"log_count":           archive.LogCount,
+		"integrity_failures":  archive.IntegrityFailures,
+		"manifest_algorithm":  archive.ManifestAlgorithm,
+		"manifest_hash":       archive.ManifestHash,
+		"idempotency_key":     archive.IdempotencyKey,
+	}
+	lines := []string{mustJSONLine(t, header)}
+	for _, entry := range archive.ManifestEntries {
+		lines = append(lines, mustJSONLine(t, map[string]any{
+			"type":                "audit_log_manifest_entry",
+			"archive_id":          archive.ArchiveID,
+			"id":                  entry.ID,
+			"created_at":          entry.CreatedAt.Format(time.RFC3339Nano),
+			"action":              entry.Action,
+			"target_type":         entry.TargetType,
+			"target_id":           entry.TargetID,
+			"integrity_algorithm": entry.IntegrityAlgorithm,
+			"integrity_hash":      entry.IntegrityHash,
+			"integrity_verified":  entry.IntegrityVerified,
+		}))
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func mustJSONLine(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
+func auditArchiveObjectPathForTest(storageKey string) string {
+	return normalizeAuditArchiveStoragePath(storageKey)
 }
 
 func mustPaidDispatchOrder(t *testing.T, store *Store, suffix string) *Order {

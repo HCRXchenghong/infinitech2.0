@@ -126,6 +126,7 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("POST /api/admin/audit-logs/archive/request", r.handleAdminRequestAuditArchive)
 	r.mux.HandleFunc("GET /api/admin/audit-logs/archive/records", r.handleAdminAuditArchiveRecords)
 	r.mux.HandleFunc("POST /api/admin/audit-logs/archive/complete", r.handleAdminCompleteAuditArchive)
+	r.mux.HandleFunc("POST /api/admin/audit-logs/archive/verify", r.handleAdminVerifyAuditArchive)
 	r.mux.HandleFunc("GET /api/admin/rbac/policy", r.handleAdminRBACPolicy)
 	r.mux.HandleFunc("GET /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequests)
 	r.mux.HandleFunc("POST /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequest)
@@ -1648,6 +1649,39 @@ func (r *Router) handleAdminCompleteAuditArchive(w http.ResponseWriter, req *htt
 	writeSuccess(w, map[string]any{
 		"archive":   archive,
 		"audit_log": audit,
+	})
+}
+
+func (r *Router) handleAdminVerifyAuditArchive(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanReadAuditLogs() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	var payload platform.AuditArchiveVerifyRequest
+	if !decodeJSON(w, req, &payload) {
+		return
+	}
+	verification, audit, err := r.store.VerifyAuditArchive(payload, platform.RecordAuditLogRequest{
+		ActorType:  principal.Role,
+		ActorID:    principal.ID,
+		Action:     "admin.audit_archive.verified",
+		TargetType: "audit_archive",
+		TargetID:   payload.ArchiveID,
+		RequestID:  requestID(req),
+		IPHash:     requestIPHash(req),
+		CreatedAt:  payload.Now,
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccess(w, map[string]any{
+		"verification": verification,
+		"audit_log":    audit,
 	})
 }
 

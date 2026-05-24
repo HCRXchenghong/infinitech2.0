@@ -116,8 +116,10 @@ test("admin web has a minimum operable control center", () => {
   assert.match(api, /\/api\/admin\/audit-logs\/retention-alerts\/emit/);
   assert.match(api, /\/api\/admin\/audit-logs\/archive\/request/);
   assert.match(api, /\/api\/admin\/audit-logs\/archive\/records/);
+  assert.match(api, /\/api\/admin\/audit-logs\/archive\/verify/);
   assert.match(audit, /auditArchiveRequestFromResult/);
   assert.match(audit, /auditArchiveRecordsFromResult/);
+  assert.match(audit, /auditArchiveVerificationFromResult/);
   assert.match(api, /\/api\/admin\/rbac\/policy/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests/);
   assert.match(api, /\/api\/admin\/rbac\/change-requests\/:change_request_id\/review/);
@@ -197,6 +199,7 @@ test("bff keeps browser CORS guard for local admin and uni shells", () => {
   assert.match(server, /\/api\/admin\/audit-logs\/archive\/request/);
   assert.match(server, /\/api\/admin\/audit-logs\/archive\/records/);
   assert.match(server, /\/api\/admin\/audit-logs\/archive\/complete/);
+  assert.match(server, /\/api\/admin\/audit-logs\/archive\/verify/);
   assert.match(tests, /\/api\/admin\/audit-logs/);
   assert.match(tests, /\/api\/admin\/audit-logs\/export/);
   assert.match(tests, /\/api\/admin\/audit-logs\/retention-report/);
@@ -204,6 +207,7 @@ test("bff keeps browser CORS guard for local admin and uni shells", () => {
   assert.match(tests, /\/api\/admin\/audit-logs\/archive\/request/);
   assert.match(tests, /\/api\/admin\/audit-logs\/archive\/records/);
   assert.match(tests, /\/api\/admin\/audit-logs\/archive\/complete/);
+  assert.match(tests, /\/api\/admin\/audit-logs\/archive\/verify/);
   assert.match(server, /\/api\/admin\/rbac\/policy/);
   assert.match(tests, /\/api\/admin\/rbac\/policy/);
   assert.match(server, /\/api\/admin\/rbac\/change-requests/);
@@ -466,6 +470,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(repository, /AuditRetentionReport/);
   assert.match(repository, /EmitAuditRetentionAlerts/);
   assert.match(repository, /RequestAuditArchive/);
+  assert.match(repository, /VerifyAuditArchive/);
   assert.match(repository, /SaveRefundSettingsWithAudit\(req SaveRefundSettingsRequest, audit RecordAuditLogRequest\)/);
   assert.match(repository, /CreateMerchantInviteWithAudit\(req CreateMerchantInviteRequest, audit RecordAuditLogRequest\)/);
   assert.match(repository, /CreateRiderInviteWithAudit\(req CreateRiderInviteRequest, audit RecordAuditLogRequest\)/);
@@ -486,6 +491,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(store, /func \(s \*Store\) EmitAuditRetentionAlerts/);
   assert.match(store, /func \(s \*Store\) RequestAuditArchive/);
   assert.match(store, /func \(s \*Store\) CompleteAuditArchive/);
+  assert.match(store, /func \(s \*Store\) VerifyAuditArchive/);
   assert.match(store, /func \(s \*Store\) AuditArchives/);
   assert.match(store, /defaultAuditRetentionDays\s+= 2555/);
   assert.match(store, /auditRetentionAlertTopic\s+= "audit\.retention_alerts"/);
@@ -494,6 +500,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(store, /auditRetentionAlertOutboxPayload/);
   assert.match(store, /auditArchiveManifestHash/);
   assert.match(store, /auditArchiveOutboxPayload/);
+  assert.match(store, /verifyAuditArchiveCompletion/);
   assert.match(store, /audit\.integrity_failed/);
   assert.match(store, /audit\.archive_due/);
   assert.match(store, /func \(s \*Store\) SaveRefundSettingsWithAudit/);
@@ -584,6 +591,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(postgresStore, /func \(s \*PostgresStore\) AuditRetentionReport/);
   assert.match(postgresStore, /func \(s \*PostgresStore\) EmitAuditRetentionAlerts/);
   assert.match(postgresStore, /func \(s \*PostgresStore\) RequestAuditArchive/);
+  assert.match(postgresStore, /func \(s \*PostgresStore\) VerifyAuditArchive/);
   assert.match(postgresStore, /insertOrGetSQLOutboxEvent/);
   assert.match(postgresStore, /COUNT\(\*\) FILTER \(WHERE created_at < \$1\)/);
   assert.match(postgresStore, /COUNT\(\*\) FILTER \(WHERE action = 'admin\.audit_logs\.exported'\)/);
@@ -705,10 +713,12 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(router, /POST \/api\/admin\/audit-logs\/archive\/request/);
   assert.match(router, /GET \/api\/admin\/audit-logs\/archive\/records/);
   assert.match(router, /POST \/api\/admin\/audit-logs\/archive\/complete/);
+  assert.match(router, /POST \/api\/admin\/audit-logs\/archive\/verify/);
   assert.match(router, /admin\.audit_logs\.exported/);
   assert.match(router, /admin\.audit_retention_alerts\.emitted/);
   assert.match(router, /admin\.audit_archive\.requested/);
   assert.match(router, /admin\.audit_archive\.completed/);
+  assert.match(router, /admin\.audit_archive\.verified/);
   assert.match(router, /buildAdminAuditLogCSV/);
   assert.match(router, /AuditRetentionReport/);
   assert.match(router, /EmitAuditRetentionAlerts/);
@@ -801,6 +811,7 @@ test("admin operation audit logs are wired end to end", () => {
   assert.match(bff, /\/api\/admin\/audit-logs\/archive\/request/);
   assert.match(bff, /\/api\/admin\/audit-logs\/archive\/records/);
   assert.match(bff, /\/api\/admin\/audit-logs\/archive\/complete/);
+  assert.match(bff, /\/api\/admin\/audit-logs\/archive\/verify/);
   assert.match(bff, /\/api\/admin\/rbac\/policy/);
   assert.match(bff, /\/api\/admin\/rbac\/change-requests/);
   assert.match(bff, /change-requests\\\/\[\^\/\]\+\\\/review/);
@@ -886,6 +897,7 @@ test("after-sales application and review flow is wired end to end", () => {
   assert.match(store, /order\.after_sales\.approved/);
   assert.match(objectStorage, /type ObjectStorageConfig struct/);
   assert.match(objectStorage, /RequireHeadVerification\s+bool/);
+  assert.match(objectStorage, /AuditArchiveDownloadBaseURL\s+string/);
   assert.match(objectStorage, /RequireUploadCallbackForConfirm\s+bool/);
   assert.match(objectStorage, /RequireScanApprovalForConfirm\s+bool/);
   assert.match(objectStorage, /func NormalizeObjectStorageConfig/);
@@ -894,10 +906,13 @@ test("after-sales application and review flow is wired end to end", () => {
   assert.match(objectStorage, /func \(config ObjectStorageConfig\) verifyObjectUploadCallback/);
   assert.match(objectStorage, /func \(config ObjectStorageConfig\) verifyObjectScanResult/);
   assert.match(objectStorage, /func \(config ObjectStorageConfig\) verifyUploadedObject/);
+  assert.match(objectStorage, /func \(config ObjectStorageConfig\) downloadAuditArchiveObject/);
   assert.match(objectStorage, /http\.MethodHead/);
+  assert.match(objectStorage, /http\.MethodGet/);
   assert.match(objectStorage, /hmac\.New\(sha256\.New/);
   assert.match(objectStorage, /X-Upload-Signature/);
   assert.match(apiMain, /OBJECT_STORAGE_UPLOAD_BASE_URL/);
+  assert.match(apiMain, /AUDIT_ARCHIVE_DOWNLOAD_BASE_URL/);
   assert.match(apiMain, /OBJECT_STORAGE_PUBLIC_BASE_URL/);
   assert.match(apiMain, /OBJECT_STORAGE_REQUIRE_HEAD_VERIFICATION/);
   assert.match(apiMain, /OBJECT_STORAGE_REQUIRE_UPLOAD_CALLBACK/);

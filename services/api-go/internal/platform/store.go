@@ -3814,6 +3814,36 @@ func (s *Store) AuditArchives(req AuditArchiveListRequest) ([]AuditArchiveComple
 	return auditArchiveCompletionsFromLogs(logs), nil
 }
 
+func (s *Store) VerifyAuditArchive(req AuditArchiveVerifyRequest, audit RecordAuditLogRequest) (*AuditArchiveVerification, *AuditLog, error) {
+	req = normalizeAuditArchiveVerifyRequest(req)
+	if req.ArchiveID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	archives, err := s.AuditArchives(AuditArchiveListRequest{ArchiveID: req.ArchiveID, Limit: 1})
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(archives) == 0 {
+		return nil, nil, ErrNotFound
+	}
+	verification := verifyAuditArchiveCompletion(archives[0], s.objectStorageSnapshot(), req.Now)
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = verification.VerifiedAt
+	}
+	if strings.TrimSpace(audit.TargetID) == "" || strings.TrimSpace(audit.TargetID) == "pending" {
+		audit.TargetID = verification.ArchiveID
+	}
+	if strings.TrimSpace(audit.Action) != auditArchiveVerifiedAction || strings.TrimSpace(audit.TargetType) != "audit_archive" || strings.TrimSpace(audit.TargetID) != verification.ArchiveID {
+		return verification, nil, ErrInvalidArgument
+	}
+	audit.Payload = auditArchiveVerificationAuditPayload(verification)
+	log, err := s.RecordAuditLog(audit)
+	if err != nil {
+		return verification, log, err
+	}
+	return verification, log, nil
+}
+
 func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 	req.ActorType = strings.TrimSpace(req.ActorType)
 	req.ActorID = strings.TrimSpace(req.ActorID)
@@ -3849,6 +3879,7 @@ const (
 	auditArchiveManifestAlgorithm    = "sha256:v1"
 	auditArchiveRequestedTopic       = "audit.archive_requested"
 	auditArchiveCompletedAction      = "admin.audit_archive.completed"
+	auditArchiveVerifiedAction       = "admin.audit_archive.verified"
 )
 
 var defaultCriticalAuditActions = []string{
@@ -4484,6 +4515,116 @@ func (s *Store) auditArchiveCompletionLocked(req AuditArchiveCompletionRequest) 
 	return AuditArchiveCompletion{}, nil, false
 }
 
+func normalizeAuditArchiveVerifyRequest(req AuditArchiveVerifyRequest) AuditArchiveVerifyRequest {
+	req.ArchiveID = strings.TrimSpace(req.ArchiveID)
+	if req.Now.IsZero() {
+		req.Now = time.Now().UTC()
+	} else {
+		req.Now = req.Now.UTC()
+	}
+	return req
+}
+
+type auditArchiveFileHeader struct {
+	Type         string `json:"type"`
+	ArchiveID    string `json:"archive_id"`
+	ManifestHash string `json:"manifest_hash"`
+	LogCount     int    `json:"log_count"`
+}
+
+func verifyAuditArchiveCompletion(completion AuditArchiveCompletion, storage ObjectStorageConfig, now time.Time) *AuditArchiveVerification {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	verification := &AuditArchiveVerification{
+		ArchiveID:           strings.TrimSpace(completion.ArchiveID),
+		Status:              "failed",
+		StorageKey:          strings.TrimSpace(completion.StorageKey),
+		ManifestAlgorithm:   strings.TrimSpace(completion.ManifestAlgorithm),
+		ManifestHash:        strings.TrimSpace(completion.ManifestHash),
+		ExpectedContentHash: strings.TrimSpace(completion.ContentHash),
+		ExpectedBytes:       completion.Bytes,
+		VerifiedAt:          now,
+	}
+	if verification.ArchiveID == "" || verification.StorageKey == "" || verification.ManifestHash == "" || verification.ExpectedContentHash == "" {
+		verification.ErrorCode = "invalid_completion"
+		verification.ErrorMessage = "archive completion evidence is incomplete"
+		return verification
+	}
+	body, err := storage.downloadAuditArchiveObject(verification.StorageKey, verification.ExpectedBytes)
+	if err != nil {
+		verification.ErrorCode = "download_failed"
+		verification.ErrorMessage = err.Error()
+		return verification
+	}
+	verification.ActualBytes = int64(len(body))
+	sum := sha256.Sum256(body)
+	verification.ActualContentHash = hex.EncodeToString(sum[:])
+	verification.ContentHashMatched = strings.EqualFold(verification.ActualContentHash, verification.ExpectedContentHash)
+	verification.BytesMatched = verification.ExpectedBytes <= 0 || verification.ExpectedBytes == verification.ActualBytes
+
+	lines := strings.Split(strings.TrimRight(string(body), "\n"), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		verification.ErrorCode = "empty_archive"
+		verification.ErrorMessage = "archive object is empty"
+		return verification
+	}
+	var header auditArchiveFileHeader
+	if err := json.Unmarshal([]byte(lines[0]), &header); err != nil {
+		verification.ErrorCode = "manifest_header_invalid"
+		verification.ErrorMessage = err.Error()
+		return verification
+	}
+	verification.ArchiveIDMatched = strings.TrimSpace(header.ArchiveID) == verification.ArchiveID
+	verification.ManifestHashMatched = strings.TrimSpace(header.ManifestHash) == verification.ManifestHash
+	if len(lines) > 1 {
+		verification.ManifestEntryCount = len(lines) - 1
+	}
+	verification.HeaderLogCount = header.LogCount
+	verification.LogCountMatched = header.LogCount == verification.ManifestEntryCount
+	if strings.TrimSpace(header.Type) != "audit_archive_manifest" {
+		verification.ErrorCode = "manifest_header_type_invalid"
+		verification.ErrorMessage = "archive header type is not audit_archive_manifest"
+		return verification
+	}
+	if verification.ArchiveIDMatched && verification.ManifestHashMatched && verification.ContentHashMatched && verification.BytesMatched && verification.LogCountMatched {
+		verification.Status = "verified"
+		return verification
+	}
+	verification.ErrorCode = "integrity_mismatch"
+	verification.ErrorMessage = "archive object does not match completion evidence"
+	return verification
+}
+
+func auditArchiveVerificationAuditPayload(verification *AuditArchiveVerification) map[string]any {
+	if verification == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"archive_id":            verification.ArchiveID,
+		"status":                verification.Status,
+		"storage_key":           verification.StorageKey,
+		"manifest_algorithm":    verification.ManifestAlgorithm,
+		"manifest_hash":         verification.ManifestHash,
+		"expected_content_hash": verification.ExpectedContentHash,
+		"actual_content_hash":   verification.ActualContentHash,
+		"expected_bytes":        verification.ExpectedBytes,
+		"actual_bytes":          verification.ActualBytes,
+		"archive_id_matched":    verification.ArchiveIDMatched,
+		"manifest_hash_matched": verification.ManifestHashMatched,
+		"content_hash_matched":  verification.ContentHashMatched,
+		"bytes_matched":         verification.BytesMatched,
+		"log_count_matched":     verification.LogCountMatched,
+		"header_log_count":      verification.HeaderLogCount,
+		"manifest_entry_count":  verification.ManifestEntryCount,
+		"error_code":            verification.ErrorCode,
+		"error_message":         verification.ErrorMessage,
+		"verified_at":           verification.VerifiedAt.Format(time.RFC3339Nano),
+	}
+}
+
 func auditPayloadString(payload map[string]any, key string) string {
 	value, ok := payload[key]
 	if !ok || value == nil {
@@ -4561,8 +4702,12 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"after":                   {},
 	"amount_fen":              {},
 	"applied_scopes":          {},
+	"actual_bytes":            {},
+	"actual_content_hash":     {},
+	"archive_id_matched":      {},
 	"attempts":                {},
 	"before":                  {},
+	"bytes_matched":           {},
 	"change_request_id":       {},
 	"changed":                 {},
 	"claimed":                 {},
@@ -4572,18 +4717,24 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"compensation_type":       {},
 	"bytes":                   {},
 	"content_hash":            {},
+	"content_hash_matched":    {},
 	"critical_count":          {},
 	"current_scopes":          {},
 	"decision":                {},
 	"default_refund_strategy": {},
 	"destination":             {},
+	"error_code":              {},
+	"error_message":           {},
 	"evidence_count":          {},
 	"expected_rider_id":       {},
+	"expected_bytes":          {},
+	"expected_content_hash":   {},
 	"expected_status":         {},
 	"export_format":           {},
 	"expires_at":              {},
 	"expired_logs":            {},
 	"generated_at":            {},
+	"header_log_count":        {},
 	"hot_days":                {},
 	"idempotency_key":         {},
 	"integrity_failures":      {},
@@ -4591,8 +4742,11 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"lease_seconds":           {},
 	"limit":                   {},
 	"log_count":               {},
+	"log_count_matched":       {},
 	"manifest_algorithm":      {},
+	"manifest_entry_count":    {},
 	"manifest_hash":           {},
+	"manifest_hash_matched":   {},
 	"object_key":              {},
 	"object_lock_mode":        {},
 	"outbox_event_id":         {},
@@ -4618,6 +4772,7 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"topic":                   {},
 	"type":                    {},
 	"uploaded_at":             {},
+	"verified_at":             {},
 	"warning_count":           {},
 }
 

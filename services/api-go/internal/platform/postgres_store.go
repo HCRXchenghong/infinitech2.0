@@ -6889,6 +6889,36 @@ func (s *PostgresStore) AuditArchives(req AuditArchiveListRequest) ([]AuditArchi
 	return auditArchiveCompletionsFromLogs(logs), nil
 }
 
+func (s *PostgresStore) VerifyAuditArchive(req AuditArchiveVerifyRequest, audit RecordAuditLogRequest) (*AuditArchiveVerification, *AuditLog, error) {
+	req = normalizeAuditArchiveVerifyRequest(req)
+	if req.ArchiveID == "" {
+		return nil, nil, ErrInvalidArgument
+	}
+	archives, err := s.AuditArchives(AuditArchiveListRequest{ArchiveID: req.ArchiveID, Limit: 1})
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(archives) == 0 {
+		return nil, nil, ErrNotFound
+	}
+	verification := verifyAuditArchiveCompletion(archives[0], s.Store.objectStorageSnapshot(), req.Now)
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = verification.VerifiedAt
+	}
+	if strings.TrimSpace(audit.TargetID) == "" || strings.TrimSpace(audit.TargetID) == "pending" {
+		audit.TargetID = verification.ArchiveID
+	}
+	if strings.TrimSpace(audit.Action) != auditArchiveVerifiedAction || strings.TrimSpace(audit.TargetType) != "audit_archive" || strings.TrimSpace(audit.TargetID) != verification.ArchiveID {
+		return verification, nil, ErrInvalidArgument
+	}
+	audit.Payload = auditArchiveVerificationAuditPayload(verification)
+	log, err := s.RecordAuditLog(audit)
+	if err != nil {
+		return verification, log, err
+	}
+	return verification, log, nil
+}
+
 func (s *PostgresStore) AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error) {
 	profile, err := s.Store.AcceptMerchantInvite(req)
 	return profile, s.persistAfter(err)

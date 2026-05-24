@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -88,6 +89,29 @@ func TestOrderCreditPayAndGrabHTTPFlow(t *testing.T) {
 
 func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	store := platform.NewStore(platform.DefaultHomeModules())
+	archiveObjects := map[string]string{}
+	archiveServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		objectPath := strings.TrimPrefix(req.URL.Path, "/")
+		body, ok := archiveObjects[objectPath]
+		if !ok {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer archiveServer.Close()
+	if err := store.ConfigureObjectStorage(platform.ObjectStorageConfig{
+		Provider:                     platform.ObjectStorageProviderMinIO,
+		Bucket:                       "audit-http-test",
+		UploadBaseURL:                "https://upload.example.test",
+		PublicBaseURL:                "https://cdn.example.test",
+		HeadBaseURL:                  "https://cdn.example.test",
+		AuditArchiveDownloadBaseURL:  archiveServer.URL,
+		AuditArchiveMaxDownloadBytes: 1024 * 1024,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	order, err := store.CreateOrder(platform.CreateOrderRequest{UserID: "user_1", Type: platform.OrderTypeTakeout, AmountFen: 1200})
 	if err != nil {
 		t.Fatal(err)
@@ -217,10 +241,14 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	if archiveAudit["action"] != "admin.audit_archive.requested" || archiveAudit["target_type"] != "audit_archive" {
 		t.Fatalf("expected audit archive request to be audited, got %+v", archiveAudit)
 	}
-	archiveCompleteBody := authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/complete", adminToken("admin_1"), `{"archive_id":"`+archive["archive_id"].(string)+`","storage_key":"`+archive["storage_key"].(string)+`","manifest_algorithm":"sha256:v1","manifest_hash":"`+archive["manifest_hash"].(string)+`","content_hash":"content_hash_http","bytes":1024,"object_lock_mode":"COMPLIANCE","retain_until":"2034-05-24T12:00:00Z","outbox_event_id":"`+archive["outbox_event_id"].(string)+`","uploaded_at":"2027-05-24T12:01:00Z"}`, http.StatusOK)
+	archiveObject := auditArchiveHTTPObjectBody(t, archive)
+	archiveObjectHashBytes := sha256.Sum256([]byte(archiveObject))
+	archiveObjectHash := hex.EncodeToString(archiveObjectHashBytes[:])
+	archiveObjects[auditArchiveHTTPObjectPath(archive["storage_key"].(string))] = archiveObject
+	archiveCompleteBody := authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/complete", adminToken("admin_1"), `{"archive_id":"`+archive["archive_id"].(string)+`","storage_key":"`+archive["storage_key"].(string)+`","manifest_algorithm":"sha256:v1","manifest_hash":"`+archive["manifest_hash"].(string)+`","content_hash":"`+archiveObjectHash+`","bytes":`+strconv.Itoa(len(archiveObject))+`,"object_lock_mode":"COMPLIANCE","retain_until":"2034-05-24T12:00:00Z","outbox_event_id":"`+archive["outbox_event_id"].(string)+`","uploaded_at":"2027-05-24T12:01:00Z"}`, http.StatusOK)
 	archiveCompleteData := archiveCompleteBody["data"].(map[string]any)
 	archiveCompletion := archiveCompleteData["archive"].(map[string]any)
-	if archiveCompletion["status"] != "archived" || archiveCompletion["content_hash"] != "content_hash_http" || archiveCompletion["bytes"].(float64) != 1024 {
+	if archiveCompletion["status"] != "archived" || archiveCompletion["content_hash"] != archiveObjectHash || archiveCompletion["bytes"].(float64) != float64(len(archiveObject)) {
 		t.Fatalf("expected completed archive evidence, got %+v", archiveCompleteBody)
 	}
 	archiveCompletionAudit := archiveCompleteData["audit_log"].(map[string]any)
@@ -232,11 +260,81 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	if len(archiveRecords) != 1 || archiveRecords[0].(map[string]any)["archive_id"] != archive["archive_id"] {
 		t.Fatalf("expected archive completion records, got %+v", archiveRecordsBody)
 	}
+	verifyBody := authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/verify", securityAuditorToken("auditor_1"), `{"archive_id":"`+archive["archive_id"].(string)+`","now":"2027-05-24T12:02:00Z"}`, http.StatusOK)
+	verifyData := verifyBody["data"].(map[string]any)
+	verification := verifyData["verification"].(map[string]any)
+	if verification["status"] != "verified" || verification["actual_content_hash"] != archiveObjectHash || verification["content_hash_matched"] != true || verification["manifest_hash_matched"] != true {
+		t.Fatalf("expected archive object verification, got %+v", verifyBody)
+	}
+	verifyAudit := verifyData["audit_log"].(map[string]any)
+	if verifyAudit["action"] != "admin.audit_archive.verified" || verifyAudit["actor_type"] != RoleSecurityAuditor || verifyAudit["target_id"] != archive["archive_id"] {
+		t.Fatalf("expected archive verification audit, got %+v", verifyAudit)
+	}
 	authGetJSON(t, server.URL+"/api/admin/audit-logs/retention-report", userToken("user_1"), http.StatusForbidden)
 	authPostJSON(t, server.URL+"/api/admin/audit-logs/retention-alerts/emit", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
 	authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/request", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
 	authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/complete", securityAuditorToken("auditor_1"), `{}`, http.StatusForbidden)
 	authGetJSON(t, server.URL+"/api/admin/audit-logs/archive/records?limit=5", securityAuditorToken("auditor_1"), http.StatusOK)
+	authPostJSON(t, server.URL+"/api/admin/audit-logs/archive/verify", userToken("user_1"), `{}`, http.StatusForbidden)
+}
+
+func auditArchiveHTTPObjectBody(t *testing.T, archive map[string]any) string {
+	t.Helper()
+	header := map[string]any{
+		"type":                "audit_archive_manifest",
+		"manifest_version":    "audit_archive_manifest:v1",
+		"archive_id":          archive["archive_id"],
+		"status":              archive["status"],
+		"storage_prefix":      archive["storage_prefix"],
+		"storage_key":         archive["storage_key"],
+		"hot_days":            archive["hot_days"],
+		"cold_archive_cutoff": archive["cold_archive_cutoff"],
+		"requested_at":        archive["requested_at"],
+		"log_count":           archive["log_count"],
+		"integrity_failures":  archive["integrity_failures"],
+		"manifest_algorithm":  archive["manifest_algorithm"],
+		"manifest_hash":       archive["manifest_hash"],
+		"idempotency_key":     archive["idempotency_key"],
+	}
+	lines := []string{mustJSONLineHTTP(t, header)}
+	entries, _ := archive["manifest_entries"].([]any)
+	for _, rawEntry := range entries {
+		entry, ok := rawEntry.(map[string]any)
+		if !ok {
+			continue
+		}
+		line := map[string]any{
+			"type":                "audit_log_manifest_entry",
+			"archive_id":          archive["archive_id"],
+			"id":                  entry["id"],
+			"created_at":          entry["created_at"],
+			"action":              entry["action"],
+			"target_type":         entry["target_type"],
+			"target_id":           entry["target_id"],
+			"integrity_algorithm": entry["integrity_algorithm"],
+			"integrity_hash":      entry["integrity_hash"],
+			"integrity_verified":  entry["integrity_verified"],
+		}
+		lines = append(lines, mustJSONLineHTTP(t, line))
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func mustJSONLineHTTP(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
+func auditArchiveHTTPObjectPath(storageKey string) string {
+	raw := strings.TrimSpace(storageKey)
+	raw = strings.TrimPrefix(raw, "worm://")
+	raw = strings.TrimPrefix(raw, "s3://")
+	raw = strings.TrimPrefix(raw, "minio://")
+	return strings.Trim(raw, "/")
 }
 
 func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {

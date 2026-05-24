@@ -149,7 +149,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "Payload", value: "脱敏", tone: "amber" },
       { label: "WORM 归档", value: "请求化", tone: "blue" }
     ],
-    actions: ["audit-logs", "audit-logs-export", "audit-retention-report", "audit-retention-alert-emit", "audit-archive-request", "operations-snapshot"],
+    actions: ["audit-logs", "audit-logs-export", "audit-retention-report", "audit-retention-alert-emit", "audit-archive-request", "audit-archive-records", "audit-archive-verify", "operations-snapshot"],
     columns: ["时间", "操作者", "动作", "目标", "请求", "摘要", "完整性"],
     rows: [
       ["05-22 12:00", "admin:admin_1", "admin.order.refunded", "order:ord_1", "req_1", "amount_fen: 1200", "已验证"],

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -23,14 +24,17 @@ type ObjectStorageConfig struct {
 	UploadBaseURL                   string
 	PublicBaseURL                   string
 	HeadBaseURL                     string
+	AuditArchiveDownloadBaseURL     string
 	SigningSecret                   string
 	CallbackSigningSecret           string
 	TicketTTL                       time.Duration
 	MaxUploadBytes                  int64
+	AuditArchiveMaxDownloadBytes    int64
 	RequireHeadVerification         bool
 	RequireUploadCallbackForConfirm bool
 	RequireScanApprovalForConfirm   bool
 	HeadTimeout                     time.Duration
+	AuditArchiveDownloadTimeout     time.Duration
 }
 
 type objectUploadTicketInput struct {
@@ -67,14 +71,17 @@ type objectScanResultSignatureInput struct {
 
 func DefaultObjectStorageConfig() ObjectStorageConfig {
 	return ObjectStorageConfig{
-		Provider:       ObjectStorageProviderMinIO,
-		Bucket:         "infinitech-private",
-		UploadBaseURL:  "https://object-storage.infinitech.local/upload",
-		PublicBaseURL:  "https://cdn.infinitech.local",
-		HeadBaseURL:    "https://cdn.infinitech.local",
-		TicketTTL:      15 * time.Minute,
-		MaxUploadBytes: AfterSalesEvidenceMaxBytes,
-		HeadTimeout:    3 * time.Second,
+		Provider:                     ObjectStorageProviderMinIO,
+		Bucket:                       "infinitech-private",
+		UploadBaseURL:                "https://object-storage.infinitech.local/upload",
+		PublicBaseURL:                "https://cdn.infinitech.local",
+		HeadBaseURL:                  "https://cdn.infinitech.local",
+		TicketTTL:                    15 * time.Minute,
+		MaxUploadBytes:               AfterSalesEvidenceMaxBytes,
+		HeadTimeout:                  3 * time.Second,
+		AuditArchiveDownloadBaseURL:  "https://object-storage.infinitech.local/audit-archives",
+		AuditArchiveMaxDownloadBytes: 100 * 1024 * 1024,
+		AuditArchiveDownloadTimeout:  10 * time.Second,
 	}
 }
 
@@ -103,6 +110,10 @@ func NormalizeObjectStorageConfig(config ObjectStorageConfig) (ObjectStorageConf
 	if config.HeadBaseURL == "" {
 		config.HeadBaseURL = config.PublicBaseURL
 	}
+	config.AuditArchiveDownloadBaseURL = strings.TrimRight(strings.TrimSpace(config.AuditArchiveDownloadBaseURL), "/")
+	if config.AuditArchiveDownloadBaseURL == "" {
+		config.AuditArchiveDownloadBaseURL = defaults.AuditArchiveDownloadBaseURL
+	}
 	config.SigningSecret = strings.TrimSpace(config.SigningSecret)
 	config.CallbackSigningSecret = strings.TrimSpace(config.CallbackSigningSecret)
 	if config.CallbackSigningSecret == "" {
@@ -126,10 +137,22 @@ func NormalizeObjectStorageConfig(config ObjectStorageConfig) (ObjectStorageConf
 	if config.MaxUploadBytes > AfterSalesEvidenceMaxBytes {
 		return ObjectStorageConfig{}, ErrInvalidArgument
 	}
+	if config.AuditArchiveMaxDownloadBytes <= 0 {
+		config.AuditArchiveMaxDownloadBytes = defaults.AuditArchiveMaxDownloadBytes
+	}
+	if config.AuditArchiveMaxDownloadBytes > 1024*1024*1024 {
+		return ObjectStorageConfig{}, ErrInvalidArgument
+	}
 	if config.HeadTimeout <= 0 {
 		config.HeadTimeout = defaults.HeadTimeout
 	}
 	if config.HeadTimeout > 30*time.Second {
+		return ObjectStorageConfig{}, ErrInvalidArgument
+	}
+	if config.AuditArchiveDownloadTimeout <= 0 {
+		config.AuditArchiveDownloadTimeout = defaults.AuditArchiveDownloadTimeout
+	}
+	if config.AuditArchiveDownloadTimeout > 120*time.Second {
 		return ObjectStorageConfig{}, ErrInvalidArgument
 	}
 	return config, nil
@@ -330,6 +353,61 @@ func (config ObjectStorageConfig) verifyUploadedObject(input objectHeadCheckInpu
 		return ErrInvalidArgument
 	}
 	return nil
+}
+
+func (config ObjectStorageConfig) downloadAuditArchiveObject(storageKey string, expectedBytes int64) ([]byte, error) {
+	config, err := NormalizeObjectStorageConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	path := normalizeAuditArchiveStoragePath(storageKey)
+	if path == "" {
+		return nil, ErrInvalidArgument
+	}
+	request, err := http.NewRequest(http.MethodGet, joinObjectURL(config.AuditArchiveDownloadBaseURL, path), nil)
+	if err != nil {
+		return nil, ErrInvalidArgument
+	}
+	response, err := (&http.Client{Timeout: config.AuditArchiveDownloadTimeout}).Do(request)
+	if err != nil {
+		return nil, ErrInvalidOrderState
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, ErrInvalidOrderState
+	}
+	maxBytes := config.AuditArchiveMaxDownloadBytes
+	if expectedBytes > 0 && expectedBytes < maxBytes {
+		maxBytes = expectedBytes + 1
+	}
+	if response.ContentLength > maxBytes {
+		return nil, ErrInvalidArgument
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	if err != nil {
+		return nil, ErrInvalidOrderState
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, ErrInvalidArgument
+	}
+	return body, nil
+}
+
+func normalizeAuditArchiveStoragePath(value string) string {
+	raw := strings.TrimSpace(value)
+	raw = strings.TrimPrefix(raw, "worm://")
+	raw = strings.TrimPrefix(raw, "s3://")
+	raw = strings.TrimPrefix(raw, "minio://")
+	parts := strings.Split(raw, "/")
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		normalized = append(normalized, url.PathEscape(part))
+	}
+	return strings.Join(normalized, "/")
 }
 
 func joinObjectURL(baseURL string, path string) string {
