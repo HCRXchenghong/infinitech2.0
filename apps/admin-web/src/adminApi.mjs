@@ -131,6 +131,20 @@ export const ADMIN_API_OPERATIONS = Object.freeze([
     fields: []
   },
   {
+    key: "audit-retention-report",
+    title: "审计留存告警",
+    method: "GET",
+    path: "/api/admin/audit-logs/retention-report",
+    authRequired: true,
+    area: "ops",
+    queryFields: [
+      { key: "retention_days", label: "留存天数", type: "number", defaultValue: 2555 },
+      { key: "hot_days", label: "热存天数", type: "number", defaultValue: 180 },
+      { key: "integrity_sample_limit", label: "完整性样本", type: "number", defaultValue: 500 }
+    ],
+    fields: []
+  },
+  {
     key: "rbac-policy",
     title: "RBAC 策略矩阵",
     method: "GET",

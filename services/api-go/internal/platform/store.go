@@ -3658,6 +3658,21 @@ func (s *Store) AuditLogs(req AuditLogsRequest) ([]AuditLog, error) {
 	return logs, nil
 }
 
+func (s *Store) AuditRetentionReport(req AuditRetentionReportRequest) (*AuditRetentionReport, error) {
+	req = normalizeAuditRetentionReportRequest(req)
+
+	s.mu.Lock()
+	logs := make([]AuditLog, 0, len(s.auditLogs))
+	for _, log := range s.auditLogs {
+		output := cloneAuditLog(log)
+		output.IntegrityVerified = verifyAuditLogIntegrity(*output, s.auditLogSigningSecret)
+		logs = append(logs, *output)
+	}
+	s.mu.Unlock()
+
+	return auditRetentionReportFromLogs(req, logs), nil
+}
+
 func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 	req.ActorType = strings.TrimSpace(req.ActorType)
 	req.ActorID = strings.TrimSpace(req.ActorID)
@@ -3677,6 +3692,203 @@ func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 		req.Limit = 500
 	}
 	return req
+}
+
+const (
+	defaultAuditRetentionDays        = 2555
+	defaultAuditHotDays              = 180
+	defaultAuditIntegritySampleLimit = 500
+	maxAuditIntegritySampleLimit     = 5000
+)
+
+var defaultCriticalAuditActions = []string{
+	"admin.refund_settings.updated",
+	"admin.order.refunded",
+	"after_sales.reviewed",
+	"admin.order_state.compensated",
+	"admin.object_cleanup.completed",
+	"admin.object_cleanup.failed",
+	"admin.outbox.claimed",
+	"admin.outbox.replayed",
+	"admin.merchant_invite.created",
+	"admin.rider_invite.created",
+	"admin.rbac.change_requested",
+	"admin.rbac.change_reviewed",
+	"admin.rbac.change_applied",
+	"admin.rbac.change_rolled_back",
+	"admin.audit_logs.exported",
+}
+
+func normalizeAuditRetentionReportRequest(req AuditRetentionReportRequest) AuditRetentionReportRequest {
+	if req.Now.IsZero() {
+		req.Now = time.Now().UTC()
+	} else {
+		req.Now = req.Now.UTC()
+	}
+	if req.RetentionDays <= 0 {
+		req.RetentionDays = defaultAuditRetentionDays
+	}
+	if req.HotDays <= 0 {
+		req.HotDays = defaultAuditHotDays
+	}
+	if req.HotDays > req.RetentionDays {
+		req.HotDays = req.RetentionDays
+	}
+	if req.IntegritySampleLimit <= 0 {
+		req.IntegritySampleLimit = defaultAuditIntegritySampleLimit
+	}
+	if req.IntegritySampleLimit > maxAuditIntegritySampleLimit {
+		req.IntegritySampleLimit = maxAuditIntegritySampleLimit
+	}
+	actions := make([]string, 0, len(req.CriticalActions))
+	seen := map[string]struct{}{}
+	for _, action := range req.CriticalActions {
+		action = strings.TrimSpace(action)
+		if action == "" {
+			continue
+		}
+		if _, ok := seen[action]; ok {
+			continue
+		}
+		seen[action] = struct{}{}
+		actions = append(actions, action)
+	}
+	if len(actions) == 0 {
+		actions = append(actions, defaultCriticalAuditActions...)
+	}
+	req.CriticalActions = actions
+	return req
+}
+
+func auditRetentionReportFromLogs(req AuditRetentionReportRequest, logs []AuditLog) *AuditRetentionReport {
+	req = normalizeAuditRetentionReportRequest(req)
+	sort.SliceStable(logs, func(i, j int) bool {
+		if !logs[i].CreatedAt.Equal(logs[j].CreatedAt) {
+			return logs[i].CreatedAt.After(logs[j].CreatedAt)
+		}
+		return logs[i].ID > logs[j].ID
+	})
+
+	actionCoverage := make([]AuditActionCoverage, 0, len(req.CriticalActions))
+	actionCoverageByName := map[string]*AuditActionCoverage{}
+	for _, action := range req.CriticalActions {
+		coverage := AuditActionCoverage{Action: action}
+		actionCoverage = append(actionCoverage, coverage)
+		actionCoverageByName[action] = &actionCoverage[len(actionCoverage)-1]
+	}
+
+	report := &AuditRetentionReport{
+		Status:                 "ok",
+		GeneratedAt:            req.Now,
+		RetentionDays:          req.RetentionDays,
+		HotDays:                req.HotDays,
+		RetentionCutoff:        req.Now.AddDate(0, 0, -req.RetentionDays),
+		ColdArchiveCutoff:      req.Now.AddDate(0, 0, -req.HotDays),
+		TotalLogs:              len(logs),
+		CriticalActionCoverage: actionCoverage,
+		Alerts:                 []AuditRetentionAlert{},
+	}
+
+	for index, log := range logs {
+		createdAt := normalizeAuditLogTime(log.CreatedAt)
+		if report.OldestCreatedAt.IsZero() || createdAt.Before(report.OldestCreatedAt) {
+			report.OldestCreatedAt = createdAt
+		}
+		if report.NewestCreatedAt.IsZero() || createdAt.After(report.NewestCreatedAt) {
+			report.NewestCreatedAt = createdAt
+		}
+		if createdAt.Before(report.RetentionCutoff) {
+			report.ExpiredLogs++
+		}
+		if createdAt.Before(report.ColdArchiveCutoff) {
+			report.ColdArchiveDueLogs++
+		}
+		if log.Action == "admin.audit_logs.exported" {
+			report.ExportEvents++
+		}
+		if coverage, ok := actionCoverageByName[log.Action]; ok {
+			coverage.Count++
+			if coverage.LastCreatedAt.IsZero() || createdAt.After(coverage.LastCreatedAt) {
+				coverage.LastCreatedAt = createdAt
+			}
+		}
+		if index < req.IntegritySampleLimit {
+			report.IntegritySampleSize++
+			if !log.IntegrityVerified {
+				report.IntegrityFailures++
+			}
+		}
+	}
+	report.CriticalActionCoverage = actionCoverage
+	for _, coverage := range actionCoverage {
+		if coverage.Count == 0 {
+			report.MissingCriticalActions = append(report.MissingCriticalActions, coverage.Action)
+		}
+	}
+	report.Alerts = auditRetentionAlertsForReport(report)
+	report.Status = auditRetentionStatus(report.Alerts)
+	return report
+}
+
+func auditRetentionAlertsForReport(report *AuditRetentionReport) []AuditRetentionAlert {
+	if report == nil {
+		return nil
+	}
+	alerts := []AuditRetentionAlert{}
+	if report.TotalLogs == 0 {
+		alerts = append(alerts, AuditRetentionAlert{
+			Code:     "audit.no_logs",
+			Severity: "critical",
+			Message:  "audit ledger is empty",
+		})
+		return alerts
+	}
+	if report.IntegrityFailures > 0 {
+		alerts = append(alerts, AuditRetentionAlert{
+			Code:     "audit.integrity_failed",
+			Severity: "critical",
+			Message:  "audit integrity verification failed in sampled logs",
+			Count:    report.IntegrityFailures,
+		})
+	}
+	if report.ExpiredLogs > 0 {
+		alerts = append(alerts, AuditRetentionAlert{
+			Code:     "audit.retention_expired",
+			Severity: "critical",
+			Message:  "audit logs exceeded configured retention window",
+			Count:    report.ExpiredLogs,
+		})
+	}
+	if report.ColdArchiveDueLogs > 0 {
+		alerts = append(alerts, AuditRetentionAlert{
+			Code:     "audit.archive_due",
+			Severity: "warning",
+			Message:  "audit logs should be moved to cold or WORM archive",
+			Count:    report.ColdArchiveDueLogs,
+		})
+	}
+	if len(report.MissingCriticalActions) > 0 {
+		alerts = append(alerts, AuditRetentionAlert{
+			Code:     "audit.missing_critical_action",
+			Severity: "warning",
+			Message:  "critical audit action coverage is missing",
+			Count:    len(report.MissingCriticalActions),
+		})
+	}
+	return alerts
+}
+
+func auditRetentionStatus(alerts []AuditRetentionAlert) string {
+	status := "ok"
+	for _, alert := range alerts {
+		switch alert.Severity {
+		case "critical":
+			return "critical"
+		case "warning":
+			status = "warning"
+		}
+	}
+	return status
 }
 
 var auditPayloadAllowlist = map[string]struct{}{

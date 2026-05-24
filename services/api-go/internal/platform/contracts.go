@@ -1381,6 +1381,47 @@ type AuditLogsRequest struct {
 	Before     time.Time `json:"before"`
 }
 
+type AuditRetentionReportRequest struct {
+	RetentionDays        int       `json:"retention_days"`
+	HotDays              int       `json:"hot_days"`
+	IntegritySampleLimit int       `json:"integrity_sample_limit"`
+	CriticalActions      []string  `json:"critical_actions"`
+	Now                  time.Time `json:"now"`
+}
+
+type AuditActionCoverage struct {
+	Action        string    `json:"action"`
+	Count         int       `json:"count"`
+	LastCreatedAt time.Time `json:"last_created_at"`
+}
+
+type AuditRetentionAlert struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Count    int    `json:"count"`
+}
+
+type AuditRetentionReport struct {
+	Status                 string                `json:"status"`
+	GeneratedAt            time.Time             `json:"generated_at"`
+	RetentionDays          int                   `json:"retention_days"`
+	HotDays                int                   `json:"hot_days"`
+	RetentionCutoff        time.Time             `json:"retention_cutoff"`
+	ColdArchiveCutoff      time.Time             `json:"cold_archive_cutoff"`
+	TotalLogs              int                   `json:"total_logs"`
+	OldestCreatedAt        time.Time             `json:"oldest_created_at"`
+	NewestCreatedAt        time.Time             `json:"newest_created_at"`
+	ExpiredLogs            int                   `json:"expired_logs"`
+	ColdArchiveDueLogs     int                   `json:"cold_archive_due_logs"`
+	IntegritySampleSize    int                   `json:"integrity_sample_size"`
+	IntegrityFailures      int                   `json:"integrity_failures"`
+	ExportEvents           int                   `json:"export_events"`
+	CriticalActionCoverage []AuditActionCoverage `json:"critical_action_coverage"`
+	MissingCriticalActions []string              `json:"missing_critical_actions"`
+	Alerts                 []AuditRetentionAlert `json:"alerts"`
+}
+
 func DefaultHomeModules() []HomeModule {
 	return []HomeModule{
 		{Key: "takeout", Title: "外卖", Route: "/pages/shop/list/index", Icon: "takeout", Enabled: true, SortOrder: 10, Scene: "home"},

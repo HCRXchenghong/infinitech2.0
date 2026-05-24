@@ -309,3 +309,25 @@ export function auditExportDataFromResult(result) {
     generatedAt: compact(data.generated_at, "")
   };
 }
+
+export function auditRetentionReportFromResult(result) {
+  const data = result?.payload?.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return null;
+  }
+  const alerts = Array.isArray(data.alerts) ? data.alerts : [];
+  const missingCriticalActions = Array.isArray(data.missing_critical_actions) ? data.missing_critical_actions : [];
+  return {
+    status: compact(data.status, "unknown"),
+    retentionDays: Number(data.retention_days || 0),
+    hotDays: Number(data.hot_days || 0),
+    totalLogs: Number(data.total_logs || 0),
+    expiredLogs: Number(data.expired_logs || 0),
+    coldArchiveDueLogs: Number(data.cold_archive_due_logs || 0),
+    integritySampleSize: Number(data.integrity_sample_size || 0),
+    integrityFailures: Number(data.integrity_failures || 0),
+    exportEvents: Number(data.export_events || 0),
+    missingCriticalActions,
+    alerts
+  };
+}

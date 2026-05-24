@@ -91,6 +91,7 @@ type Repository interface {
 	OutboxStats(req OutboxStatsRequest) (*OutboxStats, error)
 	RecordAuditLog(req RecordAuditLogRequest) (*AuditLog, error)
 	AuditLogs(req AuditLogsRequest) ([]AuditLog, error)
+	AuditRetentionReport(req AuditRetentionReportRequest) (*AuditRetentionReport, error)
 	MarkOutboxEventPublished(req MarkOutboxEventPublishedRequest) (*OutboxEvent, error)
 	MarkOutboxEventPublishedWithAudit(req MarkOutboxEventPublishedRequest, audit RecordAuditLogRequest) (*OutboxEvent, *AuditLog, error)
 	MarkOutboxEventFailed(req MarkOutboxEventFailedRequest) (*OutboxEvent, error)

@@ -4,6 +4,7 @@ import { ADMIN_API_OPERATIONS, buildAdminRequest, executeAdminOperation, fieldsF
 import {
   auditDataFromResult,
   auditExportDataFromResult,
+  auditRetentionReportFromResult,
   auditSearchValuesFromFilters,
   auditTargetRoute,
   buildAuditRows,
@@ -43,6 +44,7 @@ test("admin web operation catalog covers shipped admin API surfaces", () => {
     "operations-snapshot",
     "audit-logs",
     "audit-logs-export",
+    "audit-retention-report",
     "rbac-policy",
     "rbac-change-requests",
     "rbac-change-request",
@@ -79,6 +81,7 @@ test("admin web ships P0 business views with actions and safeguards", () => {
   assert.ok(ADMIN_WEB_VIEWS.riders.actions.includes("station-riders"));
   assert.ok(ADMIN_WEB_VIEWS.dispatch.actions.includes("station-orders"));
   assert.ok(ADMIN_WEB_VIEWS["audit-logs"].actions.includes("audit-logs-export"));
+  assert.ok(ADMIN_WEB_VIEWS["audit-logs"].actions.includes("audit-retention-report"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-change-request"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-review-request"));
   assert.ok(ADMIN_WEB_VIEWS.permissions.actions.includes("rbac-apply-request"));
@@ -106,6 +109,10 @@ test("admin request builder normalizes auth query path and body", () => {
   const auditExportRequest = buildAdminRequest(getAdminOperation("audit-logs-export"), { actor_type: "admin", target_type: "order", action: "admin.order.refunded", limit: 100 }, "Bearer admin.token");
   assert.equal(auditExportRequest.url, "/api/admin/audit-logs/export?actor_type=admin&target_type=order&action=admin.order.refunded&limit=100");
   assert.equal(auditExportRequest.headers.Authorization, "Bearer admin.token");
+
+  const auditRetentionRequest = buildAdminRequest(getAdminOperation("audit-retention-report"), { retention_days: 2555, hot_days: 180, integrity_sample_limit: 500 }, "Bearer admin.token");
+  assert.equal(auditRetentionRequest.url, "/api/admin/audit-logs/retention-report?retention_days=2555&hot_days=180&integrity_sample_limit=500");
+  assert.equal(auditRetentionRequest.headers.Authorization, "Bearer admin.token");
 
   const rbacRequest = buildAdminRequest(getAdminOperation("rbac-change-request"), { role: "support_admin", requested_scopes: "after_sales:read, rbac:read, rbac:read", reason: "support recertification" }, "admin.token");
   assert.equal(rbacRequest.url, "/api/admin/rbac/change-requests");
@@ -190,6 +197,20 @@ test("admin audit adapter redacts sensitive payload and builds cursor rows", () 
     generatedAt: "2026-05-22T12:00:00Z"
   });
   assert.equal(auditExportDataFromResult({ payload: { data: [] } }), null);
+  assert.deepEqual(auditRetentionReportFromResult({ payload: { data: { status: "warning", retention_days: 2555, hot_days: 180, total_logs: 4, expired_logs: 0, cold_archive_due_logs: 1, integrity_sample_size: 4, integrity_failures: 0, export_events: 1, missing_critical_actions: ["after_sales.reviewed"], alerts: [{ code: "audit.missing_critical_action", severity: "warning" }] } } }), {
+    status: "warning",
+    retentionDays: 2555,
+    hotDays: 180,
+    totalLogs: 4,
+    expiredLogs: 0,
+    coldArchiveDueLogs: 1,
+    integritySampleSize: 4,
+    integrityFailures: 0,
+    exportEvents: 1,
+    missingCriticalActions: ["after_sales.reviewed"],
+    alerts: [{ code: "audit.missing_critical_action", severity: "warning" }]
+  });
+  assert.equal(auditRetentionReportFromResult({ payload: { data: [] } }), null);
 
   const tamperedRows = buildAuditRows([{ ...logs[0], integrity_verified: false }]);
   assert.equal(tamperedRows[0].integrityLabel, "未通过");

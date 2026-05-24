@@ -177,6 +177,19 @@ func TestAdminRefundSettingsAndOrderRefundHTTPFlow(t *testing.T) {
 	if len(exportAuditLogs) != 1 || exportAuditLogs[0].(map[string]any)["target_type"] != "audit_export" {
 		t.Fatalf("expected audit export log to be queryable, got %+v", exportAuditLogsBody)
 	}
+	retentionBody := authGetJSON(t, server.URL+"/api/admin/audit-logs/retention-report?retention_days=2555&hot_days=180&integrity_sample_limit=10", securityAuditorToken("auditor_1"), http.StatusOK)
+	retentionData := retentionBody["data"].(map[string]any)
+	if retentionData["total_logs"].(float64) < 4 || retentionData["export_events"] != float64(1) || retentionData["integrity_failures"] != float64(0) {
+		t.Fatalf("expected audit retention report to include current ledger health, got %+v", retentionBody)
+	}
+	if retentionData["status"] != "warning" && retentionData["status"] != "ok" {
+		t.Fatalf("expected retention report status to be ok or warning, got %+v", retentionData)
+	}
+	missingCriticalActions := retentionData["missing_critical_actions"].([]any)
+	if len(missingCriticalActions) == 0 {
+		t.Fatalf("expected retention report to expose missing critical action coverage, got %+v", retentionBody)
+	}
+	authGetJSON(t, server.URL+"/api/admin/audit-logs/retention-report", userToken("user_1"), http.StatusForbidden)
 }
 
 func TestAdminRBACRoleMatrixHTTPFlow(t *testing.T) {

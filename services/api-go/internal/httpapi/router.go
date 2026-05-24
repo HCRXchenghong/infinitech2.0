@@ -121,6 +121,7 @@ func (r *Router) routes() {
 	r.mux.HandleFunc("GET /api/admin/operations/snapshot", r.handleAdminOperationsSnapshot)
 	r.mux.HandleFunc("GET /api/admin/audit-logs", r.handleAdminAuditLogs)
 	r.mux.HandleFunc("GET /api/admin/audit-logs/export", r.handleAdminAuditLogsExport)
+	r.mux.HandleFunc("GET /api/admin/audit-logs/retention-report", r.handleAdminAuditRetentionReport)
 	r.mux.HandleFunc("GET /api/admin/rbac/policy", r.handleAdminRBACPolicy)
 	r.mux.HandleFunc("GET /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequests)
 	r.mux.HandleFunc("POST /api/admin/rbac/change-requests", r.handleAdminRBACChangeRequest)
@@ -1433,6 +1434,49 @@ func firstQueryValue(query map[string][]string, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(values[0])
+}
+
+func (r *Router) handleAdminAuditRetentionReport(w http.ResponseWriter, req *http.Request) {
+	principal, ok := r.requirePrincipal(w, req)
+	if !ok {
+		return
+	}
+	if !principal.CanReadAuditLogs() {
+		writeAuthError(w, errForbidden)
+		return
+	}
+	query := req.URL.Query()
+	retentionDays, ok := parseOptionalIntQuery(w, query.Get("retention_days"))
+	if !ok {
+		return
+	}
+	hotDays, ok := parseOptionalIntQuery(w, query.Get("hot_days"))
+	if !ok {
+		return
+	}
+	integritySampleLimit, ok := parseOptionalIntQuery(w, query.Get("integrity_sample_limit"))
+	if !ok {
+		return
+	}
+	now, ok := parseOptionalTimeQuery(w, query.Get("now"))
+	if !ok {
+		return
+	}
+	if retentionDays < 0 || hotDays < 0 || integritySampleLimit < 0 {
+		writePlatformError(w, platform.ErrInvalidArgument)
+		return
+	}
+	report, err := r.store.AuditRetentionReport(platform.AuditRetentionReportRequest{
+		RetentionDays:        retentionDays,
+		HotDays:              hotDays,
+		IntegritySampleLimit: integritySampleLimit,
+		Now:                  now,
+	})
+	if err != nil {
+		writePlatformError(w, err)
+		return
+	}
+	writeSuccess(w, report)
 }
 
 func (r *Router) handleAdminRBACPolicy(w http.ResponseWriter, req *http.Request) {

@@ -3503,6 +3503,69 @@ func TestAuditLogIntegrityDetectsTamperedHMACPayload(t *testing.T) {
 	}
 }
 
+func TestAuditRetentionReportFlagsRetentionCoverageAndIntegrity(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.ConfigureAuditLogIntegrity("audit-retention-secret")
+	now := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
+
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   "ord_retention",
+		Payload:    map[string]any{"amount_fen": int64(1200), "idempotency_key": "refund_retention"},
+		CreatedAt:  now.AddDate(0, 0, -10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	export, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "security_auditor",
+		ActorID:    "auditor_1",
+		Action:     "admin.audit_logs.exported",
+		TargetType: "audit_export",
+		TargetID:   "audit-logs-retention.csv",
+		Payload:    map[string]any{"export_format": "csv", "row_count": 1},
+		CreatedAt:  now.Add(-time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	store.auditLogs[export.ID].Payload["row_count"] = 99
+	store.mu.Unlock()
+
+	report, err := store.AuditRetentionReport(AuditRetentionReportRequest{
+		RetentionDays:        7,
+		HotDays:              1,
+		IntegritySampleLimit: 10,
+		CriticalActions:      []string{"admin.order.refunded", "admin.audit_logs.exported", "after_sales.reviewed"},
+		Now:                  now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != "critical" || report.TotalLogs != 2 || report.ExpiredLogs != 1 || report.ColdArchiveDueLogs != 1 || report.ExportEvents != 1 {
+		t.Fatalf("expected critical retention report with expired/archive/export counts, got %+v", report)
+	}
+	if report.IntegritySampleSize != 2 || report.IntegrityFailures != 1 {
+		t.Fatalf("expected integrity failure in sampled logs, got %+v", report)
+	}
+	if len(report.MissingCriticalActions) != 1 || report.MissingCriticalActions[0] != "after_sales.reviewed" {
+		t.Fatalf("expected missing after-sales critical action, got %+v", report.MissingCriticalActions)
+	}
+	alerts := map[string]AuditRetentionAlert{}
+	for _, alert := range report.Alerts {
+		alerts[alert.Code] = alert
+	}
+	for _, code := range []string{"audit.integrity_failed", "audit.retention_expired", "audit.archive_due", "audit.missing_critical_action"} {
+		if _, ok := alerts[code]; !ok {
+			t.Fatalf("expected alert %s in report, got %+v", code, report.Alerts)
+		}
+	}
+}
+
 func mustPaidDispatchOrder(t *testing.T, store *Store, suffix string) *Order {
 	t.Helper()
 	userID := "user_" + suffix

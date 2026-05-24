@@ -1565,6 +1565,93 @@ func (s *PostgresStore) loadSQLAuditLogs(ctx context.Context, req AuditLogsReque
 	return logs, nil
 }
 
+func (s *PostgresStore) loadSQLAuditRetentionReport(ctx context.Context, req AuditRetentionReportRequest) (*AuditRetentionReport, error) {
+	req = normalizeAuditRetentionReportRequest(req)
+	retentionCutoff := req.Now.AddDate(0, 0, -req.RetentionDays)
+	coldArchiveCutoff := req.Now.AddDate(0, 0, -req.HotDays)
+
+	var totalLogs int64
+	var expiredLogs int64
+	var coldArchiveDueLogs int64
+	var exportEvents int64
+	var oldestCreatedAt sql.NullTime
+	var newestCreatedAt sql.NullTime
+	err := s.db.QueryRowContext(ctx, `
+SELECT
+  COUNT(*),
+  MIN(created_at),
+  MAX(created_at),
+  COUNT(*) FILTER (WHERE created_at < $1),
+  COUNT(*) FILTER (WHERE created_at < $2),
+  COUNT(*) FILTER (WHERE action = 'admin.audit_logs.exported')
+FROM audit_logs`, retentionCutoff, coldArchiveCutoff).Scan(
+		&totalLogs,
+		&oldestCreatedAt,
+		&newestCreatedAt,
+		&expiredLogs,
+		&coldArchiveDueLogs,
+		&exportEvents,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	report := &AuditRetentionReport{
+		Status:                 "ok",
+		GeneratedAt:            req.Now,
+		RetentionDays:          req.RetentionDays,
+		HotDays:                req.HotDays,
+		RetentionCutoff:        retentionCutoff,
+		ColdArchiveCutoff:      coldArchiveCutoff,
+		TotalLogs:              int(totalLogs),
+		ExpiredLogs:            int(expiredLogs),
+		ColdArchiveDueLogs:     int(coldArchiveDueLogs),
+		ExportEvents:           int(exportEvents),
+		CriticalActionCoverage: []AuditActionCoverage{},
+		Alerts:                 []AuditRetentionAlert{},
+	}
+	if oldestCreatedAt.Valid {
+		report.OldestCreatedAt = normalizeAuditLogTime(oldestCreatedAt.Time)
+	}
+	if newestCreatedAt.Valid {
+		report.NewestCreatedAt = normalizeAuditLogTime(newestCreatedAt.Time)
+	}
+
+	for _, action := range req.CriticalActions {
+		var count int64
+		var lastCreatedAt sql.NullTime
+		if err := s.db.QueryRowContext(ctx, `
+SELECT COUNT(*), MAX(created_at)
+FROM audit_logs
+WHERE action = $1`, action).Scan(&count, &lastCreatedAt); err != nil {
+			return nil, err
+		}
+		coverage := AuditActionCoverage{Action: action, Count: int(count)}
+		if lastCreatedAt.Valid {
+			coverage.LastCreatedAt = normalizeAuditLogTime(lastCreatedAt.Time)
+		}
+		report.CriticalActionCoverage = append(report.CriticalActionCoverage, coverage)
+		if coverage.Count == 0 {
+			report.MissingCriticalActions = append(report.MissingCriticalActions, action)
+		}
+	}
+
+	sampleLogs, err := s.loadSQLAuditLogs(ctx, AuditLogsRequest{Limit: req.IntegritySampleLimit})
+	if err != nil {
+		return nil, err
+	}
+	report.IntegritySampleSize = len(sampleLogs)
+	for _, log := range sampleLogs {
+		if !log.IntegrityVerified {
+			report.IntegrityFailures++
+		}
+	}
+
+	report.Alerts = auditRetentionAlertsForReport(report)
+	report.Status = auditRetentionStatus(report.Alerts)
+	return report, nil
+}
+
 func upsertSQLUser(ctx context.Context, tx *sql.Tx, user AppUser) error {
 	user.ID = strings.TrimSpace(user.ID)
 	if user.ID == "" {
@@ -6574,6 +6661,14 @@ func (s *PostgresStore) AuditLogs(req AuditLogsRequest) ([]AuditLog, error) {
 		return nil, errors.Join(ErrPersistence, err)
 	}
 	return logs, nil
+}
+
+func (s *PostgresStore) AuditRetentionReport(req AuditRetentionReportRequest) (*AuditRetentionReport, error) {
+	report, err := s.loadSQLAuditRetentionReport(context.Background(), req)
+	if err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	return report, nil
 }
 
 func (s *PostgresStore) AcceptMerchantInvite(req AcceptMerchantInviteRequest) (*MerchantProfile, error) {
