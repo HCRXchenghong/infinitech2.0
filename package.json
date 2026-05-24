@@ -16,6 +16,7 @@
     "services/object-scan-worker",
     "services/object-lifecycle-worker",
     "services/settlement-worker",
+    "services/audit-archive-worker",
     "services/outbox-relay-worker"
   ],
   "scripts": {
@@ -23,7 +24,7 @@
     "verify:architecture": "node scripts/check-architecture.mjs",
     "verify:packages": "npm run test --workspace @infinitech/contracts && npm run test --workspace @infinitech/domain-core && npm run test --workspace @infinitech/client-sdk && npm run test --workspace @infinitech/admin-core",
     "verify:apps": "npm run test --workspace @infinitech/admin-web",
-    "verify:services": "npm run test --workspace @infinitech/bff && npm run test --workspace @infinitech/realtime-gateway && npm run test --workspace @infinitech/dispatch-worker && npm run test --workspace @infinitech/payment-worker && npm run test --workspace @infinitech/notification-worker && npm run test --workspace @infinitech/integration-worker && npm run test --workspace @infinitech/object-scan-worker && npm run test --workspace @infinitech/object-lifecycle-worker && npm run test --workspace @infinitech/settlement-worker && npm run test --workspace @infinitech/outbox-relay-worker && npm run verify:api-go",
+    "verify:services": "npm run test --workspace @infinitech/bff && npm run test --workspace @infinitech/realtime-gateway && npm run test --workspace @infinitech/dispatch-worker && npm run test --workspace @infinitech/payment-worker && npm run test --workspace @infinitech/notification-worker && npm run test --workspace @infinitech/integration-worker && npm run test --workspace @infinitech/object-scan-worker && npm run test --workspace @infinitech/object-lifecycle-worker && npm run test --workspace @infinitech/settlement-worker && npm run test --workspace @infinitech/audit-archive-worker && npm run test --workspace @infinitech/outbox-relay-worker && npm run verify:api-go",
     "verify:api-go": "cd services/api-go && go test ./...",
     "dev:api-go": "cd services/api-go && WECHAT_MINI_LOGIN_MODE=dev go run ./cmd/api",
     "dev:bff": "npm run dev --workspace @infinitech/bff",

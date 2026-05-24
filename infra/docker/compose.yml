@@ -45,9 +45,28 @@ services:
       OUTBOX_RELAY_WORKER_ID: ${OUTBOX_RELAY_WORKER_ID:-local-outbox-relay}
       OUTBOX_RELAY_LEASE_SECONDS: "60"
       OUTBOX_RELAY_LEASE_RENEW_INTERVAL_MS: "30000"
-      OUTBOX_RELAY_TOPICS: order.paid,order.status_changed,order.completed,dispatch.assigned,dispatch.timeout,dispatch.status_changed
+      OUTBOX_RELAY_TOPICS: order.paid,order.status_changed,order.completed,dispatch.assigned,dispatch.timeout,dispatch.status_changed,audit.retention_alerts
     depends_on:
       - kafka
+
+  audit-archive-worker:
+    image: infinitech/audit-archive-worker:0.1.0
+    profiles: ["workers"]
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://host.docker.internal:1029}
+      AUDIT_ARCHIVE_WORKER_TOKEN: ${AUDIT_ARCHIVE_WORKER_TOKEN:-}
+      AUDIT_ARCHIVE_UPLOAD_BASE_URL: ${AUDIT_ARCHIVE_UPLOAD_BASE_URL:-http://minio:9000}
+      AUDIT_ARCHIVE_UPLOAD_TOKEN: ${AUDIT_ARCHIVE_UPLOAD_TOKEN:-}
+      AUDIT_ARCHIVE_INTERVAL_MS: ${AUDIT_ARCHIVE_INTERVAL_MS:-30000}
+      AUDIT_ARCHIVE_BATCH_LIMIT: ${AUDIT_ARCHIVE_BATCH_LIMIT:-20}
+      AUDIT_ARCHIVE_RETRY_AFTER_SECONDS: ${AUDIT_ARCHIVE_RETRY_AFTER_SECONDS:-300}
+      AUDIT_ARCHIVE_MAX_ATTEMPTS: ${AUDIT_ARCHIVE_MAX_ATTEMPTS:-10}
+      AUDIT_ARCHIVE_WORKER_ID: ${AUDIT_ARCHIVE_WORKER_ID:-local-audit-archive}
+      AUDIT_ARCHIVE_LEASE_SECONDS: ${AUDIT_ARCHIVE_LEASE_SECONDS:-300}
+      AUDIT_ARCHIVE_OBJECT_LOCK_MODE: ${AUDIT_ARCHIVE_OBJECT_LOCK_MODE:-COMPLIANCE}
+      AUDIT_ARCHIVE_RETENTION_DAYS: ${AUDIT_ARCHIVE_RETENTION_DAYS:-2555}
+    depends_on:
+      - minio
 
   object-scan-worker:
     image: infinitech/object-scan-worker:0.1.0

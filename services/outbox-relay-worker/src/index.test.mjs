@@ -19,7 +19,7 @@ test("outbox relay declares critical platform topics", () => {
   assert.ok(defaultRelayTopics.includes("dispatch.assigned"));
   assert.ok(defaultRelayTopics.includes("order.completed"));
   assert.ok(defaultRelayTopics.includes("audit.retention_alerts"));
-  assert.ok(defaultRelayTopics.includes("audit.archive_requested"));
+  assert.equal(defaultRelayTopics.includes("audit.archive_requested"), false);
 });
 
 test("normalize relay event preserves idempotency key and payload", () => {

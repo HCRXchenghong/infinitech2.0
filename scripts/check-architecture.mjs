@@ -20,6 +20,7 @@ const requiredPaths = [
   "services/integration-worker",
   "services/object-lifecycle-worker",
   "services/settlement-worker",
+  "services/audit-archive-worker",
   "services/outbox-relay-worker",
   "packages/contracts",
   "packages/design-tokens",
@@ -1000,7 +1001,8 @@ test("workers use a consumed-event ledger for idempotent event handling", () => 
     ["services/notification-worker/src/index.mjs", "createNotificationConsumer"],
     ["services/integration-worker/src/index.mjs", "createIntegrationConsumer"],
     ["services/object-scan-worker/src/index.mjs", "createObjectScanConsumer"],
-    ["services/settlement-worker/src/index.mjs", "createSettlementConsumer"]
+    ["services/settlement-worker/src/index.mjs", "createSettlementConsumer"],
+    ["services/audit-archive-worker/src/index.mjs", "createAuditArchiveConsumer"]
   ]) {
     const worker = readFileSync(join(root, workerPath), "utf8");
     assert.match(worker, /createIdempotentConsumer/);
@@ -1033,9 +1035,10 @@ test("outbox relay worker is wired into deployment skeletons", () => {
   const k8s = readFileSync(join(root, "infra/k8s/base/app-stack.yaml"), "utf8");
   const worker = readFileSync(join(root, "services/outbox-relay-worker/src/index.mjs"), "utf8");
   assert.match(worker, /audit\.retention_alerts/);
-  assert.match(worker, /audit\.archive_requested/);
+  assert.doesNotMatch(worker, /audit\.archive_requested/);
   assert.match(compose, /outbox-relay-worker:/);
   assert.match(compose, /OUTBOX_RELAY_TOPICS:/);
+  assert.match(compose, /audit\.retention_alerts/);
   assert.match(compose, /OUTBOX_RELAY_BATCH_LIMIT:/);
   assert.match(compose, /OUTBOX_RELAY_MAX_ATTEMPTS:/);
   assert.match(compose, /OUTBOX_RELAY_WORKER_ID:/);
@@ -1044,11 +1047,44 @@ test("outbox relay worker is wired into deployment skeletons", () => {
   assert.match(k8s, /name: outbox-relay-worker/);
   assert.match(k8s, /replicas: 2/);
   assert.match(k8s, /KAFKA_REST_URL/);
+  assert.match(k8s, /audit\.retention_alerts/);
   assert.match(k8s, /OUTBOX_RELAY_MAX_ATTEMPTS/);
   assert.match(k8s, /OUTBOX_RELAY_WORKER_ID/);
   assert.match(k8s, /OUTBOX_RELAY_LEASE_SECONDS/);
   assert.match(k8s, /OUTBOX_RELAY_LEASE_RENEW_INTERVAL_MS/);
   assert.match(k8s, /outbox-relay-token/);
+});
+
+test("audit archive worker writes WORM manifest archives from outbox requests", () => {
+  const rootPackage = readFileSync(join(root, "package.json"), "utf8");
+  const worker = readFileSync(join(root, "services/audit-archive-worker/src/index.mjs"), "utf8");
+  const workerTest = readFileSync(join(root, "services/audit-archive-worker/src/index.test.mjs"), "utf8");
+  const compose = readFileSync(join(root, "infra/docker/compose.yml"), "utf8");
+  const k8s = readFileSync(join(root, "infra/k8s/base/app-stack.yaml"), "utf8");
+  assert.match(rootPackage, /services\/audit-archive-worker/);
+  assert.match(rootPackage, /@infinitech\/audit-archive-worker/);
+  assert.match(worker, /export const workerName = "audit-archive-worker"/);
+  assert.match(worker, /audit\.archive_requested/);
+  assert.match(worker, /createAuditArchiveConsumer/);
+  assert.match(worker, /archiveOutboxBatch/);
+  assert.match(worker, /computeArchiveManifestHash/);
+  assert.match(worker, /createAuditArchiveUploader/);
+  assert.match(worker, /x-amz-object-lock-mode/);
+  assert.match(worker, /AUDIT_ARCHIVE_UPLOAD_BASE_URL/);
+  assert.match(worker, /markPublished/);
+  assert.match(worker, /markFailed/);
+  assert.match(workerTest, /manifest hash mismatch/);
+  assert.match(workerTest, /archive outbox batch publishes success/);
+  assert.match(compose, /audit-archive-worker:/);
+  assert.match(compose, /AUDIT_ARCHIVE_UPLOAD_BASE_URL/);
+  assert.match(compose, /AUDIT_ARCHIVE_OBJECT_LOCK_MODE/);
+  assert.match(compose, /AUDIT_ARCHIVE_RETENTION_DAYS/);
+  assert.match(k8s, /name: audit-archive-worker/);
+  assert.match(k8s, /replicas: 2/);
+  assert.match(k8s, /AUDIT_ARCHIVE_WORKER_ID/);
+  assert.match(k8s, /AUDIT_ARCHIVE_LEASE_SECONDS/);
+  assert.match(k8s, /audit-archive-worker-token/);
+  assert.match(k8s, /audit-archive-upload-token/);
 });
 
 test("object scan worker is wired into scan callbacks and deployment skeletons", () => {

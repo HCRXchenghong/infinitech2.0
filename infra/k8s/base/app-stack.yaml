@@ -145,7 +145,7 @@ spec:
             - name: KAFKA_REST_URL
               value: http://kafka-rest:8082
             - name: OUTBOX_RELAY_TOPICS
-              value: order.paid,order.status_changed,order.completed,dispatch.assigned,dispatch.timeout,dispatch.status_changed
+              value: order.paid,order.status_changed,order.completed,dispatch.assigned,dispatch.timeout,dispatch.status_changed,audit.retention_alerts
             - name: OUTBOX_RELAY_INTERVAL_MS
               value: "5000"
             - name: OUTBOX_RELAY_BATCH_LIMIT
@@ -167,6 +167,60 @@ spec:
                 secretKeyRef:
                   name: infinitech-secrets
                   key: outbox-relay-token
+                  optional: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-archive-worker
+  namespace: infinitech
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: audit-archive-worker
+  template:
+    metadata:
+      labels:
+        app: audit-archive-worker
+    spec:
+      containers:
+        - name: audit-archive-worker
+          image: infinitech/audit-archive-worker:0.1.0
+          env:
+            - name: API_BASE_URL
+              value: http://api-go:1029
+            - name: AUDIT_ARCHIVE_UPLOAD_BASE_URL
+              value: http://minio:9000
+            - name: AUDIT_ARCHIVE_INTERVAL_MS
+              value: "30000"
+            - name: AUDIT_ARCHIVE_BATCH_LIMIT
+              value: "20"
+            - name: AUDIT_ARCHIVE_RETRY_AFTER_SECONDS
+              value: "300"
+            - name: AUDIT_ARCHIVE_MAX_ATTEMPTS
+              value: "10"
+            - name: AUDIT_ARCHIVE_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: AUDIT_ARCHIVE_LEASE_SECONDS
+              value: "300"
+            - name: AUDIT_ARCHIVE_OBJECT_LOCK_MODE
+              value: COMPLIANCE
+            - name: AUDIT_ARCHIVE_RETENTION_DAYS
+              value: "2555"
+            - name: AUDIT_ARCHIVE_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: audit-archive-worker-token
+                  optional: true
+            - name: AUDIT_ARCHIVE_UPLOAD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: audit-archive-upload-token
                   optional: true
 ---
 apiVersion: apps/v1
