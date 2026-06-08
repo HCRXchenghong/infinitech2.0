@@ -26,6 +26,38 @@ const postgresOutboxEventReturningColumns = `
 const postgresAuditLogColumns = `
 	id, actor_type, actor_id, action, target_type, target_id,
 	request_id, ip_hash, payload, integrity_algorithm, integrity_hash, created_at`
+const postgresNotificationColumns = `
+	id, target_role, target_id, type, channel, title, body, status,
+	source_topic, source_event_id, idempotency_key, read_at, created_at, updated_at`
+const postgresNotificationReturningColumns = `
+	notification.id, notification.target_role, notification.target_id, notification.type, notification.channel,
+	notification.title, notification.body, notification.status, notification.source_topic, notification.source_event_id,
+	notification.idempotency_key, notification.read_at, notification.created_at, notification.updated_at`
+const postgresNotificationDeliveryColumns = `
+	id, notification_id, target_role, target_id, channel, provider, status,
+	provider_message_id, error_code, error_message, idempotency_key, attempted_at,
+	delivered_at, retry_at, created_at, updated_at`
+const postgresNotificationDeliveryReturningColumns = `
+	delivery.id, delivery.notification_id, delivery.target_role, delivery.target_id, delivery.channel,
+	delivery.provider, delivery.status, delivery.provider_message_id, delivery.error_code,
+	delivery.error_message, delivery.idempotency_key, delivery.attempted_at, delivery.delivered_at,
+	delivery.retry_at, delivery.created_at, delivery.updated_at`
+const postgresNotificationPreferenceColumns = `
+	id, preference_key, target_role, target_id, notification_type,
+	enabled_channels, disabled_channels, quiet_hours, created_at, updated_at`
+const postgresNotificationPreferenceReturningColumns = `
+	preference.id, preference.preference_key, preference.target_role, preference.target_id,
+	preference.notification_type, preference.enabled_channels, preference.disabled_channels,
+	preference.quiet_hours, preference.created_at, preference.updated_at`
+const postgresChatMessageColumns = `
+	id, conversation_id, sender_type, sender_id, sender_name, type, content, metadata,
+	risk_state, risk_reason_code, risk_reason, risk_checked_at, created_at`
+const postgresChatMessageReturningColumns = `
+	message.id, message.conversation_id, message.sender_type, message.sender_id, message.sender_name,
+	message.type, message.content, message.metadata, message.risk_state, message.risk_reason_code,
+	message.risk_reason, message.risk_checked_at, message.created_at`
+const postgresChatReadStateColumns = `
+	user_id, conversation_id, last_read_message_id, read_at, updated_at`
 
 var ErrPersistence = errors.New("persistence failed")
 
@@ -36,65 +68,98 @@ type PostgresStore struct {
 }
 
 type storeSnapshot struct {
-	Version                 int                                        `json:"version"`
-	SavedAt                 time.Time                                  `json:"saved_at"`
-	NextOrderID             uint64                                     `json:"next_order_id"`
-	NextTransactionID       uint64                                     `json:"next_transaction_id"`
-	NextAddressID           uint64                                     `json:"next_address_id"`
-	NextMerchantID          uint64                                     `json:"next_merchant_id"`
-	NextMerchantStaffID     uint64                                     `json:"next_merchant_staff_id"`
-	NextMerchantMaterialID  uint64                                     `json:"next_merchant_material_id"`
-	NextDispatchEventID     uint64                                     `json:"next_dispatch_event_id"`
-	NextOutboxEventID       uint64                                     `json:"next_outbox_event_id"`
-	NextAuditLogID          uint64                                     `json:"next_audit_log_id"`
-	NextAfterSalesID        uint64                                     `json:"next_after_sales_id"`
-	NextAfterSalesEventID   uint64                                     `json:"next_after_sales_event_id"`
-	NextRiderID             uint64                                     `json:"next_rider_id"`
-	NextProductID           uint64                                     `json:"next_product_id"`
-	NextVoucherID           uint64                                     `json:"next_voucher_id"`
-	HomeModules             []HomeModule                               `json:"home_modules"`
-	HomeCards               []HomeCard                                 `json:"home_cards"`
-	Users                   map[string]*AppUser                        `json:"users"`
-	WechatBindings          map[string]string                          `json:"wechat_bindings"`
-	MerchantInvites         map[string]*MerchantOnboardingInvite       `json:"merchant_invites"`
-	Merchants               map[string]*MerchantAccount                `json:"merchants"`
-	MerchantQualifications  map[string][]*MerchantQualification        `json:"merchant_qualifications"`
-	MerchantStaff           map[string][]*MerchantStaff                `json:"merchant_staff"`
-	MerchantMaterials       map[string][]*MerchantSupplementalMaterial `json:"merchant_materials"`
-	Riders                  map[string]*RiderAccount                   `json:"riders"`
-	Deposits                map[string]*DepositAccount                 `json:"deposits"`
-	StationTaskConfigs      map[string]*StationTaskConfig              `json:"station_task_configs"`
-	StationServiceAreas     map[string]*StationServiceArea             `json:"station_service_areas"`
-	Shops                   map[string]*Shop                           `json:"shops"`
-	Products                map[string]*MerchantProduct                `json:"products"`
-	GroupbuyDeals           map[string]*MerchantProduct                `json:"groupbuy_deals"`
-	Addresses               map[string][]*UserAddress                  `json:"addresses"`
-	CartItems               map[string][]*CartItem                     `json:"cart_items"`
-	Orders                  map[string]*Order                          `json:"orders"`
-	Wallets                 map[string]*WalletAccount                  `json:"wallets"`
-	PaymentPasswordHash     map[string]string                          `json:"payment_password_hash"`
-	MerchantPasswordHash    map[string]string                          `json:"merchant_password_hash"`
-	RiderPasswordHash       map[string]string                          `json:"rider_password_hash"`
-	PaymentTransactions     map[string]*PaymentTransaction             `json:"payment_transactions"`
-	PaymentByTradeNo        map[string]*PaymentTransaction             `json:"payment_by_trade_no"`
-	PaymentByProviderID     map[string]*PaymentTransaction             `json:"payment_by_provider_id"`
-	WalletIdempotency       map[string]*WalletTransaction              `json:"wallet_idempotency"`
-	RefundSettings          RefundSettings                             `json:"refund_settings"`
-	RefundTransactions      map[string]*RefundTransaction              `json:"refund_transactions"`
-	RefundByIdempotency     map[string]string                          `json:"refund_by_idempotency"`
-	AfterSalesRequests      map[string]*AfterSalesRequest              `json:"after_sales_requests"`
-	AfterSalesEvents        map[string]*AfterSalesEvent                `json:"after_sales_events"`
-	AfterSalesUploadTickets map[string]*AfterSalesEvidenceUploadTicket `json:"after_sales_upload_tickets"`
-	AfterSalesEvidence      map[string]*AfterSalesEvidence             `json:"after_sales_evidence"`
-	GroupbuyVouchers        map[string]*GroupbuyVoucher                `json:"groupbuy_vouchers"`
-	VouchersByOrderID       map[string][]string                        `json:"vouchers_by_order_id"`
-	VouchersByCode          map[string]*GroupbuyVoucher                `json:"vouchers_by_code"`
-	DispatchEvents          map[string]*DispatchEvent                  `json:"dispatch_events"`
-	DispatchRejectedRiders  map[string]map[string]bool                 `json:"dispatch_rejected_riders"`
-	FreeCancelUsedByDate    map[string]string                          `json:"free_cancel_used_by_date"`
-	OutboxEvents            map[string]*OutboxEvent                    `json:"outbox_events"`
-	OutboxByIdempotency     map[string]string                          `json:"outbox_by_idempotency"`
-	AuditLogs               map[string]*AuditLog                       `json:"audit_logs"`
+	Version                     int                                        `json:"version"`
+	SavedAt                     time.Time                                  `json:"saved_at"`
+	NextOrderID                 uint64                                     `json:"next_order_id"`
+	NextTransactionID           uint64                                     `json:"next_transaction_id"`
+	NextAddressID               uint64                                     `json:"next_address_id"`
+	NextMerchantID              uint64                                     `json:"next_merchant_id"`
+	NextMerchantStaffID         uint64                                     `json:"next_merchant_staff_id"`
+	NextMerchantMaterialID      uint64                                     `json:"next_merchant_material_id"`
+	NextDispatchEventID         uint64                                     `json:"next_dispatch_event_id"`
+	NextOutboxEventID           uint64                                     `json:"next_outbox_event_id"`
+	NextAuditLogID              uint64                                     `json:"next_audit_log_id"`
+	NextNotificationID          uint64                                     `json:"next_notification_id"`
+	NextAfterSalesID            uint64                                     `json:"next_after_sales_id"`
+	NextAfterSalesEventID       uint64                                     `json:"next_after_sales_event_id"`
+	NextRiderID                 uint64                                     `json:"next_rider_id"`
+	NextProductID               uint64                                     `json:"next_product_id"`
+	NextVoucherID               uint64                                     `json:"next_voucher_id"`
+	NextFeedbackID              uint64                                     `json:"next_feedback_id"`
+	NextServiceTicketID         uint64                                     `json:"next_service_ticket_id"`
+	NextServiceTicketEventID    uint64                                     `json:"next_service_ticket_event_id"`
+	NextServiceTicketQualityID  uint64                                     `json:"next_service_ticket_quality_id"`
+	NextPrescriptionID          uint64                                     `json:"next_prescription_id"`
+	NextRedPacketID             uint64                                     `json:"next_red_packet_id"`
+	NextChatMessageID           uint64                                     `json:"next_chat_message_id"`
+	NextMealMatchModerationID   uint64                                     `json:"next_meal_match_moderation_id"`
+	HomeModules                 []HomeModule                               `json:"home_modules"`
+	HomeCards                   []HomeCard                                 `json:"home_cards"`
+	Users                       map[string]*AppUser                        `json:"users"`
+	WechatBindings              map[string]string                          `json:"wechat_bindings"`
+	PhoneBindings               map[string]string                          `json:"phone_bindings"`
+	PhoneVerificationCodes      map[string]*PhoneVerificationCodeTicket    `json:"phone_verification_codes"`
+	PhoneVerificationRequests   map[string][]time.Time                     `json:"phone_verification_requests"`
+	UserPasswordHash            map[string]string                          `json:"user_password_hash"`
+	MerchantInvites             map[string]*MerchantOnboardingInvite       `json:"merchant_invites"`
+	Merchants                   map[string]*MerchantAccount                `json:"merchants"`
+	MerchantQualifications      map[string][]*MerchantQualification        `json:"merchant_qualifications"`
+	MerchantStaff               map[string][]*MerchantStaff                `json:"merchant_staff"`
+	MerchantMaterials           map[string][]*MerchantSupplementalMaterial `json:"merchant_materials"`
+	Riders                      map[string]*RiderAccount                   `json:"riders"`
+	Deposits                    map[string]*DepositAccount                 `json:"deposits"`
+	StationTaskConfigs          map[string]*StationTaskConfig              `json:"station_task_configs"`
+	StationServiceAreas         map[string]*StationServiceArea             `json:"station_service_areas"`
+	Shops                       map[string]*Shop                           `json:"shops"`
+	Products                    map[string]*MerchantProduct                `json:"products"`
+	GroupbuyDeals               map[string]*MerchantProduct                `json:"groupbuy_deals"`
+	Addresses                   map[string][]*UserAddress                  `json:"addresses"`
+	CartItems                   map[string][]*CartItem                     `json:"cart_items"`
+	Orders                      map[string]*Order                          `json:"orders"`
+	Wallets                     map[string]*WalletAccount                  `json:"wallets"`
+	PaymentPasswordHash         map[string]string                          `json:"payment_password_hash"`
+	MerchantPasswordHash        map[string]string                          `json:"merchant_password_hash"`
+	RiderPasswordHash           map[string]string                          `json:"rider_password_hash"`
+	PaymentTransactions         map[string]*PaymentTransaction             `json:"payment_transactions"`
+	PaymentByTradeNo            map[string]*PaymentTransaction             `json:"payment_by_trade_no"`
+	PaymentByProviderID         map[string]*PaymentTransaction             `json:"payment_by_provider_id"`
+	WalletIdempotency           map[string]*WalletTransaction              `json:"wallet_idempotency"`
+	RefundSettings              RefundSettings                             `json:"refund_settings"`
+	RefundTransactions          map[string]*RefundTransaction              `json:"refund_transactions"`
+	RefundByIdempotency         map[string]string                          `json:"refund_by_idempotency"`
+	AfterSalesRequests          map[string]*AfterSalesRequest              `json:"after_sales_requests"`
+	AfterSalesEvents            map[string]*AfterSalesEvent                `json:"after_sales_events"`
+	AfterSalesUploadTickets     map[string]*AfterSalesEvidenceUploadTicket `json:"after_sales_upload_tickets"`
+	AfterSalesEvidence          map[string]*AfterSalesEvidence             `json:"after_sales_evidence"`
+	GroupbuyVouchers            map[string]*GroupbuyVoucher                `json:"groupbuy_vouchers"`
+	VouchersByOrderID           map[string][]string                        `json:"vouchers_by_order_id"`
+	VouchersByCode              map[string]*GroupbuyVoucher                `json:"vouchers_by_code"`
+	DispatchEvents              map[string]*DispatchEvent                  `json:"dispatch_events"`
+	DispatchRejectedRiders      map[string]map[string]bool                 `json:"dispatch_rejected_riders"`
+	FreeCancelUsedByDate        map[string]string                          `json:"free_cancel_used_by_date"`
+	OutboxEvents                map[string]*OutboxEvent                    `json:"outbox_events"`
+	OutboxByIdempotency         map[string]string                          `json:"outbox_by_idempotency"`
+	Notifications               map[string]*PlatformNotification           `json:"notifications"`
+	NotificationByIdem          map[string]string                          `json:"notification_by_idem"`
+	NotificationDeliveries      map[string]*PlatformNotificationDelivery   `json:"notification_deliveries"`
+	NotificationDeliveryByIdem  map[string]string                          `json:"notification_delivery_by_idem"`
+	NotificationPreferences     map[string]*NotificationPreference         `json:"notification_preferences"`
+	NotificationPreferenceByKey map[string]string                          `json:"notification_preference_by_key"`
+	FeedbackTickets             map[string]*FeedbackTicket                 `json:"feedback_tickets"`
+	ServiceTickets              map[string]*ServiceTicket                  `json:"service_tickets"`
+	ServiceTicketEvents         map[string]*ServiceTicketEvent             `json:"service_ticket_events"`
+	ServiceTicketQualityReviews map[string]*ServiceTicketQualityReview     `json:"service_ticket_quality_reviews"`
+	RedPackets                  map[string]*RedPacketDetail                `json:"red_packets"`
+	ChatThreadMembers           map[string]*ChatThreadMember               `json:"chat_thread_members"`
+	ChatMessages                map[string]*ChatMessage                    `json:"chat_messages"`
+	ChatReadStates              map[string]*ChatReadState                  `json:"chat_read_states"`
+	PrescriptionImageTickets    map[string]*PrescriptionImageUploadTicket  `json:"prescription_image_tickets"`
+	PrescriptionReviews         map[string]*PrescriptionReview             `json:"prescription_reviews"`
+	MedicineDetails             map[string]*MedicineOrderDetail            `json:"medicine_details"`
+	MedicineStock               map[string]int                             `json:"medicine_stock"`
+	MealMatchProfiles           map[string]*MealMatchProfile               `json:"meal_match_profiles"`
+	MealMatchModeration         map[string]*MealMatchModerationRecord      `json:"meal_match_moderation"`
+	AuditLogs                   map[string]*AuditLog                       `json:"audit_logs"`
 }
 
 func NewPostgresStore(ctx context.Context, databaseURL string, homeModules []HomeModule) (*PostgresStore, error) {
@@ -135,6 +200,22 @@ func NewPostgresStore(ctx context.Context, databaseURL string, homeModules []Hom
 		_ = db.Close()
 		return nil, err
 	}
+	if err := store.ensureNotificationTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.ensureNotificationDeliveryTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.ensureNotificationPreferenceTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.ensureChatTables(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := store.loadSnapshot(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -164,6 +245,54 @@ func NewPostgresStore(ctx context.Context, databaseURL string, homeModules []Hom
 		return nil, err
 	}
 	if err := store.loadOutboxFromTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.syncSnapshotNotificationsToTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.loadNotificationsFromTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.syncSnapshotNotificationDeliveriesToTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.loadNotificationDeliveriesFromTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.syncSnapshotNotificationPreferencesToTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.loadNotificationPreferencesFromTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.syncSnapshotChatThreadMembersToTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.loadChatThreadMembersFromTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.syncSnapshotChatMessagesToTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.loadChatMessagesFromTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.syncSnapshotChatReadStatesToTable(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.loadChatReadStatesFromTable(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -348,6 +477,15 @@ func (s *PostgresStore) persistAfter(err error) error {
 		return errors.Join(ErrPersistence, err)
 	}
 	if err := s.syncSnapshotOutboxToTable(ctx); err != nil {
+		return errors.Join(ErrPersistence, err)
+	}
+	if err := s.syncSnapshotChatThreadMembersToTable(ctx); err != nil {
+		return errors.Join(ErrPersistence, err)
+	}
+	if err := s.syncSnapshotChatMessagesToTable(ctx); err != nil {
+		return errors.Join(ErrPersistence, err)
+	}
+	if err := s.syncSnapshotChatReadStatesToTable(ctx); err != nil {
 		return errors.Join(ErrPersistence, err)
 	}
 	return nil
@@ -705,6 +843,159 @@ func (s *PostgresStore) ensurePaymentDomainTables(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_order_after_sales_evidence_request ON order_after_sales_evidence (request_id, created_at, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_payment_transactions_order ON payment_transactions (order_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_order_events_order_time ON order_events (order_id, created_at)`,
+	}
+	for _, statement := range statements {
+		if _, err := s.db.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *PostgresStore) ensureNotificationTable(ctx context.Context) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS platform_notifications (
+  id TEXT PRIMARY KEY,
+  target_role TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  channel TEXT NOT NULL DEFAULT 'in_app',
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'unread' CHECK (status IN ('unread', 'read')),
+  source_topic TEXT NOT NULL DEFAULT '',
+  source_event_id TEXT NOT NULL DEFAULT '',
+  idempotency_key TEXT NOT NULL UNIQUE,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)`,
+		`CREATE INDEX IF NOT EXISTS idx_platform_notifications_target_time
+  ON platform_notifications (target_role, target_id, status, created_at DESC, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_platform_notifications_source
+  ON platform_notifications (source_topic, source_event_id)`,
+	}
+	for _, statement := range statements {
+		if _, err := s.db.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *PostgresStore) ensureNotificationDeliveryTable(ctx context.Context) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS platform_notification_deliveries (
+  id TEXT PRIMARY KEY,
+  notification_id TEXT NOT NULL REFERENCES platform_notifications(id) ON DELETE CASCADE,
+  target_role TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  channel TEXT NOT NULL DEFAULT 'in_app',
+  provider TEXT NOT NULL DEFAULT 'in_app',
+  status TEXT NOT NULL CHECK (status IN ('queued', 'delivered', 'failed')),
+  provider_message_id TEXT NOT NULL DEFAULT '',
+  error_code TEXT NOT NULL DEFAULT '',
+  error_message TEXT NOT NULL DEFAULT '',
+  idempotency_key TEXT NOT NULL UNIQUE,
+  attempted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  delivered_at TIMESTAMPTZ,
+  retry_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)`,
+		`ALTER TABLE platform_notification_deliveries ADD COLUMN IF NOT EXISTS retry_at TIMESTAMPTZ`,
+		`CREATE INDEX IF NOT EXISTS idx_platform_notification_deliveries_target_time
+  ON platform_notification_deliveries (target_role, target_id, status, attempted_at DESC, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_platform_notification_deliveries_notification
+  ON platform_notification_deliveries (notification_id, attempted_at DESC, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_platform_notification_deliveries_channel_status
+  ON platform_notification_deliveries (channel, provider, status, attempted_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_platform_notification_deliveries_retry_due
+  ON platform_notification_deliveries (status, error_code, retry_at, attempted_at DESC)`,
+	}
+	for _, statement := range statements {
+		if _, err := s.db.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *PostgresStore) ensureNotificationPreferenceTable(ctx context.Context) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS platform_notification_preferences (
+  id TEXT PRIMARY KEY,
+  preference_key TEXT NOT NULL UNIQUE,
+  target_role TEXT NOT NULL DEFAULT '',
+  target_id TEXT NOT NULL DEFAULT '',
+  notification_type TEXT NOT NULL DEFAULT '',
+  enabled_channels JSONB NOT NULL DEFAULT '[]'::jsonb,
+  disabled_channels JSONB NOT NULL DEFAULT '[]'::jsonb,
+  quiet_hours JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)`,
+		`CREATE INDEX IF NOT EXISTS idx_platform_notification_preferences_target
+  ON platform_notification_preferences (target_role, target_id, notification_type, updated_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_platform_notification_preferences_type
+  ON platform_notification_preferences (notification_type, updated_at DESC)`,
+	}
+	for _, statement := range statements {
+		if _, err := s.db.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *PostgresStore) ensureChatTables(ctx context.Context) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS conversations (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  order_id TEXT,
+  title TEXT NOT NULL DEFAULT '',
+  notification_default TEXT NOT NULL DEFAULT 'normal',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)`,
+		`CREATE TABLE IF NOT EXISTS conversation_members (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  muted BOOLEAN NOT NULL DEFAULT false,
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (conversation_id, subject_type, subject_id)
+)`,
+		`CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  sender_type TEXT NOT NULL,
+  sender_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  attachment_urls TEXT[] NOT NULL DEFAULT '{}',
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)`,
+		`ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN IF NOT EXISTS risk_state TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN IF NOT EXISTS risk_reason_code TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN IF NOT EXISTS risk_reason TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN IF NOT EXISTS risk_checked_at TIMESTAMPTZ`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_conversation_time
+  ON messages (conversation_id, created_at DESC, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_sender_time
+  ON messages (sender_type, sender_id, created_at DESC, id DESC)`,
+		`CREATE TABLE IF NOT EXISTS conversation_read_states (
+  user_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  last_read_message_id TEXT NOT NULL DEFAULT '',
+  read_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, conversation_id)
+)`,
+		`CREATE INDEX IF NOT EXISTS idx_conversation_read_states_user
+  ON conversation_read_states (user_id, updated_at DESC)`,
 	}
 	for _, statement := range statements {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
@@ -1730,7 +2021,7 @@ func upsertSQLMerchantQualification(ctx context.Context, tx *sql.Tx, snapshot me
 		return nil
 	}
 	if qualification.Status == "" {
-		qualification.Status = "pending_review"
+		qualification.Status = QualificationStatusPendingReview
 	}
 	_, err := tx.ExecContext(ctx, `
 INSERT INTO merchant_qualifications (
@@ -3325,6 +3616,7 @@ func (s *PostgresStore) checkoutCartInSQL(ctx context.Context, req CheckoutCartR
 		orderItems = append(orderItems, OrderItem{
 			ProductID:    item.ProductID,
 			ProductName:  item.ProductName,
+			ImageURL:     item.ImageURL,
 			UnitPriceFen: item.UnitPriceFen,
 			Quantity:     item.Quantity,
 		})
@@ -3423,9 +3715,9 @@ SELECT type
 FROM merchant_qualifications
 WHERE merchant_id = $1
   AND type IN ($2, $3)
-  AND status = 'approved'
+  AND status = $4
   AND expires_at > now()
-FOR SHARE`, merchantID, QualificationBusinessLicense, QualificationHealthCertificate)
+FOR SHARE`, merchantID, QualificationBusinessLicense, QualificationHealthCertificate, QualificationStatusApproved)
 	if err != nil {
 		return false, err
 	}
@@ -3482,7 +3774,7 @@ FOR UPDATE`, userID, addressID).Scan(
 func loadSQLCheckoutCartSummaryForUpdate(ctx context.Context, tx *sql.Tx, userID string, shopID string) (CartSummary, error) {
 	rows, err := tx.QueryContext(ctx, `
 SELECT ci.product_id, ci.product_name_snapshot, ci.unit_price_fen,
-       ci.quantity, ci.selected, mp.shop_id, mp.name, mp.stock_count, mp.status
+       ci.quantity, ci.selected, mp.shop_id, mp.name, mp.image_url, mp.stock_count, mp.status
 FROM cart_items ci
 JOIN merchant_products mp ON mp.id = ci.product_id
 WHERE ci.user_id = $1 AND ci.shop_id = $2
@@ -3499,6 +3791,7 @@ FOR UPDATE OF ci, mp`, userID, shopID)
 		var item CartItem
 		var productShopID string
 		var currentProductName string
+		var productImageURL string
 		var stockCount int
 		var productStatus string
 		if err := rows.Scan(
@@ -3509,6 +3802,7 @@ FOR UPDATE OF ci, mp`, userID, shopID)
 			&item.Selected,
 			&productShopID,
 			&currentProductName,
+			&productImageURL,
 			&stockCount,
 			&productStatus,
 		); err != nil {
@@ -3529,6 +3823,7 @@ FOR UPDATE OF ci, mp`, userID, shopID)
 		if item.ProductName == "" {
 			item.ProductName = strings.TrimSpace(currentProductName)
 		}
+		item.ImageURL = strings.TrimSpace(productImageURL)
 		items = append(items, item)
 		itemsTotal += item.UnitPriceFen * int64(item.Quantity)
 	}
@@ -4730,9 +5025,10 @@ ORDER BY created_at, id`)
 
 func (s *PostgresStore) loadSQLOrderItems(ctx context.Context) (map[string][]OrderItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT order_id, product_id, product_name_snapshot, unit_price_fen, quantity
-FROM order_items
-ORDER BY order_id, product_id, product_name_snapshot`)
+SELECT oi.order_id, oi.product_id, oi.product_name_snapshot, COALESCE(mp.image_url, ''), oi.unit_price_fen, oi.quantity
+FROM order_items oi
+LEFT JOIN merchant_products mp ON mp.id = oi.product_id
+ORDER BY oi.order_id, oi.product_id, oi.product_name_snapshot`)
 	if err != nil {
 		return nil, err
 	}
@@ -4741,7 +5037,7 @@ ORDER BY order_id, product_id, product_name_snapshot`)
 	for rows.Next() {
 		var orderID string
 		var item OrderItem
-		if err := rows.Scan(&orderID, &item.ProductID, &item.ProductName, &item.UnitPriceFen, &item.Quantity); err != nil {
+		if err := rows.Scan(&orderID, &item.ProductID, &item.ProductName, &item.ImageURL, &item.UnitPriceFen, &item.Quantity); err != nil {
 			return nil, err
 		}
 		itemsByOrderID[orderID] = append(itemsByOrderID[orderID], item)
@@ -6151,6 +6447,1202 @@ func (s *Store) replaceOutboxEvents(events []OutboxEvent) {
 	}
 }
 
+func (s *Store) notificationSnapshot() []PlatformNotification {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	notifications := make([]PlatformNotification, 0, len(s.notifications))
+	for _, notification := range s.notifications {
+		if notification == nil {
+			continue
+		}
+		notifications = append(notifications, *clonePlatformNotification(notification))
+	}
+	sort.SliceStable(notifications, func(i, j int) bool {
+		if !notifications[i].CreatedAt.Equal(notifications[j].CreatedAt) {
+			return notifications[i].CreatedAt.Before(notifications[j].CreatedAt)
+		}
+		return notifications[i].ID < notifications[j].ID
+	})
+	return notifications
+}
+
+func (s *PostgresStore) syncSnapshotNotificationsToTable(ctx context.Context) error {
+	notifications := s.Store.notificationSnapshot()
+	if len(notifications) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	for _, notification := range notifications {
+		if _, err := insertOrGetSQLNotification(ctx, tx, notification); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) loadNotificationsFromTable(ctx context.Context) error {
+	notifications, err := s.loadSQLNotifications(ctx, NotificationListRequest{Status: "all", Limit: 5000})
+	if err != nil {
+		return err
+	}
+	s.Store.replaceNotificationsFromTable(notifications)
+	return nil
+}
+
+func (s *Store) replaceNotificationsFromTable(notifications []PlatformNotification) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notifications = map[string]*PlatformNotification{}
+	s.notificationByIdem = map[string]string{}
+	for _, notification := range notifications {
+		copyNotification := notification
+		s.notifications[notification.ID] = clonePlatformNotification(&copyNotification)
+		if notification.IdempotencyKey != "" {
+			s.notificationByIdem[notification.IdempotencyKey] = notification.ID
+		}
+		if value, err := strconv.ParseUint(strings.TrimPrefix(notification.ID, "ntf_"), 10, 64); err == nil && value > s.nextNotificationID {
+			s.nextNotificationID = value
+		}
+	}
+}
+
+type notificationScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanNotification(scanner notificationScanner) (*PlatformNotification, error) {
+	var notification PlatformNotification
+	var readAt sql.NullTime
+	if err := scanner.Scan(
+		&notification.ID,
+		&notification.TargetRole,
+		&notification.TargetID,
+		&notification.Type,
+		&notification.Channel,
+		&notification.Title,
+		&notification.Body,
+		&notification.Status,
+		&notification.SourceTopic,
+		&notification.SourceEventID,
+		&notification.IdempotencyKey,
+		&readAt,
+		&notification.CreatedAt,
+		&notification.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if readAt.Valid {
+		notification.ReadAt = readAt.Time.UTC()
+	}
+	notification.CreatedAt = notification.CreatedAt.UTC()
+	notification.UpdatedAt = notification.UpdatedAt.UTC()
+	return &notification, nil
+}
+
+func scanNotificationRows(rows *sql.Rows) ([]PlatformNotification, error) {
+	defer rows.Close()
+	notifications := []PlatformNotification{}
+	for rows.Next() {
+		notification, err := scanNotification(rows)
+		if err != nil {
+			return nil, err
+		}
+		notifications = append(notifications, *notification)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return notifications, nil
+}
+
+func insertOrGetSQLNotification(ctx context.Context, tx *sql.Tx, notification PlatformNotification) (*PlatformNotification, error) {
+	if strings.TrimSpace(notification.ID) == "" || strings.TrimSpace(notification.IdempotencyKey) == "" {
+		return nil, ErrInvalidArgument
+	}
+	notification.Status = strings.TrimSpace(notification.Status)
+	if notification.Status == "" {
+		notification.Status = NotificationStatusUnread
+	}
+	return scanNotification(tx.QueryRowContext(ctx, `
+INSERT INTO platform_notifications AS notification (
+  id, target_role, target_id, type, channel, title, body, status,
+  source_topic, source_event_id, idempotency_key, read_at, created_at, updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+ON CONFLICT (idempotency_key) DO UPDATE
+SET updated_at = notification.updated_at
+RETURNING `+postgresNotificationReturningColumns,
+		notification.ID,
+		notification.TargetRole,
+		notification.TargetID,
+		notification.Type,
+		notification.Channel,
+		notification.Title,
+		notification.Body,
+		notification.Status,
+		notification.SourceTopic,
+		notification.SourceEventID,
+		notification.IdempotencyKey,
+		nullableTime(notification.ReadAt),
+		notification.CreatedAt,
+		notification.UpdatedAt,
+	))
+}
+
+func (s *PostgresStore) loadSQLNotifications(ctx context.Context, req NotificationListRequest) ([]PlatformNotification, error) {
+	req = normalizeNotificationListRequest(req)
+	if (req.TargetRole == "") != (req.TargetID == "") {
+		return nil, ErrInvalidArgument
+	}
+	args := []any{}
+	filters := []string{"TRUE"}
+	if req.TargetRole != "" {
+		args = append(args, req.TargetRole)
+		filters = append(filters, fmt.Sprintf("target_role = $%d", len(args)))
+	}
+	if req.TargetID != "" {
+		args = append(args, req.TargetID)
+		filters = append(filters, fmt.Sprintf("target_id = $%d", len(args)))
+	}
+	if req.Status != "all" {
+		args = append(args, req.Status)
+		filters = append(filters, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if req.SourceTopic != "" {
+		args = append(args, req.SourceTopic)
+		filters = append(filters, fmt.Sprintf("source_topic = $%d", len(args)))
+	}
+	if req.SourceEventID != "" {
+		args = append(args, req.SourceEventID)
+		filters = append(filters, fmt.Sprintf("source_event_id = $%d", len(args)))
+	}
+	args = append(args, req.Limit)
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM platform_notifications
+WHERE %s
+ORDER BY created_at DESC, id DESC
+LIMIT $%d`, postgresNotificationColumns, strings.Join(filters, " AND "), len(args)), args...)
+	if err != nil {
+		return nil, err
+	}
+	return scanNotificationRows(rows)
+}
+
+func (s *PostgresStore) applyNotificationsAndSaveSnapshot(ctx context.Context, notifications []PlatformNotification) error {
+	if len(notifications) > 0 {
+		s.Store.applyNotifications(notifications)
+	}
+	if err := s.saveSnapshot(ctx); err != nil {
+		return errors.Join(ErrPersistence, err)
+	}
+	return nil
+}
+
+func (s *Store) applyNotifications(notifications []PlatformNotification) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, notification := range notifications {
+		copyNotification := notification
+		s.notifications[notification.ID] = clonePlatformNotification(&copyNotification)
+		if notification.IdempotencyKey != "" {
+			s.notificationByIdem[notification.IdempotencyKey] = notification.ID
+		}
+		if value, err := strconv.ParseUint(strings.TrimPrefix(notification.ID, "ntf_"), 10, 64); err == nil && value > s.nextNotificationID {
+			s.nextNotificationID = value
+		}
+	}
+}
+
+func (s *Store) chatMessageSnapshot() []ChatMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	messages := make([]ChatMessage, 0, len(s.chatMessages))
+	for _, message := range s.chatMessages {
+		if message == nil {
+			continue
+		}
+		messages = append(messages, *cloneChatMessage(message))
+	}
+	sort.SliceStable(messages, func(i, j int) bool {
+		if !messages[i].CreatedAt.Equal(messages[j].CreatedAt) {
+			return messages[i].CreatedAt.Before(messages[j].CreatedAt)
+		}
+		return messages[i].ID < messages[j].ID
+	})
+	return messages
+}
+
+func (s *Store) chatReadStateSnapshot() []ChatReadState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	states := make([]ChatReadState, 0, len(s.chatReadStates))
+	for _, state := range s.chatReadStates {
+		if state == nil {
+			continue
+		}
+		states = append(states, *cloneChatReadState(state))
+	}
+	sort.SliceStable(states, func(i, j int) bool {
+		if states[i].UserID == states[j].UserID {
+			return states[i].ThreadID < states[j].ThreadID
+		}
+		return states[i].UserID < states[j].UserID
+	})
+	return states
+}
+
+func (s *Store) chatThreadMemberSnapshot() []ChatThreadMember {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	members := make([]ChatThreadMember, 0, len(s.chatThreadMembers))
+	for _, member := range s.chatThreadMembers {
+		if member == nil {
+			continue
+		}
+		members = append(members, *cloneChatThreadMember(member))
+	}
+	sort.SliceStable(members, func(i, j int) bool {
+		if members[i].ThreadID != members[j].ThreadID {
+			return members[i].ThreadID < members[j].ThreadID
+		}
+		if members[i].SubjectType != members[j].SubjectType {
+			return members[i].SubjectType < members[j].SubjectType
+		}
+		return members[i].SubjectID < members[j].SubjectID
+	})
+	return members
+}
+
+func (s *PostgresStore) syncSnapshotChatThreadMembersToTable(ctx context.Context) error {
+	members := s.Store.chatThreadMemberSnapshot()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if err := upsertDefaultSQLChatThreads(ctx, tx); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM conversation_members`); err != nil {
+		return err
+	}
+	for _, member := range members {
+		if member.ThreadID == "" || member.SubjectType == "" || member.SubjectID == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO conversation_members (conversation_id, subject_type, subject_id, muted, joined_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (conversation_id, subject_type, subject_id) DO UPDATE
+SET muted = EXCLUDED.muted,
+    joined_at = EXCLUDED.joined_at`,
+			member.ThreadID,
+			member.SubjectType,
+			member.SubjectID,
+			member.Muted,
+			normalizeChatTime(member.JoinedAt),
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) syncSnapshotChatMessagesToTable(ctx context.Context) error {
+	messages := s.Store.chatMessageSnapshot()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if err := upsertDefaultSQLChatThreads(ctx, tx); err != nil {
+		return err
+	}
+	for _, message := range messages {
+		if _, err := insertOrGetSQLChatMessage(ctx, tx, message); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) syncSnapshotChatReadStatesToTable(ctx context.Context) error {
+	states := s.Store.chatReadStateSnapshot()
+	if len(states) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if err := upsertDefaultSQLChatThreads(ctx, tx); err != nil {
+		return err
+	}
+	for _, state := range states {
+		if err := upsertSQLChatReadState(ctx, tx, state); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) loadChatMessagesFromTable(ctx context.Context) error {
+	messages, err := s.loadSQLChatMessages(ctx, "", 10000)
+	if err != nil {
+		return err
+	}
+	s.Store.replaceChatMessagesFromTable(messages)
+	return nil
+}
+
+func (s *PostgresStore) loadChatThreadMembersFromTable(ctx context.Context) error {
+	members, err := s.loadSQLChatThreadMembers(ctx)
+	if err != nil {
+		return err
+	}
+	s.Store.replaceChatThreadMembersFromTable(members)
+	return nil
+}
+
+func (s *PostgresStore) loadChatReadStatesFromTable(ctx context.Context) error {
+	states, err := s.loadSQLChatReadStates(ctx, "")
+	if err != nil {
+		return err
+	}
+	s.Store.replaceChatReadStatesFromTable(states)
+	return nil
+}
+
+func (s *Store) replaceChatThreadMembersFromTable(members []ChatThreadMember) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.chatThreadMembers = map[string]*ChatThreadMember{}
+	for _, member := range members {
+		memberCopy := member
+		s.chatThreadMembers[chatThreadMemberKey(member.ThreadID, member.SubjectType, member.SubjectID)] = cloneChatThreadMember(&memberCopy)
+	}
+	if len(s.chatThreadMembers) == 0 {
+		s.chatThreadMembers = seedChatThreadMembers()
+	}
+}
+
+func (s *Store) replaceChatMessagesFromTable(messages []ChatMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.chatMessages = map[string]*ChatMessage{}
+	for _, message := range messages {
+		copyMessage := message
+		s.chatMessages[message.ID] = cloneChatMessage(&copyMessage)
+		if value, err := strconv.ParseUint(strings.TrimPrefix(message.ID, "msg_"), 10, 64); err == nil && value > s.nextChatMessageID {
+			s.nextChatMessageID = value
+		}
+	}
+	if len(s.chatMessages) == 0 {
+		s.chatMessages = seedChatMessages()
+	}
+}
+
+func (s *Store) replaceChatReadStatesFromTable(states []ChatReadState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.chatReadStates = map[string]*ChatReadState{}
+	for _, state := range states {
+		copyState := state
+		s.chatReadStates[chatReadStateKey(state.UserID, state.ThreadID)] = cloneChatReadState(&copyState)
+	}
+}
+
+func upsertDefaultSQLChatThreads(ctx context.Context, tx *sql.Tx) error {
+	for _, thread := range defaultChatThreads() {
+		thread.ID = strings.TrimSpace(thread.ID)
+		if thread.ID == "" {
+			continue
+		}
+		notificationDefault := "normal"
+		if thread.Muted {
+			notificationDefault = GroupNotifyMuted
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO conversations (id, type, title, notification_default, created_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (id) DO UPDATE
+SET type = EXCLUDED.type,
+    title = EXCLUDED.title,
+    notification_default = EXCLUDED.notification_default`,
+			thread.ID,
+			strings.TrimSpace(thread.Type),
+			strings.TrimSpace(thread.Title),
+			notificationDefault,
+			normalizeChatTime(thread.UpdatedAt),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type chatMessageScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanChatMessage(scanner chatMessageScanner) (*ChatMessage, error) {
+	var message ChatMessage
+	var senderType string
+	var metadata []byte
+	var riskCheckedAt sql.NullTime
+	if err := scanner.Scan(
+		&message.ID,
+		&message.ThreadID,
+		&senderType,
+		&message.SenderID,
+		&message.Sender,
+		&message.MessageType,
+		&message.Content,
+		&metadata,
+		&message.RiskState,
+		&message.RiskReasonCode,
+		&message.RiskReason,
+		&riskCheckedAt,
+		&message.CreatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if message.Sender == "" && len(metadata) > 0 {
+		var meta map[string]any
+		if err := json.Unmarshal(metadata, &meta); err == nil {
+			message.Sender = strings.TrimSpace(fmt.Sprint(meta["sender_name"]))
+		}
+	}
+	if message.Sender == "" {
+		message.Sender = message.SenderID
+	}
+	if riskCheckedAt.Valid {
+		message.RiskCheckedAt = riskCheckedAt.Time.UTC()
+	}
+	message.CreatedAt = normalizeChatTime(message.CreatedAt)
+	return &message, nil
+}
+
+func scanChatMessageRows(rows *sql.Rows) ([]ChatMessage, error) {
+	defer rows.Close()
+	messages := []ChatMessage{}
+	for rows.Next() {
+		message, err := scanChatMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, *message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
+func (s *PostgresStore) loadSQLChatThreadMembers(ctx context.Context) ([]ChatThreadMember, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT conversation_id, subject_type, subject_id, muted, joined_at
+FROM conversation_members
+ORDER BY conversation_id, subject_type, subject_id`)
+	if err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	defer rows.Close()
+	members := []ChatThreadMember{}
+	for rows.Next() {
+		var member ChatThreadMember
+		if err := rows.Scan(&member.ThreadID, &member.SubjectType, &member.SubjectID, &member.Muted, &member.JoinedAt); err != nil {
+			return nil, errors.Join(ErrPersistence, err)
+		}
+		member.JoinedAt = normalizeChatTime(member.JoinedAt)
+		members = append(members, member)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	return members, nil
+}
+
+func insertOrGetSQLChatMessage(ctx context.Context, tx *sql.Tx, message ChatMessage) (*ChatMessage, error) {
+	message = normalizeChatMessageForSQL(message)
+	if message.ID == "" || message.ThreadID == "" || message.SenderID == "" || message.Content == "" {
+		return nil, ErrInvalidArgument
+	}
+	if err := upsertSQLConversationForMessage(ctx, tx, message.ThreadID); err != nil {
+		return nil, err
+	}
+	metadata, err := json.Marshal(chatMessageSQLMetadata(message))
+	if err != nil {
+		return nil, err
+	}
+	return scanChatMessage(tx.QueryRowContext(ctx, `
+INSERT INTO messages AS message (
+  id, conversation_id, sender_type, sender_id, sender_name, type, content,
+  metadata, risk_state, risk_reason_code, risk_reason, risk_checked_at, created_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13)
+ON CONFLICT (id) DO UPDATE
+SET sender_name = EXCLUDED.sender_name,
+    type = EXCLUDED.type,
+    content = EXCLUDED.content,
+    metadata = EXCLUDED.metadata,
+    risk_state = EXCLUDED.risk_state,
+    risk_reason_code = EXCLUDED.risk_reason_code,
+    risk_reason = EXCLUDED.risk_reason,
+    risk_checked_at = EXCLUDED.risk_checked_at
+RETURNING `+postgresChatMessageReturningColumns,
+		message.ID,
+		message.ThreadID,
+		chatSenderType(message.SenderID),
+		message.SenderID,
+		message.Sender,
+		message.MessageType,
+		message.Content,
+		string(metadata),
+		message.RiskState,
+		message.RiskReasonCode,
+		message.RiskReason,
+		nullableTime(message.RiskCheckedAt),
+		message.CreatedAt,
+	))
+}
+
+func upsertSQLConversationForMessage(ctx context.Context, tx *sql.Tx, threadID string) error {
+	thread := chatThreadByID(threadID)
+	if thread == nil {
+		return ErrInvalidArgument
+	}
+	notificationDefault := "normal"
+	if thread.Muted {
+		notificationDefault = GroupNotifyMuted
+	}
+	_, err := tx.ExecContext(ctx, `
+INSERT INTO conversations (id, type, title, notification_default, created_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (id) DO UPDATE
+SET type = EXCLUDED.type,
+    title = EXCLUDED.title,
+    notification_default = EXCLUDED.notification_default`,
+		thread.ID,
+		thread.Type,
+		thread.Title,
+		notificationDefault,
+		normalizeChatTime(thread.UpdatedAt),
+	)
+	return err
+}
+
+func upsertSQLChatReadState(ctx context.Context, tx *sql.Tx, state ChatReadState) error {
+	state.UserID = strings.TrimSpace(state.UserID)
+	state.ThreadID = strings.TrimSpace(state.ThreadID)
+	state.LastReadMessageID = strings.TrimSpace(state.LastReadMessageID)
+	if state.UserID == "" || state.ThreadID == "" {
+		return ErrInvalidArgument
+	}
+	if err := upsertSQLConversationForMessage(ctx, tx, state.ThreadID); err != nil {
+		return err
+	}
+	readAt := normalizeChatTime(state.ReadAt)
+	_, err := tx.ExecContext(ctx, `
+INSERT INTO conversation_read_states (user_id, conversation_id, last_read_message_id, read_at, updated_at)
+VALUES ($1, $2, $3, $4, $4)
+ON CONFLICT (user_id, conversation_id) DO UPDATE
+SET last_read_message_id = EXCLUDED.last_read_message_id,
+    read_at = EXCLUDED.read_at,
+    updated_at = EXCLUDED.updated_at`,
+		state.UserID,
+		state.ThreadID,
+		state.LastReadMessageID,
+		readAt,
+	)
+	return err
+}
+
+func (s *PostgresStore) loadSQLChatMessages(ctx context.Context, threadID string, limit int) ([]ChatMessage, error) {
+	threadID = strings.TrimSpace(threadID)
+	if limit <= 0 || limit > 10000 {
+		limit = 10000
+	}
+	args := []any{}
+	filters := []string{"TRUE"}
+	if threadID != "" {
+		args = append(args, threadID)
+		filters = append(filters, fmt.Sprintf("conversation_id = $%d", len(args)))
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM messages AS message
+WHERE %s
+ORDER BY created_at ASC, id ASC
+LIMIT $%d`, postgresChatMessageColumns, strings.Join(filters, " AND "), len(args)), args...)
+	if err != nil {
+		return nil, err
+	}
+	return scanChatMessageRows(rows)
+}
+
+func (s *PostgresStore) loadSQLChatReadStates(ctx context.Context, userID string) ([]ChatReadState, error) {
+	userID = strings.TrimSpace(userID)
+	args := []any{}
+	filters := []string{"TRUE"}
+	if userID != "" {
+		args = append(args, userID)
+		filters = append(filters, fmt.Sprintf("user_id = $%d", len(args)))
+	}
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM conversation_read_states
+WHERE %s
+ORDER BY user_id ASC, conversation_id ASC`, postgresChatReadStateColumns, strings.Join(filters, " AND ")), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	states := []ChatReadState{}
+	for rows.Next() {
+		var state ChatReadState
+		var updatedAt time.Time
+		if err := rows.Scan(&state.UserID, &state.ThreadID, &state.LastReadMessageID, &state.ReadAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		state.ReadAt = normalizeChatTime(state.ReadAt)
+		states = append(states, state)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return states, nil
+}
+
+func normalizeChatMessageForSQL(message ChatMessage) ChatMessage {
+	message.ID = strings.TrimSpace(message.ID)
+	message.ThreadID = strings.TrimSpace(message.ThreadID)
+	message.SenderID = strings.TrimSpace(message.SenderID)
+	message.Sender = strings.TrimSpace(message.Sender)
+	message.Content = strings.TrimSpace(message.Content)
+	message.MessageType = strings.TrimSpace(message.MessageType)
+	message.RiskState = strings.TrimSpace(message.RiskState)
+	message.RiskReasonCode = strings.TrimSpace(message.RiskReasonCode)
+	message.RiskReason = strings.TrimSpace(message.RiskReason)
+	if message.MessageType == "" {
+		message.MessageType = "text"
+	}
+	if message.Sender == "" {
+		message.Sender = message.SenderID
+	}
+	message.CreatedAt = normalizeChatTime(message.CreatedAt)
+	if !message.RiskCheckedAt.IsZero() {
+		message.RiskCheckedAt = message.RiskCheckedAt.UTC()
+	}
+	return message
+}
+
+func normalizeChatTime(value time.Time) time.Time {
+	if value.IsZero() {
+		return time.Now().UTC()
+	}
+	return value.UTC()
+}
+
+func chatSenderType(senderID string) string {
+	senderID = strings.TrimSpace(senderID)
+	switch {
+	case strings.HasPrefix(senderID, "merchant"):
+		return "merchant"
+	case strings.HasPrefix(senderID, "rider"):
+		return "rider"
+	case strings.HasPrefix(senderID, "support"):
+		return "support"
+	case strings.HasPrefix(senderID, "system"):
+		return "system"
+	default:
+		return "user"
+	}
+}
+
+func chatMessageSQLMetadata(message ChatMessage) map[string]any {
+	metadata := map[string]any{
+		"sender_name":  message.Sender,
+		"message_type": message.MessageType,
+	}
+	if message.RiskState != "" {
+		metadata["risk_state"] = message.RiskState
+	}
+	if message.RiskReasonCode != "" {
+		metadata["risk_reason_code"] = message.RiskReasonCode
+	}
+	if message.RiskReason != "" {
+		metadata["risk_reason"] = message.RiskReason
+	}
+	if !message.RiskCheckedAt.IsZero() {
+		metadata["risk_checked_at"] = message.RiskCheckedAt.Format(time.RFC3339Nano)
+	}
+	return metadata
+}
+
+func (s *Store) notificationDeliverySnapshot() []PlatformNotificationDelivery {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deliveries := make([]PlatformNotificationDelivery, 0, len(s.notificationDeliveries))
+	for _, delivery := range s.notificationDeliveries {
+		if delivery == nil {
+			continue
+		}
+		deliveries = append(deliveries, *clonePlatformNotificationDelivery(delivery))
+	}
+	sort.SliceStable(deliveries, func(i, j int) bool {
+		if !deliveries[i].AttemptedAt.Equal(deliveries[j].AttemptedAt) {
+			return deliveries[i].AttemptedAt.Before(deliveries[j].AttemptedAt)
+		}
+		return deliveries[i].ID < deliveries[j].ID
+	})
+	return deliveries
+}
+
+func (s *PostgresStore) syncSnapshotNotificationDeliveriesToTable(ctx context.Context) error {
+	deliveries := s.Store.notificationDeliverySnapshot()
+	if len(deliveries) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	for _, delivery := range deliveries {
+		if _, err := insertOrGetSQLNotificationDelivery(ctx, tx, delivery); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) loadNotificationDeliveriesFromTable(ctx context.Context) error {
+	deliveries, err := s.loadSQLNotificationDeliveries(ctx, NotificationDeliveryListRequest{Status: "all", Limit: 5000})
+	if err != nil {
+		return err
+	}
+	s.Store.replaceNotificationDeliveriesFromTable(deliveries)
+	return nil
+}
+
+func (s *Store) replaceNotificationDeliveriesFromTable(deliveries []PlatformNotificationDelivery) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notificationDeliveries = map[string]*PlatformNotificationDelivery{}
+	s.notificationDeliveryByIdem = map[string]string{}
+	for _, delivery := range deliveries {
+		copyDelivery := delivery
+		s.notificationDeliveries[delivery.ID] = clonePlatformNotificationDelivery(&copyDelivery)
+		if delivery.IdempotencyKey != "" {
+			s.notificationDeliveryByIdem[delivery.IdempotencyKey] = delivery.ID
+		}
+	}
+}
+
+type notificationDeliveryScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanNotificationDelivery(scanner notificationDeliveryScanner) (*PlatformNotificationDelivery, error) {
+	var delivery PlatformNotificationDelivery
+	var deliveredAt sql.NullTime
+	var retryAt sql.NullTime
+	if err := scanner.Scan(
+		&delivery.ID,
+		&delivery.NotificationID,
+		&delivery.TargetRole,
+		&delivery.TargetID,
+		&delivery.Channel,
+		&delivery.Provider,
+		&delivery.Status,
+		&delivery.ProviderMessageID,
+		&delivery.ErrorCode,
+		&delivery.ErrorMessage,
+		&delivery.IdempotencyKey,
+		&delivery.AttemptedAt,
+		&deliveredAt,
+		&retryAt,
+		&delivery.CreatedAt,
+		&delivery.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if deliveredAt.Valid {
+		delivery.DeliveredAt = deliveredAt.Time.UTC()
+	}
+	if retryAt.Valid {
+		delivery.RetryAt = retryAt.Time.UTC()
+	}
+	delivery.AttemptedAt = delivery.AttemptedAt.UTC()
+	delivery.CreatedAt = delivery.CreatedAt.UTC()
+	delivery.UpdatedAt = delivery.UpdatedAt.UTC()
+	return &delivery, nil
+}
+
+func scanNotificationDeliveryRows(rows *sql.Rows) ([]PlatformNotificationDelivery, error) {
+	defer rows.Close()
+	deliveries := []PlatformNotificationDelivery{}
+	for rows.Next() {
+		delivery, err := scanNotificationDelivery(rows)
+		if err != nil {
+			return nil, err
+		}
+		deliveries = append(deliveries, *delivery)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return deliveries, nil
+}
+
+func insertOrGetSQLNotificationDelivery(ctx context.Context, tx *sql.Tx, delivery PlatformNotificationDelivery) (*PlatformNotificationDelivery, error) {
+	if strings.TrimSpace(delivery.ID) == "" || strings.TrimSpace(delivery.NotificationID) == "" || strings.TrimSpace(delivery.IdempotencyKey) == "" {
+		return nil, ErrInvalidArgument
+	}
+	return scanNotificationDelivery(tx.QueryRowContext(ctx, `
+INSERT INTO platform_notification_deliveries AS delivery (
+  id, notification_id, target_role, target_id, channel, provider, status,
+  provider_message_id, error_code, error_message, idempotency_key, attempted_at,
+  delivered_at, retry_at, created_at, updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+ON CONFLICT (idempotency_key) DO UPDATE
+SET updated_at = delivery.updated_at
+RETURNING `+postgresNotificationDeliveryReturningColumns,
+		delivery.ID,
+		delivery.NotificationID,
+		delivery.TargetRole,
+		delivery.TargetID,
+		delivery.Channel,
+		delivery.Provider,
+		delivery.Status,
+		delivery.ProviderMessageID,
+		delivery.ErrorCode,
+		delivery.ErrorMessage,
+		delivery.IdempotencyKey,
+		delivery.AttemptedAt,
+		nullableTime(delivery.DeliveredAt),
+		nullableTime(delivery.RetryAt),
+		delivery.CreatedAt,
+		delivery.UpdatedAt,
+	))
+}
+
+func (s *PostgresStore) loadSQLNotificationDeliveries(ctx context.Context, req NotificationDeliveryListRequest) ([]PlatformNotificationDelivery, error) {
+	req = normalizeNotificationDeliveryListRequest(req)
+	if (req.TargetRole == "") != (req.TargetID == "") {
+		return nil, ErrInvalidArgument
+	}
+	args := []any{}
+	filters := []string{"TRUE"}
+	if req.NotificationID != "" {
+		args = append(args, req.NotificationID)
+		filters = append(filters, fmt.Sprintf("notification_id = $%d", len(args)))
+	}
+	if req.TargetRole != "" {
+		args = append(args, req.TargetRole)
+		filters = append(filters, fmt.Sprintf("target_role = $%d", len(args)))
+	}
+	if req.TargetID != "" {
+		args = append(args, req.TargetID)
+		filters = append(filters, fmt.Sprintf("target_id = $%d", len(args)))
+	}
+	if req.Channel != "" {
+		args = append(args, req.Channel)
+		filters = append(filters, fmt.Sprintf("channel = $%d", len(args)))
+	}
+	if req.Provider != "" {
+		args = append(args, req.Provider)
+		filters = append(filters, fmt.Sprintf("provider = $%d", len(args)))
+	}
+	if req.Status != "all" {
+		args = append(args, req.Status)
+		filters = append(filters, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if req.ErrorCode != "" {
+		args = append(args, req.ErrorCode)
+		filters = append(filters, fmt.Sprintf("error_code = $%d", len(args)))
+	}
+	if !req.RetryAtBefore.IsZero() {
+		args = append(args, req.RetryAtBefore)
+		filters = append(filters, fmt.Sprintf("retry_at IS NOT NULL AND retry_at <= $%d", len(args)))
+	}
+	args = append(args, req.Limit)
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM platform_notification_deliveries
+WHERE %s
+ORDER BY attempted_at DESC, id DESC
+LIMIT $%d`, postgresNotificationDeliveryColumns, strings.Join(filters, " AND "), len(args)), args...)
+	if err != nil {
+		return nil, err
+	}
+	return scanNotificationDeliveryRows(rows)
+}
+
+func (s *PostgresStore) applyNotificationDeliveriesAndSaveSnapshot(ctx context.Context, deliveries []PlatformNotificationDelivery) error {
+	if len(deliveries) > 0 {
+		s.Store.applyNotificationDeliveries(deliveries)
+	}
+	if err := s.saveSnapshot(ctx); err != nil {
+		return errors.Join(ErrPersistence, err)
+	}
+	return nil
+}
+
+func (s *Store) applyNotificationDeliveries(deliveries []PlatformNotificationDelivery) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, delivery := range deliveries {
+		copyDelivery := delivery
+		s.notificationDeliveries[delivery.ID] = clonePlatformNotificationDelivery(&copyDelivery)
+		if delivery.IdempotencyKey != "" {
+			s.notificationDeliveryByIdem[delivery.IdempotencyKey] = delivery.ID
+		}
+	}
+}
+
+func (s *Store) notificationPreferenceSnapshot() []NotificationPreference {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	preferences := make([]NotificationPreference, 0, len(s.notificationPreferences))
+	for _, preference := range s.notificationPreferences {
+		if preference == nil {
+			continue
+		}
+		preferences = append(preferences, *cloneNotificationPreference(preference))
+	}
+	sort.SliceStable(preferences, func(i, j int) bool {
+		if !preferences[i].UpdatedAt.Equal(preferences[j].UpdatedAt) {
+			return preferences[i].UpdatedAt.Before(preferences[j].UpdatedAt)
+		}
+		return preferences[i].PreferenceKey < preferences[j].PreferenceKey
+	})
+	return preferences
+}
+
+func (s *PostgresStore) syncSnapshotNotificationPreferencesToTable(ctx context.Context) error {
+	preferences := s.Store.notificationPreferenceSnapshot()
+	if len(preferences) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	for _, preference := range preferences {
+		if _, err := upsertSQLNotificationPreference(ctx, tx, preference); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) loadNotificationPreferencesFromTable(ctx context.Context) error {
+	preferences, err := s.loadSQLNotificationPreferences(ctx, NotificationPreferenceListRequest{Limit: 5000})
+	if err != nil {
+		return err
+	}
+	s.Store.replaceNotificationPreferencesFromTable(preferences)
+	return nil
+}
+
+func (s *Store) replaceNotificationPreferencesFromTable(preferences []NotificationPreference) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notificationPreferences = map[string]*NotificationPreference{}
+	s.notificationPreferenceByKey = map[string]string{}
+	for _, preference := range preferences {
+		copyPreference := preference
+		s.notificationPreferences[preference.ID] = cloneNotificationPreference(&copyPreference)
+		if preference.PreferenceKey != "" {
+			s.notificationPreferenceByKey[preference.PreferenceKey] = preference.ID
+		}
+	}
+}
+
+type notificationPreferenceScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanNotificationPreference(scanner notificationPreferenceScanner) (*NotificationPreference, error) {
+	var preference NotificationPreference
+	var enabledPayload []byte
+	var disabledPayload []byte
+	var quietPayload []byte
+	if err := scanner.Scan(
+		&preference.ID,
+		&preference.PreferenceKey,
+		&preference.TargetRole,
+		&preference.TargetID,
+		&preference.NotificationType,
+		&enabledPayload,
+		&disabledPayload,
+		&quietPayload,
+		&preference.CreatedAt,
+		&preference.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if len(enabledPayload) > 0 {
+		if err := json.Unmarshal(enabledPayload, &preference.EnabledChannels); err != nil {
+			return nil, err
+		}
+	}
+	if len(disabledPayload) > 0 {
+		if err := json.Unmarshal(disabledPayload, &preference.DisabledChannels); err != nil {
+			return nil, err
+		}
+	}
+	if len(quietPayload) > 0 {
+		if err := json.Unmarshal(quietPayload, &preference.QuietHours); err != nil {
+			return nil, err
+		}
+	}
+	preference.CreatedAt = preference.CreatedAt.UTC()
+	preference.UpdatedAt = preference.UpdatedAt.UTC()
+	return &preference, nil
+}
+
+func scanNotificationPreferenceRows(rows *sql.Rows) ([]NotificationPreference, error) {
+	defer rows.Close()
+	preferences := []NotificationPreference{}
+	for rows.Next() {
+		preference, err := scanNotificationPreference(rows)
+		if err != nil {
+			return nil, err
+		}
+		preferences = append(preferences, *preference)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return preferences, nil
+}
+
+func upsertSQLNotificationPreference(ctx context.Context, tx *sql.Tx, preference NotificationPreference) (*NotificationPreference, error) {
+	if strings.TrimSpace(preference.ID) == "" || strings.TrimSpace(preference.PreferenceKey) == "" {
+		return nil, ErrInvalidArgument
+	}
+	enabledPayload, err := json.Marshal(preference.EnabledChannels)
+	if err != nil {
+		return nil, err
+	}
+	disabledPayload, err := json.Marshal(preference.DisabledChannels)
+	if err != nil {
+		return nil, err
+	}
+	quietPayload, err := json.Marshal(preference.QuietHours)
+	if err != nil {
+		return nil, err
+	}
+	return scanNotificationPreference(tx.QueryRowContext(ctx, `
+INSERT INTO platform_notification_preferences AS preference (
+  id, preference_key, target_role, target_id, notification_type,
+  enabled_channels, disabled_channels, quiet_hours, created_at, updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10)
+ON CONFLICT (preference_key) DO UPDATE
+SET target_role = EXCLUDED.target_role,
+    target_id = EXCLUDED.target_id,
+    notification_type = EXCLUDED.notification_type,
+    enabled_channels = EXCLUDED.enabled_channels,
+    disabled_channels = EXCLUDED.disabled_channels,
+    quiet_hours = EXCLUDED.quiet_hours,
+    updated_at = EXCLUDED.updated_at
+RETURNING `+postgresNotificationPreferenceReturningColumns,
+		preference.ID,
+		preference.PreferenceKey,
+		preference.TargetRole,
+		preference.TargetID,
+		preference.NotificationType,
+		string(enabledPayload),
+		string(disabledPayload),
+		string(quietPayload),
+		preference.CreatedAt,
+		preference.UpdatedAt,
+	))
+}
+
+func (s *PostgresStore) loadSQLNotificationPreferences(ctx context.Context, req NotificationPreferenceListRequest) ([]NotificationPreference, error) {
+	req = normalizeNotificationPreferenceListRequest(req)
+	if req.PreferenceKey == "" && ((req.TargetID != "" && req.TargetRole == "") || (req.NotificationType != "" && req.TargetRole != "" && req.TargetID == "")) {
+		return nil, ErrInvalidArgument
+	}
+	args := []any{}
+	filters := []string{"TRUE"}
+	if req.PreferenceKey != "" {
+		args = append(args, req.PreferenceKey)
+		filters = append(filters, fmt.Sprintf("preference_key = $%d", len(args)))
+	}
+	if req.TargetRole != "" {
+		args = append(args, req.TargetRole)
+		filters = append(filters, fmt.Sprintf("target_role = $%d", len(args)))
+	}
+	if req.TargetID != "" {
+		args = append(args, req.TargetID)
+		filters = append(filters, fmt.Sprintf("target_id = $%d", len(args)))
+	}
+	if req.NotificationType != "" {
+		args = append(args, req.NotificationType)
+		filters = append(filters, fmt.Sprintf("notification_type = $%d", len(args)))
+	}
+	args = append(args, req.Limit)
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM platform_notification_preferences
+WHERE %s
+ORDER BY updated_at DESC, preference_key ASC
+LIMIT $%d`, postgresNotificationPreferenceColumns, strings.Join(filters, " AND "), len(args)), args...)
+	if err != nil {
+		return nil, err
+	}
+	return scanNotificationPreferenceRows(rows)
+}
+
+func (s *PostgresStore) applyNotificationPreferencesAndSaveSnapshot(ctx context.Context, preferences []NotificationPreference) error {
+	if len(preferences) > 0 {
+		s.Store.applyNotificationPreferences(preferences)
+	}
+	if err := s.saveSnapshot(ctx); err != nil {
+		return errors.Join(ErrPersistence, err)
+	}
+	return nil
+}
+
+func (s *Store) applyNotificationPreferences(preferences []NotificationPreference) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, preference := range preferences {
+		copyPreference := preference
+		s.notificationPreferences[preference.ID] = cloneNotificationPreference(&copyPreference)
+		if preference.PreferenceKey != "" {
+			s.notificationPreferenceByKey[preference.PreferenceKey] = preference.ID
+		}
+	}
+}
+
 func (s *PostgresStore) applyOutboxEventsAndSaveSnapshot(ctx context.Context, events []OutboxEvent) error {
 	if len(events) == 0 {
 		return nil
@@ -6404,65 +7896,98 @@ func (s *Store) snapshotPayload() ([]byte, error) {
 
 func (s *Store) snapshotLocked() storeSnapshot {
 	return storeSnapshot{
-		Version:                 1,
-		SavedAt:                 time.Now().UTC(),
-		NextOrderID:             s.nextOrderID,
-		NextTransactionID:       s.nextTransactionID,
-		NextAddressID:           s.nextAddressID,
-		NextMerchantID:          s.nextMerchantID,
-		NextMerchantStaffID:     s.nextMerchantStaffID,
-		NextMerchantMaterialID:  s.nextMerchantMaterialID,
-		NextDispatchEventID:     s.nextDispatchEventID,
-		NextOutboxEventID:       s.nextOutboxEventID,
-		NextAuditLogID:          s.nextAuditLogID,
-		NextAfterSalesID:        s.nextAfterSalesID,
-		NextAfterSalesEventID:   s.nextAfterSalesEventID,
-		NextRiderID:             s.nextRiderID,
-		NextProductID:           s.nextProductID,
-		NextVoucherID:           s.nextVoucherID,
-		HomeModules:             s.homeModules,
-		HomeCards:               s.homeCards,
-		Users:                   s.users,
-		WechatBindings:          s.wechatBindings,
-		MerchantInvites:         s.merchantInvites,
-		Merchants:               s.merchants,
-		MerchantQualifications:  s.merchantQualifications,
-		MerchantStaff:           s.merchantStaff,
-		MerchantMaterials:       s.merchantMaterials,
-		Riders:                  s.riders,
-		Deposits:                s.deposits,
-		StationTaskConfigs:      s.stationTaskConfigs,
-		StationServiceAreas:     s.stationServiceAreas,
-		Shops:                   s.shops,
-		Products:                s.products,
-		GroupbuyDeals:           s.groupbuyDeals,
-		Addresses:               s.addresses,
-		CartItems:               s.cartItems,
-		Orders:                  s.orders,
-		Wallets:                 s.wallets,
-		PaymentPasswordHash:     s.paymentPasswordHash,
-		MerchantPasswordHash:    s.merchantPasswordHash,
-		RiderPasswordHash:       s.riderPasswordHash,
-		PaymentTransactions:     s.paymentTransactions,
-		PaymentByTradeNo:        s.paymentByTradeNo,
-		PaymentByProviderID:     s.paymentByProviderID,
-		WalletIdempotency:       s.walletIdempotency,
-		RefundSettings:          normalizeStoredRefundSettings(s.refundSettings),
-		RefundTransactions:      s.refundTransactions,
-		RefundByIdempotency:     s.refundByIdempotency,
-		AfterSalesRequests:      s.afterSalesRequests,
-		AfterSalesEvents:        s.afterSalesEvents,
-		AfterSalesUploadTickets: s.afterSalesUploadTickets,
-		AfterSalesEvidence:      s.afterSalesEvidence,
-		GroupbuyVouchers:        s.groupbuyVouchers,
-		VouchersByOrderID:       s.vouchersByOrderID,
-		VouchersByCode:          s.vouchersByCode,
-		DispatchEvents:          s.dispatchEvents,
-		DispatchRejectedRiders:  s.dispatchRejectedRiders,
-		FreeCancelUsedByDate:    s.freeCancelUsedByDate,
-		OutboxEvents:            s.outboxEvents,
-		OutboxByIdempotency:     s.outboxByIdempotency,
-		AuditLogs:               s.auditLogs,
+		Version:                     1,
+		SavedAt:                     time.Now().UTC(),
+		NextOrderID:                 s.nextOrderID,
+		NextTransactionID:           s.nextTransactionID,
+		NextAddressID:               s.nextAddressID,
+		NextMerchantID:              s.nextMerchantID,
+		NextMerchantStaffID:         s.nextMerchantStaffID,
+		NextMerchantMaterialID:      s.nextMerchantMaterialID,
+		NextDispatchEventID:         s.nextDispatchEventID,
+		NextOutboxEventID:           s.nextOutboxEventID,
+		NextAuditLogID:              s.nextAuditLogID,
+		NextNotificationID:          s.nextNotificationID,
+		NextAfterSalesID:            s.nextAfterSalesID,
+		NextAfterSalesEventID:       s.nextAfterSalesEventID,
+		NextRiderID:                 s.nextRiderID,
+		NextProductID:               s.nextProductID,
+		NextVoucherID:               s.nextVoucherID,
+		NextFeedbackID:              s.nextFeedbackID,
+		NextServiceTicketID:         s.nextServiceTicketID,
+		NextServiceTicketEventID:    s.nextServiceTicketEventID,
+		NextServiceTicketQualityID:  s.nextServiceTicketQualityID,
+		NextPrescriptionID:          s.nextPrescriptionID,
+		NextRedPacketID:             s.nextRedPacketID,
+		NextChatMessageID:           s.nextChatMessageID,
+		NextMealMatchModerationID:   s.nextMealMatchModerationID,
+		HomeModules:                 s.homeModules,
+		HomeCards:                   s.homeCards,
+		Users:                       s.users,
+		WechatBindings:              s.wechatBindings,
+		PhoneBindings:               s.phoneBindings,
+		PhoneVerificationCodes:      s.phoneVerificationCodes,
+		PhoneVerificationRequests:   s.phoneVerificationRequests,
+		UserPasswordHash:            s.userPasswordHash,
+		MerchantInvites:             s.merchantInvites,
+		Merchants:                   s.merchants,
+		MerchantQualifications:      s.merchantQualifications,
+		MerchantStaff:               s.merchantStaff,
+		MerchantMaterials:           s.merchantMaterials,
+		Riders:                      s.riders,
+		Deposits:                    s.deposits,
+		StationTaskConfigs:          s.stationTaskConfigs,
+		StationServiceAreas:         s.stationServiceAreas,
+		Shops:                       s.shops,
+		Products:                    s.products,
+		GroupbuyDeals:               s.groupbuyDeals,
+		Addresses:                   s.addresses,
+		CartItems:                   s.cartItems,
+		Orders:                      s.orders,
+		Wallets:                     s.wallets,
+		PaymentPasswordHash:         s.paymentPasswordHash,
+		MerchantPasswordHash:        s.merchantPasswordHash,
+		RiderPasswordHash:           s.riderPasswordHash,
+		PaymentTransactions:         s.paymentTransactions,
+		PaymentByTradeNo:            s.paymentByTradeNo,
+		PaymentByProviderID:         s.paymentByProviderID,
+		WalletIdempotency:           s.walletIdempotency,
+		RefundSettings:              normalizeStoredRefundSettings(s.refundSettings),
+		RefundTransactions:          s.refundTransactions,
+		RefundByIdempotency:         s.refundByIdempotency,
+		AfterSalesRequests:          s.afterSalesRequests,
+		AfterSalesEvents:            s.afterSalesEvents,
+		AfterSalesUploadTickets:     s.afterSalesUploadTickets,
+		AfterSalesEvidence:          s.afterSalesEvidence,
+		GroupbuyVouchers:            s.groupbuyVouchers,
+		VouchersByOrderID:           s.vouchersByOrderID,
+		VouchersByCode:              s.vouchersByCode,
+		DispatchEvents:              s.dispatchEvents,
+		DispatchRejectedRiders:      s.dispatchRejectedRiders,
+		FreeCancelUsedByDate:        s.freeCancelUsedByDate,
+		OutboxEvents:                s.outboxEvents,
+		OutboxByIdempotency:         s.outboxByIdempotency,
+		Notifications:               s.notifications,
+		NotificationByIdem:          s.notificationByIdem,
+		NotificationDeliveries:      s.notificationDeliveries,
+		NotificationDeliveryByIdem:  s.notificationDeliveryByIdem,
+		NotificationPreferences:     s.notificationPreferences,
+		NotificationPreferenceByKey: s.notificationPreferenceByKey,
+		FeedbackTickets:             s.feedbackTickets,
+		ServiceTickets:              s.serviceTickets,
+		ServiceTicketEvents:         s.serviceTicketEvents,
+		ServiceTicketQualityReviews: s.serviceTicketQualityReviews,
+		RedPackets:                  s.redPackets,
+		ChatThreadMembers:           s.chatThreadMembers,
+		ChatMessages:                s.chatMessages,
+		ChatReadStates:              s.chatReadStates,
+		PrescriptionImageTickets:    s.prescriptionImageTickets,
+		PrescriptionReviews:         s.prescriptionReviews,
+		MedicineDetails:             s.medicineDetails,
+		MedicineStock:               s.medicineStock,
+		MealMatchProfiles:           s.mealMatchProfiles,
+		MealMatchModeration:         s.mealMatchModeration,
+		AuditLogs:                   s.auditLogs,
 	}
 }
 
@@ -6478,15 +8003,28 @@ func (s *Store) applySnapshot(snapshot storeSnapshot) {
 	s.nextDispatchEventID = snapshot.NextDispatchEventID
 	s.nextOutboxEventID = snapshot.NextOutboxEventID
 	s.nextAuditLogID = snapshot.NextAuditLogID
+	s.nextNotificationID = snapshot.NextNotificationID
 	s.nextAfterSalesID = snapshot.NextAfterSalesID
 	s.nextAfterSalesEventID = snapshot.NextAfterSalesEventID
 	s.nextRiderID = snapshot.NextRiderID
 	s.nextProductID = snapshot.NextProductID
 	s.nextVoucherID = snapshot.NextVoucherID
+	s.nextFeedbackID = snapshot.NextFeedbackID
+	s.nextServiceTicketID = snapshot.NextServiceTicketID
+	s.nextServiceTicketEventID = snapshot.NextServiceTicketEventID
+	s.nextServiceTicketQualityID = snapshot.NextServiceTicketQualityID
+	s.nextPrescriptionID = snapshot.NextPrescriptionID
+	s.nextRedPacketID = snapshot.NextRedPacketID
+	s.nextChatMessageID = snapshot.NextChatMessageID
+	s.nextMealMatchModerationID = snapshot.NextMealMatchModerationID
 	s.homeModules = snapshot.HomeModules
 	s.homeCards = snapshot.HomeCards
 	s.users = nonNilMap(snapshot.Users)
 	s.wechatBindings = nonNilMap(snapshot.WechatBindings)
+	s.phoneBindings = nonNilMap(snapshot.PhoneBindings)
+	s.phoneVerificationCodes = nonNilMap(snapshot.PhoneVerificationCodes)
+	s.phoneVerificationRequests = nonNilMap(snapshot.PhoneVerificationRequests)
+	s.userPasswordHash = nonNilMap(snapshot.UserPasswordHash)
 	s.merchantInvites = nonNilMap(snapshot.MerchantInvites)
 	s.merchants = nonNilMap(snapshot.Merchants)
 	s.merchantQualifications = nonNilMap(snapshot.MerchantQualifications)
@@ -6525,6 +8063,35 @@ func (s *Store) applySnapshot(snapshot storeSnapshot) {
 	s.freeCancelUsedByDate = nonNilMap(snapshot.FreeCancelUsedByDate)
 	s.outboxEvents = nonNilMap(snapshot.OutboxEvents)
 	s.outboxByIdempotency = nonNilMap(snapshot.OutboxByIdempotency)
+	s.notifications = nonNilMap(snapshot.Notifications)
+	s.notificationByIdem = nonNilMap(snapshot.NotificationByIdem)
+	s.notificationDeliveries = nonNilMap(snapshot.NotificationDeliveries)
+	s.notificationDeliveryByIdem = nonNilMap(snapshot.NotificationDeliveryByIdem)
+	s.notificationPreferences = nonNilMap(snapshot.NotificationPreferences)
+	s.notificationPreferenceByKey = nonNilMap(snapshot.NotificationPreferenceByKey)
+	s.feedbackTickets = nonNilMap(snapshot.FeedbackTickets)
+	s.serviceTickets = nonNilMap(snapshot.ServiceTickets)
+	s.serviceTicketEvents = nonNilMap(snapshot.ServiceTicketEvents)
+	s.serviceTicketQualityReviews = nonNilMap(snapshot.ServiceTicketQualityReviews)
+	s.redPackets = nonNilMap(snapshot.RedPackets)
+	s.chatThreadMembers = nonNilMap(snapshot.ChatThreadMembers)
+	if len(s.chatThreadMembers) == 0 {
+		s.chatThreadMembers = seedChatThreadMembers()
+	}
+	s.chatMessages = nonNilMap(snapshot.ChatMessages)
+	if len(s.chatMessages) == 0 {
+		s.chatMessages = seedChatMessages()
+	}
+	s.chatReadStates = nonNilMap(snapshot.ChatReadStates)
+	s.prescriptionImageTickets = nonNilMap(snapshot.PrescriptionImageTickets)
+	s.prescriptionReviews = nonNilMap(snapshot.PrescriptionReviews)
+	s.medicineDetails = nonNilMap(snapshot.MedicineDetails)
+	s.medicineStock = nonNilMap(snapshot.MedicineStock)
+	s.mealMatchProfiles = nonNilMap(snapshot.MealMatchProfiles)
+	if len(s.mealMatchProfiles) == 0 {
+		s.mealMatchProfiles = seedMealMatchProfiles()
+	}
+	s.mealMatchModeration = nonNilMap(snapshot.MealMatchModeration)
 	s.auditLogs = nonNilMap(snapshot.AuditLogs)
 	s.relinkIndexesLocked()
 }
@@ -6591,6 +8158,91 @@ func (s *Store) relinkIndexesLocked() {
 			event.ID = id
 		}
 	}
+	s.notificationByIdem = map[string]string{}
+	for id, notification := range s.notifications {
+		if notification == nil {
+			continue
+		}
+		if notification.ID == "" {
+			notification.ID = id
+		}
+		if notification.IdempotencyKey != "" {
+			s.notificationByIdem[notification.IdempotencyKey] = notification.ID
+		}
+		if value, err := strconv.ParseUint(strings.TrimPrefix(notification.ID, "ntf_"), 10, 64); err == nil && value > s.nextNotificationID {
+			s.nextNotificationID = value
+		}
+	}
+	s.notificationPreferenceByKey = map[string]string{}
+	for id, preference := range s.notificationPreferences {
+		if preference == nil {
+			continue
+		}
+		if preference.ID == "" {
+			preference.ID = id
+		}
+		if preference.PreferenceKey == "" {
+			preference.PreferenceKey = notificationPreferenceKey(preference.TargetRole, preference.TargetID, preference.NotificationType)
+		}
+		if preference.PreferenceKey != "" {
+			s.notificationPreferenceByKey[preference.PreferenceKey] = preference.ID
+		}
+	}
+	for id, ticket := range s.feedbackTickets {
+		if ticket == nil {
+			continue
+		}
+		if ticket.ID == "" {
+			ticket.ID = id
+		}
+		if value, err := strconv.ParseUint(strings.TrimPrefix(ticket.ID, "fb_"), 10, 64); err == nil && value > s.nextFeedbackID {
+			s.nextFeedbackID = value
+		}
+	}
+	for id, ticket := range s.serviceTickets {
+		if ticket == nil {
+			continue
+		}
+		if ticket.ID == "" {
+			ticket.ID = id
+		}
+		if value, err := strconv.ParseUint(strings.TrimPrefix(ticket.ID, "st_"), 10, 64); err == nil && value > s.nextServiceTicketID {
+			s.nextServiceTicketID = value
+		}
+	}
+	for id, event := range s.serviceTicketEvents {
+		if event == nil {
+			continue
+		}
+		if event.ID == "" {
+			event.ID = id
+		}
+		if value, err := strconv.ParseUint(strings.TrimPrefix(event.ID, "ste_"), 10, 64); err == nil && value > s.nextServiceTicketEventID {
+			s.nextServiceTicketEventID = value
+		}
+	}
+	for id, review := range s.serviceTicketQualityReviews {
+		if review == nil {
+			continue
+		}
+		if review.ID == "" {
+			review.ID = id
+		}
+		if value, err := strconv.ParseUint(strings.TrimPrefix(review.ID, "stq_"), 10, 64); err == nil && value > s.nextServiceTicketQualityID {
+			s.nextServiceTicketQualityID = value
+		}
+	}
+	for id, detail := range s.redPackets {
+		if detail == nil {
+			continue
+		}
+		if detail.Packet.ID == "" {
+			detail.Packet.ID = id
+		}
+		if value, err := strconv.ParseUint(strings.TrimPrefix(detail.Packet.ID, "rp_"), 10, 64); err == nil && value > s.nextRedPacketID {
+			s.nextRedPacketID = value
+		}
+	}
 	for id, log := range s.auditLogs {
 		if log == nil {
 			continue
@@ -6607,6 +8259,194 @@ func (s *Store) relinkIndexesLocked() {
 func (s *PostgresStore) LoginWechatMini(req WechatMiniLoginRequest) (*WechatMiniLoginResult, error) {
 	result, err := s.Store.LoginWechatMini(req)
 	return result, s.persistAfter(err)
+}
+
+func (s *PostgresStore) SendPhoneVerificationCode(req SendPhoneVerificationCodeRequest) (*PhoneVerificationCodeTicket, error) {
+	ticket, err := s.Store.SendPhoneVerificationCode(req)
+	return ticket, s.persistAfter(err)
+}
+
+func (s *PostgresStore) LoginWithPhone(req PhoneLoginRequest) (*PhoneAuthResult, error) {
+	result, err := s.Store.LoginWithPhone(req)
+	return result, s.persistAfter(err)
+}
+
+func (s *PostgresStore) RegisterWithPhone(req PhoneRegisterRequest) (*PhoneAuthResult, error) {
+	result, err := s.Store.RegisterWithPhone(req)
+	return result, s.persistAfter(err)
+}
+
+func (s *PostgresStore) SaveMealMatchProfile(profile MealMatchProfile) (*MealMatchProfile, error) {
+	result, err := s.Store.SaveMealMatchProfile(profile)
+	return result, s.persistAfter(err)
+}
+
+func (s *PostgresStore) ReportMealMatchCandidate(req MealMatchReportRequest) (*MealMatchModerationRecord, error) {
+	record, err := s.Store.ReportMealMatchCandidate(req)
+	return record, s.persistAfter(err)
+}
+
+func (s *PostgresStore) BlockMealMatchCandidate(req MealMatchBlockRequest) (*MealMatchModerationRecord, error) {
+	record, err := s.Store.BlockMealMatchCandidate(req)
+	return record, s.persistAfter(err)
+}
+
+func (s *PostgresStore) AdminMealMatchModerationRecords(req MealMatchModerationListRequest) ([]MealMatchModerationRecord, error) {
+	return s.Store.AdminMealMatchModerationRecords(req)
+}
+
+func (s *PostgresStore) ReviewMealMatchModeration(req MealMatchModerationReviewRequest) (*MealMatchModerationRecord, error) {
+	record, err := s.Store.ReviewMealMatchModeration(req)
+	return record, s.persistAfter(err)
+}
+
+func (s *PostgresStore) CreateFeedback(ticket FeedbackTicket) (*FeedbackTicket, error) {
+	result, err := s.Store.CreateFeedback(ticket)
+	return result, s.persistAfter(err)
+}
+
+func (s *PostgresStore) CreateServiceTicket(req CreateServiceTicketRequest) (*ServiceTicketDetail, error) {
+	detail, err := s.Store.CreateServiceTicket(req)
+	return detail, s.persistAfter(err)
+}
+
+func (s *PostgresStore) AddServiceTicketEvent(req AddServiceTicketEventRequest) (*ServiceTicketDetail, error) {
+	detail, err := s.Store.AddServiceTicketEvent(req)
+	return detail, s.persistAfter(err)
+}
+
+func (s *PostgresStore) AssignServiceTicket(req AssignServiceTicketRequest) (*ServiceTicketDetail, error) {
+	detail, err := s.Store.AssignServiceTicket(req)
+	return detail, s.persistAfter(err)
+}
+
+func (s *PostgresStore) ResolveServiceTicket(req ResolveServiceTicketRequest) (*ServiceTicketDetail, error) {
+	detail, err := s.Store.ResolveServiceTicket(req)
+	return detail, s.persistAfter(err)
+}
+
+func (s *PostgresStore) EscalateServiceTicket(req EscalateServiceTicketRequest) (*ServiceTicketDetail, error) {
+	detail, err := s.Store.EscalateServiceTicket(req)
+	return detail, s.persistAfter(err)
+}
+
+func (s *PostgresStore) ReviewServiceTicketQuality(req ServiceTicketQualityReviewRequest) (*ServiceTicketQualityReview, error) {
+	review, err := s.Store.ReviewServiceTicketQuality(req)
+	return review, s.persistAfter(err)
+}
+
+func (s *PostgresStore) CloseServiceTicket(req CloseServiceTicketRequest) (*ServiceTicketDetail, error) {
+	detail, err := s.Store.CloseServiceTicket(req)
+	return detail, s.persistAfter(err)
+}
+
+func (s *PostgresStore) FollowUpServiceTicket(req FollowUpServiceTicketRequest) (*ServiceTicketDetail, error) {
+	detail, err := s.Store.FollowUpServiceTicket(req)
+	return detail, s.persistAfter(err)
+}
+
+func (s *PostgresStore) CreateRedPacket(packet RedPacket) (*RedPacketDetail, error) {
+	detail, err := s.Store.CreateRedPacket(packet)
+	return detail, s.persistAfter(err)
+}
+
+func (s *PostgresStore) RedPacketDetail(packetID string, userID string) (*RedPacketDetail, error) {
+	detail, err := s.Store.RedPacketDetail(packetID, userID)
+	return detail, s.persistAfter(err)
+}
+
+func (s *PostgresStore) ClaimRedPacket(packetID string, userID string) (*RedPacketClaimResult, error) {
+	result, err := s.Store.ClaimRedPacket(packetID, userID)
+	return result, s.persistAfter(err)
+}
+
+func (s *PostgresStore) RefundRedPacket(packetID string, userID string) (*RedPacketDetail, error) {
+	detail, err := s.Store.RefundRedPacket(packetID, userID)
+	return detail, s.persistAfter(err)
+}
+
+func (s *PostgresStore) AutoRefundExpiredRedPackets(now time.Time) ([]RedPacketDetail, error) {
+	details, err := s.Store.AutoRefundExpiredRedPackets(now)
+	return details, s.persistAfter(err)
+}
+
+func (s *PostgresStore) ChatMessageSync(req ChatMessageSyncRequest) (*ChatMessageSyncResult, error) {
+	result, err := s.Store.ChatMessageSync(req)
+	if req.MarkRead {
+		return result, s.persistAfter(err)
+	}
+	return result, err
+}
+
+func (s *PostgresStore) ChatThreadMembership(userID string, threadID string) (*ChatThreadMembership, error) {
+	return s.Store.ChatThreadMembership(userID, threadID)
+}
+
+func (s *PostgresStore) JoinChatThread(req ChatThreadJoinRequest) (*ChatThreadMembership, error) {
+	membership, err := s.Store.JoinChatThread(req)
+	return membership, s.persistAfter(err)
+}
+
+func (s *PostgresStore) LeaveChatThread(req ChatThreadLeaveRequest) (*ChatThreadMembership, error) {
+	membership, err := s.Store.LeaveChatThread(req)
+	return membership, s.persistAfter(err)
+}
+
+func (s *PostgresStore) ChatThreadPreference(userID string, threadID string) (*ChatThreadPreference, error) {
+	return s.Store.ChatThreadPreference(userID, threadID)
+}
+
+func (s *PostgresStore) UpdateChatThreadPreference(req UpdateChatThreadPreferenceRequest) (*ChatThreadPreference, error) {
+	preference, err := s.Store.UpdateChatThreadPreference(req)
+	return preference, s.persistAfter(err)
+}
+
+func (s *PostgresStore) MarkChatThreadRead(req MarkChatThreadReadRequest) (*ChatReadState, error) {
+	read, err := s.Store.MarkChatThreadRead(req)
+	return read, s.persistAfter(err)
+}
+
+func (s *PostgresStore) AuthorizeChatThreadAccess(req ChatThreadAccessRequest) (*ChatThreadAccessResult, error) {
+	req.ThreadID = strings.TrimSpace(req.ThreadID)
+	req.SubjectID = strings.TrimSpace(req.SubjectID)
+	req.SubjectType = normalizeChatSubjectType(req.SubjectType, req.Role, req.SubjectID)
+	if req.ThreadID == "" || req.SubjectType == "" || req.SubjectID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(req.ThreadID) {
+		return nil, ErrNotFound
+	}
+	var member ChatThreadMember
+	row := s.db.QueryRowContext(context.Background(), `
+SELECT subject_type, subject_id, muted, joined_at
+FROM conversation_members
+WHERE conversation_id = $1
+  AND subject_type = $2
+  AND (subject_id = $3 OR subject_id = '*')
+ORDER BY CASE WHEN subject_id = $3 THEN 0 ELSE 1 END
+LIMIT 1`,
+		req.ThreadID,
+		req.SubjectType,
+		req.SubjectID,
+	)
+	if err := row.Scan(&member.SubjectType, &member.SubjectID, &member.Muted, &member.JoinedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	return &ChatThreadAccessResult{
+		ThreadID:    req.ThreadID,
+		SubjectType: member.SubjectType,
+		SubjectID:   req.SubjectID,
+		Allowed:     true,
+		Muted:       member.Muted,
+	}, nil
+}
+
+func (s *PostgresStore) SendChatMessage(message ChatMessage) (*ChatMessage, error) {
+	sent, err := s.Store.SendChatMessage(message)
+	return sent, s.persistAfter(err)
 }
 
 func (s *PostgresStore) CreateMerchantInvite(req CreateMerchantInviteRequest) (*MerchantOnboardingInvite, error) {
@@ -6763,6 +8603,154 @@ func (s *PostgresStore) EmitAuditRetentionAlerts(req AuditRetentionAlertEmission
 		return emission, event, log, err
 	}
 	return emission, cloneOutboxEvent(event), cloneAuditLog(log), nil
+}
+
+func (s *PostgresStore) EmitNotificationFailureAlerts(req NotificationFailureAlertEmissionRequest, audit RecordAuditLogRequest) (*NotificationFailureAlertEmission, *OutboxEvent, *AuditLog, error) {
+	normalized, err := normalizeNotificationFailureAlertEmissionRequest(req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = normalized.Now
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, log, err
+	}
+	if log.Action != "admin.notification_delivery_failure_alerts.emitted" || log.TargetType != "notification_delivery_alerts" || log.TargetID != "failed" {
+		return nil, nil, log, ErrInvalidArgument
+	}
+	ctx := context.Background()
+	deliveries, err := s.loadSQLNotificationDeliveries(ctx, NotificationDeliveryListRequest{
+		TargetRole: normalized.TargetRole,
+		TargetID:   normalized.TargetID,
+		Channel:    normalized.Channel,
+		Provider:   normalized.Provider,
+		Status:     NotificationDeliveryFailed,
+		Limit:      normalized.Limit,
+	})
+	if err != nil {
+		return nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	emission := notificationFailureAlertEmissionFromDeliveries(normalized, deliveries)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	var event *OutboxEvent
+	if emission.FailedCount > 0 {
+		event, err = insertOrGetSQLOutboxEvent(ctx, tx, *notificationFailureAlertOutboxEvent(emission))
+		if err != nil {
+			return nil, nil, log, errors.Join(ErrPersistence, err)
+		}
+		emission.OutboxEventID = event.ID
+	}
+	log.Payload = notificationFailureAlertEmissionAuditPayload(emission)
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, event, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, event, log, errors.Join(ErrPersistence, err)
+	}
+	events := []OutboxEvent{}
+	if event != nil {
+		events = append(events, *event)
+	}
+	if err := s.applyOutboxEventsAndAuditAfterCommit(ctx, events, log); err != nil {
+		return emission, event, log, err
+	}
+	return emission, cloneOutboxEvent(event), cloneAuditLog(log), nil
+}
+
+func (s *PostgresStore) ScheduleNotificationDeliveryRetries(req NotificationDeliveryRetryScheduleRequest, audit RecordAuditLogRequest) (*NotificationDeliveryRetrySchedule, *OutboxEvent, *AuditLog, error) {
+	normalized, err := normalizeNotificationDeliveryRetryScheduleRequest(req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = normalized.Now
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, log, err
+	}
+	if log.Action != "admin.notification_delivery_retries.scheduled" || log.TargetType != "notification_delivery_retries" || log.TargetID != normalized.Status {
+		return nil, nil, log, ErrInvalidArgument
+	}
+	ctx := context.Background()
+	deliveries, err := s.loadSQLNotificationDeliveries(ctx, NotificationDeliveryListRequest{
+		TargetRole:    normalized.TargetRole,
+		TargetID:      normalized.TargetID,
+		Channel:       normalized.Channel,
+		Provider:      normalized.Provider,
+		Status:        normalized.Status,
+		ErrorCode:     normalized.ErrorCode,
+		RetryAtBefore: normalized.SourceRetryAtBefore,
+		Limit:         normalized.Limit,
+	})
+	if err != nil {
+		return nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	notifications := s.Store.notificationDeliveryRetryNotificationsSnapshot(deliveries)
+	schedule := notificationDeliveryRetryScheduleFromDeliveries(normalized, deliveries, notifications)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	var event *OutboxEvent
+	if schedule.ScheduledCount > 0 {
+		event, err = insertOrGetSQLOutboxEvent(ctx, tx, *notificationDeliveryRetryOutboxEvent(schedule))
+		if err != nil {
+			return nil, nil, log, errors.Join(ErrPersistence, err)
+		}
+		schedule.OutboxEventID = event.ID
+	}
+	log.Payload = notificationDeliveryRetryScheduleAuditPayload(schedule)
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return nil, event, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, event, log, errors.Join(ErrPersistence, err)
+	}
+	events := []OutboxEvent{}
+	if event != nil {
+		events = append(events, *event)
+	}
+	if err := s.applyOutboxEventsAndAuditAfterCommit(ctx, events, log); err != nil {
+		return schedule, event, log, err
+	}
+	return schedule, cloneOutboxEvent(event), cloneAuditLog(log), nil
+}
+
+func (s *PostgresStore) ScheduleNotificationQuietWindowRetries(req NotificationQuietWindowRetryScheduleRequest, audit RecordAuditLogRequest) (*NotificationDeliveryRetrySchedule, *OutboxEvent, *AuditLog, error) {
+	normalized, err := normalizeNotificationQuietWindowRetryScheduleRequest(req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = normalized.Now
+	}
+	return s.ScheduleNotificationDeliveryRetries(NotificationDeliveryRetryScheduleRequest{
+		TargetRole:          normalized.TargetRole,
+		TargetID:            normalized.TargetID,
+		Channel:             normalized.Channel,
+		Provider:            normalized.Provider,
+		Status:              NotificationDeliveryQueued,
+		ErrorCode:           "notification_quiet_window",
+		Limit:               normalized.Limit,
+		RetryAfterSeconds:   normalized.RetryAfterSeconds,
+		RetryAt:             normalized.Now.Add(time.Duration(normalized.RetryAfterSeconds) * time.Second),
+		SourceRetryAtBefore: normalized.Now,
+		Now:                 normalized.Now,
+	}, audit)
 }
 
 func (s *PostgresStore) RequestAuditArchive(req AuditArchiveRequest, audit RecordAuditLogRequest) (*AuditArchiveRequestResult, *OutboxEvent, *AuditLog, error) {
@@ -6991,9 +8979,351 @@ func (s *PostgresStore) LoginRider(req RiderLoginRequest) (*RiderAccount, error)
 	return s.Store.LoginRider(req)
 }
 
+func (s *PostgresStore) CreateNotification(req CreateNotificationRequest) (*PlatformNotification, error) {
+	notification, err := s.Store.CreateNotification(req)
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return notification, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	inserted, err := insertOrGetSQLNotification(ctx, tx, *notification)
+	if err != nil {
+		return notification, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return notification, errors.Join(ErrPersistence, err)
+	}
+	if err := s.applyNotificationsAndSaveSnapshot(ctx, []PlatformNotification{*inserted}); err != nil {
+		return inserted, err
+	}
+	return inserted, nil
+}
+
+func (s *PostgresStore) Notifications(req NotificationListRequest) ([]PlatformNotification, error) {
+	notifications, err := s.loadSQLNotifications(context.Background(), req)
+	if err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	return notifications, nil
+}
+
+func (s *PostgresStore) MarkNotificationRead(req MarkNotificationReadRequest) (*PlatformNotification, error) {
+	req.NotificationID = strings.TrimSpace(req.NotificationID)
+	req.TargetRole = strings.TrimSpace(req.TargetRole)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	if req.NotificationID == "" || req.TargetRole == "" || req.TargetID == "" {
+		return nil, ErrInvalidArgument
+	}
+	readAt := req.ReadAt
+	if readAt.IsZero() {
+		readAt = time.Now().UTC()
+	} else {
+		readAt = readAt.UTC()
+	}
+	ctx := context.Background()
+	notification, err := scanNotification(s.db.QueryRowContext(ctx, `
+UPDATE platform_notifications AS notification
+SET status = 'read',
+    read_at = COALESCE(read_at, $4),
+    updated_at = $4
+WHERE id = $1 AND target_role = $2 AND target_id = $3
+RETURNING `+postgresNotificationReturningColumns, req.NotificationID, req.TargetRole, req.TargetID, readAt))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	if err := s.applyNotificationsAndSaveSnapshot(ctx, []PlatformNotification{*notification}); err != nil {
+		return notification, err
+	}
+	return notification, nil
+}
+
+func (s *PostgresStore) RecordNotificationDelivery(req RecordNotificationDeliveryRequest) (*PlatformNotificationDelivery, error) {
+	delivery, err := s.Store.RecordNotificationDelivery(req)
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return delivery, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	inserted, err := insertOrGetSQLNotificationDelivery(ctx, tx, *delivery)
+	if err != nil {
+		return delivery, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return delivery, errors.Join(ErrPersistence, err)
+	}
+	if err := s.applyNotificationDeliveriesAndSaveSnapshot(ctx, []PlatformNotificationDelivery{*inserted}); err != nil {
+		return inserted, err
+	}
+	return inserted, nil
+}
+
+func (s *PostgresStore) NotificationDeliveries(req NotificationDeliveryListRequest) ([]PlatformNotificationDelivery, error) {
+	deliveries, err := s.loadSQLNotificationDeliveries(context.Background(), req)
+	if err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	return deliveries, nil
+}
+
+func (s *PostgresStore) SaveNotificationPreference(req SaveNotificationPreferenceRequest) (*NotificationPreference, error) {
+	preference, err := s.Store.SaveNotificationPreference(req)
+	if err != nil {
+		return nil, err
+	}
+	outboxEvent := notificationPreferenceChangedOutboxEvent(preference)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return preference, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	saved, err := upsertSQLNotificationPreference(ctx, tx, *preference)
+	if err != nil {
+		return preference, errors.Join(ErrPersistence, err)
+	}
+	if outboxEvent != nil {
+		insertedOutboxEvent, err := insertOrGetSQLOutboxEvent(ctx, tx, *outboxEvent)
+		if err != nil {
+			return preference, errors.Join(ErrPersistence, err)
+		}
+		outboxEvent = insertedOutboxEvent
+	}
+	if err := tx.Commit(); err != nil {
+		return preference, errors.Join(ErrPersistence, err)
+	}
+	if outboxEvent != nil {
+		s.Store.applyOutboxEvents([]OutboxEvent{*outboxEvent})
+	}
+	if err := s.applyNotificationPreferencesAndSaveSnapshot(ctx, []NotificationPreference{*saved}); err != nil {
+		return saved, err
+	}
+	return saved, nil
+}
+
+func (s *PostgresStore) SaveNotificationPreferenceWithAudit(req SaveNotificationPreferenceRequest, audit RecordAuditLogRequest) (*NotificationPreference, *AuditLog, error) {
+	normalized, err := normalizeSaveNotificationPreferenceRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = normalized.UpdatedAt
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, log, err
+	}
+	if log.Action != "admin.notification_preferences.saved" || log.TargetType != "notification_preference" {
+		return nil, log, ErrInvalidArgument
+	}
+	preference, err := s.Store.SaveNotificationPreference(normalized)
+	if err != nil {
+		return nil, log, err
+	}
+	log.TargetID = preference.ID
+	log.Payload = notificationPreferenceAuditPayload(preference)
+	outboxEvent := notificationPreferenceChangedOutboxEvent(preference)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return preference, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	saved, err := upsertSQLNotificationPreference(ctx, tx, *preference)
+	if err != nil {
+		return preference, log, errors.Join(ErrPersistence, err)
+	}
+	if outboxEvent != nil {
+		insertedOutboxEvent, err := insertOrGetSQLOutboxEvent(ctx, tx, *outboxEvent)
+		if err != nil {
+			return preference, log, errors.Join(ErrPersistence, err)
+		}
+		outboxEvent = insertedOutboxEvent
+	}
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return preference, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return preference, log, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyNotificationPreferences([]NotificationPreference{*saved})
+	if outboxEvent != nil {
+		s.Store.applyOutboxEvents([]OutboxEvent{*outboxEvent})
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	if err := s.saveSnapshot(ctx); err != nil {
+		return saved, log, errors.Join(ErrPersistence, err)
+	}
+	return saved, cloneAuditLog(log), nil
+}
+
+func (s *PostgresStore) SaveNotificationPreferenceBatchWithAudit(req SaveNotificationPreferenceBatchRequest, audit RecordAuditLogRequest) (*NotificationPreferenceBatchSaveResult, *AuditLog, error) {
+	normalized, err := normalizeSaveNotificationPreferenceBatchRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = normalized.UpdatedAt
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, log, err
+	}
+	if !isNotificationPreferenceBatchAuditAction(log.Action) || log.TargetType != "notification_preference_batch" {
+		return nil, log, ErrInvalidArgument
+	}
+	result, log, err := s.Store.SaveNotificationPreferenceBatchWithAudit(normalized, audit)
+	if err != nil {
+		return result, log, err
+	}
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return result, log, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	saved := make([]NotificationPreference, 0, len(result.Preferences))
+	outboxEvents := make([]OutboxEvent, 0, len(result.Preferences))
+	for _, preference := range result.Preferences {
+		persistedPreference, err := upsertSQLNotificationPreference(ctx, tx, preference)
+		if err != nil {
+			return result, log, errors.Join(ErrPersistence, err)
+		}
+		saved = append(saved, *persistedPreference)
+		outboxEvent := notificationPreferenceChangedOutboxEvent(persistedPreference)
+		if outboxEvent == nil {
+			continue
+		}
+		insertedOutboxEvent, err := insertOrGetSQLOutboxEvent(ctx, tx, *outboxEvent)
+		if err != nil {
+			return result, log, errors.Join(ErrPersistence, err)
+		}
+		outboxEvents = append(outboxEvents, *insertedOutboxEvent)
+	}
+	result = notificationPreferenceBatchSaveResult(saved, normalized.Reason, normalized.UpdatedAt)
+	log.TargetID = result.BatchID
+	log.Payload = mergeAuditPayload(log.Payload, notificationPreferenceBatchAuditPayload(result))
+	if err := s.insertAuditLogInTx(ctx, tx, log); err != nil {
+		return result, log, err
+	}
+	if err := tx.Commit(); err != nil {
+		return result, log, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyNotificationPreferences(saved)
+	if len(outboxEvents) > 0 {
+		s.Store.applyOutboxEvents(outboxEvents)
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	if err := s.saveSnapshot(ctx); err != nil {
+		return result, log, errors.Join(ErrPersistence, err)
+	}
+	return result, cloneAuditLog(log), nil
+}
+
+func (s *PostgresStore) NotificationPreferences(req NotificationPreferenceListRequest) ([]NotificationPreference, error) {
+	preferences, err := s.loadSQLNotificationPreferences(context.Background(), req)
+	if err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	return preferences, nil
+}
+
 func (s *PostgresStore) SaveMerchantQualification(req UploadMerchantQualificationRequest) (*MerchantProfile, error) {
 	profile, err := s.Store.SaveMerchantQualification(req)
 	return profile, s.persistAfter(err)
+}
+
+func (s *PostgresStore) ReviewMerchantQualification(req ReviewMerchantQualificationRequest) (*MerchantProfile, *MerchantQualification, error) {
+	profile, qualification, err := s.Store.ReviewMerchantQualification(req)
+	return profile, qualification, s.persistAfter(err)
+}
+
+func (s *PostgresStore) ReviewMerchantQualificationWithAudit(req ReviewMerchantQualificationRequest, audit RecordAuditLogRequest) (*MerchantProfile, *MerchantQualification, *AuditLog, *OutboxEvent, error) {
+	normalized, _, err := normalizeReviewMerchantQualificationRequest(req)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, log, nil, err
+	}
+	if log.Action != "admin.merchant_qualification.reviewed" || log.TargetType != "merchant_qualification" || log.TargetID != normalized.QualificationID {
+		return nil, nil, log, nil, ErrInvalidArgument
+	}
+	profile, qualification, err := s.Store.ReviewMerchantQualification(normalized)
+	if err != nil {
+		return profile, qualification, log, nil, err
+	}
+	log.Payload = merchantQualificationReviewAuditPayload(normalized, qualification)
+	outboxEvent := merchantQualificationReviewOutboxEvent(normalized, qualification)
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return profile, qualification, log, outboxEvent, errors.Join(ErrPersistence, err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if qualification != nil {
+		merchantID := strings.TrimSpace(req.MerchantID)
+		if profile != nil && strings.TrimSpace(profile.Account.ID) != "" {
+			merchantID = strings.TrimSpace(profile.Account.ID)
+		}
+		if err := upsertSQLMerchantQualification(ctx, tx, merchantQualificationSnapshot{
+			MerchantID:    merchantID,
+			Qualification: *qualification,
+		}); err != nil {
+			return profile, qualification, log, outboxEvent, errors.Join(ErrPersistence, err)
+		}
+	}
+	if outboxEvent != nil {
+		insertedOutboxEvent, err := insertOrGetSQLOutboxEvent(ctx, tx, *outboxEvent)
+		if err != nil {
+			return profile, qualification, log, outboxEvent, errors.Join(ErrPersistence, err)
+		}
+		outboxEvent = insertedOutboxEvent
+	}
+	auditLogNumber, err := nextSQLAuditLogNumber(ctx, tx)
+	if err != nil {
+		return profile, qualification, log, outboxEvent, errors.Join(ErrPersistence, err)
+	}
+	log.ID = fmt.Sprintf("aud_%d", auditLogNumber)
+	ensureAuditLogIntegrity(log, s.Store.auditLogSigningSecretSnapshot())
+	if err := insertSQLAuditLog(ctx, tx, *log, s.Store.auditLogSigningSecretSnapshot()); err != nil {
+		return profile, qualification, log, outboxEvent, errors.Join(ErrPersistence, err)
+	}
+	s.Store.applyAuditLogFromSQL(*log)
+	if outboxEvent != nil {
+		s.Store.applyOutboxEvents([]OutboxEvent{*outboxEvent})
+	}
+	if err := s.saveSnapshotInTx(ctx, tx); err != nil {
+		return profile, qualification, log, outboxEvent, errors.Join(ErrPersistence, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return profile, qualification, log, outboxEvent, errors.Join(ErrPersistence, err)
+	}
+	return profile, qualification, log, outboxEvent, nil
 }
 
 func (s *PostgresStore) SaveMerchantStaff(req UpsertMerchantStaffRequest) (*MerchantStaff, error) {
@@ -7369,16 +9699,24 @@ func (s *PostgresStore) CreateAfterSales(req CreateAfterSalesRequest) (*AfterSal
 	return request, s.persistAfter(err)
 }
 
-func (s *PostgresStore) UserAfterSalesRequests(userID string) ([]AfterSalesRequest, error) {
-	return s.Store.UserAfterSalesRequests(userID)
+func (s *PostgresStore) UserAfterSalesRequests(req AfterSalesListRequest) ([]AfterSalesRequest, error) {
+	return s.Store.UserAfterSalesRequests(req)
 }
 
 func (s *PostgresStore) MerchantAfterSalesRequests(merchantID string) ([]AfterSalesRequest, error) {
 	return s.Store.MerchantAfterSalesRequests(merchantID)
 }
 
-func (s *PostgresStore) AdminAfterSalesRequests() ([]AfterSalesRequest, error) {
-	return s.Store.AdminAfterSalesRequests()
+func (s *PostgresStore) AdminAfterSalesRequests(req AfterSalesListRequest) ([]AfterSalesRequest, error) {
+	return s.Store.AdminAfterSalesRequests(req)
+}
+
+func (s *PostgresStore) AdminAfterSalesDetail(requestID string) (*AdminAfterSalesDetail, error) {
+	return s.Store.AdminAfterSalesDetail(requestID)
+}
+
+func (s *PostgresStore) AdminOrderDetail(orderID string) (*AdminOrderDetail, error) {
+	return s.Store.AdminOrderDetail(orderID)
 }
 
 func (s *PostgresStore) AfterSalesEvents(requestID string, actorID string, actorRole string) ([]AfterSalesEvent, error) {
@@ -7519,6 +9857,31 @@ func (s *PostgresStore) RecordObjectStorageCleanupFailureWithAudit(req ObjectSto
 
 func (s *PostgresStore) ObjectStorageCleanupStats(req ObjectStorageCleanupCandidatesRequest) (*ObjectStorageCleanupStats, error) {
 	return s.Store.ObjectStorageCleanupStats(req)
+}
+
+func (s *PostgresStore) CreatePrescriptionImageUpload(req CreatePrescriptionImageUploadRequest) (*ObjectUploadTicket, error) {
+	ticket, err := s.Store.CreatePrescriptionImageUpload(req)
+	return ticket, s.persistAfter(err)
+}
+
+func (s *PostgresStore) ConfirmPrescriptionImageUpload(req ConfirmPrescriptionImageUploadRequest) (*PrescriptionImageUploadTicket, error) {
+	ticket, err := s.Store.ConfirmPrescriptionImageUpload(req)
+	return ticket, s.persistAfter(err)
+}
+
+func (s *PostgresStore) CreatePrescriptionReview(req CreatePrescriptionReviewRequest) (*PrescriptionReview, error) {
+	review, err := s.Store.CreatePrescriptionReview(req)
+	return review, s.persistAfter(err)
+}
+
+func (s *PostgresStore) ReviewPrescription(req ReviewPrescriptionRequest) (*PrescriptionReview, error) {
+	review, err := s.Store.ReviewPrescription(req)
+	return review, s.persistAfter(err)
+}
+
+func (s *PostgresStore) CreateMedicineOrder(req MedicineOrderRequest) (*MedicineOrderDetail, error) {
+	detail, err := s.Store.CreateMedicineOrder(req)
+	return detail, s.persistAfter(err)
 }
 
 func (s *PostgresStore) ConfirmAfterSalesEvidenceUpload(req ConfirmAfterSalesEvidenceUploadRequest) (*AfterSalesEvidence, *AfterSalesEvent, *AfterSalesRequest, error) {
@@ -7754,6 +10117,31 @@ LIMIT $3`, topic, status, limit)
 		return nil, err
 	}
 	return scanOutboxEventRows(rows)
+}
+
+func (s *PostgresStore) OutboxEventDetail(req OutboxEventDetailRequest) (*OutboxEventDetail, error) {
+	req, err := normalizeOutboxEventDetailRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	event, err := scanOutboxEvent(s.db.QueryRowContext(context.Background(), `SELECT `+postgresOutboxEventColumns+`
+FROM platform_outbox_events
+WHERE id = $1`, req.EventID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	audits, err := s.loadSQLAuditLogs(context.Background(), AuditLogsRequest{
+		TargetType: "outbox_event",
+		TargetID:   req.EventID,
+		Limit:      req.AuditLimit,
+	})
+	if err != nil {
+		return nil, errors.Join(ErrPersistence, err)
+	}
+	return buildOutboxEventDetail(event, audits, req.Now, req.AuditLimit), nil
 }
 
 func (s *PostgresStore) OutboxStats(req OutboxStatsRequest) (*OutboxStats, error) {

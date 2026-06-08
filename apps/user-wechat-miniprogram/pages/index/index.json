@@ -1,4 +1,8 @@
 {
-  "navigationBarTitleText": "Infinitech"
+  "navigationBarTitleText": "悦享e食",
+  "navigationStyle": "custom",
+  "navigationBarBackgroundColor": "#eaf5ff",
+  "navigationBarTextStyle": "black",
+  "backgroundColor": "#eaf5ff",
+  "backgroundTextStyle": "dark"
 }
-

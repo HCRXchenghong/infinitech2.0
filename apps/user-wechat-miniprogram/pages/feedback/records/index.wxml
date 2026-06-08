@@ -1,0 +1,56 @@
+<view class="records-page">
+  <view class="blue-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">反馈记录</text>
+    <text class="nav-action" bindtap="handleNew">发起反馈</text>
+  </view>
+
+  <view class="stats-card">
+    <text class="stats-title">近 30 天反馈</text>
+    <view class="stats-grid">
+      <view wx:for="{{stats}}" wx:key="title">
+        <text>{{item.title}}</text>
+        <text>{{item.value}}</text>
+      </view>
+    </view>
+    <text class="stats-note">记录保留 180 天，可在工单中继续沟通</text>
+  </view>
+
+  <scroll-view class="tab-row" scroll-x="true">
+    <view class="{{item === activeTab ? 'tab active' : 'tab'}}" wx:for="{{tabs}}" wx:key="*this" data-tab="{{item}}" bindtap="handleTab">{{item}}</view>
+  </scroll-view>
+
+  <view class="search-row">
+    <view class="search-box">搜索订单号、商家、问题</view>
+    <button>筛选</button>
+  </view>
+
+  <view class="record-card" wx:for="{{records}}" wx:key="id">
+    <view class="record-icon">{{item.icon}}</view>
+    <view class="record-main">
+      <view class="record-title-row">
+        <text>{{item.title}}</text>
+        <text>{{item.status}}</text>
+      </view>
+      <text class="record-meta">工单号 {{item.id}}</text>
+      <text class="record-meta">关联订单 {{item.order}}</text>
+      <text class="record-meta">最新进度 {{item.progress}}</text>
+      <view class="record-footer">
+        <text>{{item.time}}</text>
+        <view>
+          <button data-id="{{item.id}}" bindtap="handleDetail">{{item.primary}}</button>
+          <button wx:if="{{item.secondary}}" data-id="{{item.id}}" bindtap="handleDetail">{{item.secondary}}</button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="help-card">
+    <view>
+      <text>需要更多帮助？</text>
+      <text>订单、钱包和账户问题可直接联系在线客服</text>
+    </view>
+    <button bindtap="handleService">在线客服</button>
+    <button bindtap="handleNew">投诉建议</button>
+  </view>
+</view>

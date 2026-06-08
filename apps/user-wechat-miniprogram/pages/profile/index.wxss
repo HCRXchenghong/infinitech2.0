@@ -1,0 +1,310 @@
+.profile-page {
+  min-height: 100vh;
+  padding: 0 28rpx 40rpx;
+  box-sizing: border-box;
+  background: #f3f6f9;
+}
+
+.profile-blue {
+  height: 292rpx;
+  margin: 0 -28rpx;
+  padding: calc(env(safe-area-inset-top) + 36rpx) 60rpx 0;
+  box-sizing: border-box;
+  color: #ffffff;
+  background: linear-gradient(135deg, #008dff, #00a8ff);
+  border-bottom-left-radius: 54rpx;
+  border-bottom-right-radius: 54rpx;
+}
+
+.profile-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.profile-nav-title {
+  font-size: 34rpx;
+  font-weight: 900;
+}
+
+.profile-setting {
+  position: static !important;
+  justify-self: end;
+  font-size: 28rpx;
+}
+
+.profile-card {
+  margin-top: 22rpx;
+  padding: 28rpx;
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(15, 23, 42, 0.06);
+}
+
+.user-card {
+  margin-top: -118rpx;
+}
+
+.user-top {
+  display: flex;
+  gap: 24rpx;
+}
+
+.avatar {
+  width: 126rpx;
+  height: 126rpx;
+  flex: 0 0 126rpx;
+  border-radius: 63rpx;
+  color: #ffffff;
+  background: linear-gradient(135deg, #008dff, #006dce);
+  text-align: center;
+  line-height: 126rpx;
+  font-size: 38rpx;
+  font-weight: 900;
+}
+
+.user-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-name-row,
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+}
+
+.user-name {
+  font-size: 42rpx;
+  font-weight: 900;
+  color: #111827;
+}
+
+.edit-link,
+.section-head text:last-child,
+.security-value {
+  color: #6b7280;
+  font-size: 26rpx;
+}
+
+.user-meta {
+  display: block;
+  margin-top: 10rpx;
+  color: #374151;
+  font-size: 26rpx;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+
+.level-badge,
+.soft-badge,
+.green-badge {
+  min-height: 34rpx;
+  padding: 0 14rpx;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 34rpx;
+}
+
+.level-badge {
+  color: #ffffff;
+  background: #1489ff;
+}
+
+.soft-badge {
+  color: #007aff;
+  background: #eef6ff;
+  border: 1rpx solid #b9dcff;
+}
+
+.green-badge {
+  color: #16a34a;
+  background: #effdf5;
+  border: 1rpx solid #b7ead0;
+}
+
+.growth-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14rpx;
+  margin-top: 20rpx;
+  color: #6b7280;
+  font-size: 26rpx;
+}
+
+.growth-track {
+  height: 10rpx;
+  border-radius: 6rpx;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.growth-fill {
+  height: 100%;
+  border-radius: 6rpx;
+  background: #007aff;
+}
+
+.profile-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 26rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid #edf1f5;
+}
+
+.profile-stat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  border-right: 1rpx solid #edf1f5;
+}
+
+.profile-stat:last-child {
+  border-right: none;
+}
+
+.profile-stat-icon,
+.asset-icon,
+.shortcut-icon,
+.service-icon,
+.security-icon {
+  display: block;
+  color: #007aff;
+  font-weight: 900;
+}
+
+.profile-stat-title,
+.asset-label {
+  display: block;
+  color: #6b7280;
+  font-size: 24rpx;
+}
+
+.profile-stat-value,
+.asset-value {
+  display: block;
+  margin-top: 4rpx;
+  color: #111827;
+  font-size: 34rpx;
+  font-weight: 900;
+}
+
+.asset-title {
+  text-align: right;
+  color: #6b7280;
+  font-size: 26rpx;
+}
+
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 14rpx;
+}
+
+.asset-item,
+.shortcut,
+.service-item {
+  position: relative;
+  text-align: center;
+  color: #111827;
+  font-size: 25rpx;
+}
+
+.asset-item {
+  border-right: 1rpx solid #edf1f5;
+}
+
+.asset-item:last-child {
+  border-right: none;
+}
+
+.asset-icon {
+  font-size: 42rpx;
+}
+
+.section-head text:first-child,
+.block-title {
+  color: #111827;
+  font-size: 32rpx;
+  font-weight: 900;
+}
+
+.shortcut-grid {
+  display: grid;
+  gap: 18rpx;
+  margin-top: 26rpx;
+}
+
+.shortcut-grid.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.shortcut-icon-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.shortcut-icon,
+.service-icon {
+  width: 56rpx;
+  height: 56rpx;
+  margin: 0 auto 10rpx;
+  border-radius: 18rpx;
+  background: #eef6ff;
+  line-height: 56rpx;
+}
+
+.shortcut-badge {
+  position: absolute;
+  right: -16rpx;
+  top: -14rpx;
+  min-width: 34rpx;
+  height: 34rpx;
+  border-radius: 17rpx;
+  color: #ffffff;
+  background: #ff3b30;
+  font-size: 20rpx;
+  line-height: 34rpx;
+}
+
+.service-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  row-gap: 30rpx;
+}
+
+.security-card {
+  padding-top: 30rpx;
+}
+
+.security-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 88rpx;
+  border-bottom: 1rpx solid #edf1f5;
+}
+
+.security-row:last-child {
+  border-bottom: none;
+}
+
+.security-left {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  color: #111827;
+  font-size: 30rpx;
+}

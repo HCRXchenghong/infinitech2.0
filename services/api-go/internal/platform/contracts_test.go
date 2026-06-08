@@ -101,6 +101,12 @@ func TestMerchantRefundGroupAndRedPacketConstants(t *testing.T) {
 	if RedPacketSceneDirectMessage != "direct_message" || RedPacketTypeRandom != "random" {
 		t.Fatal("red packet constants must support direct and random packets")
 	}
+	if RedPacketStatusExpired != "expired_refunded" {
+		t.Fatal("red packet expiry status must remain stable")
+	}
+	if RedPacketRiskBlocked != "blocked" || RedPacketRiskFrequencyLimit != "claim_frequency_limit" {
+		t.Fatal("red packet risk constants must remain stable")
+	}
 }
 
 func TestCircleMealMatchCouponAndHomeCards(t *testing.T) {
@@ -116,20 +122,39 @@ func TestCircleMealMatchCouponAndHomeCards(t *testing.T) {
 		t.Fatal("home cards must include admin-controlled circle card")
 	}
 	ok, missing := CanUseMealMatch(MealMatchProfile{Gender: "female"})
-	if ok || len(missing) != 3 {
-		t.Fatalf("meal match must require truth release and questionnaire, got ok=%v missing=%v", ok, missing)
+	if ok || len(missing) != 5 {
+		t.Fatalf("meal match must require school, device, truth release and questionnaire, got ok=%v missing=%v", ok, missing)
 	}
 	ok, missing = CanUseMealMatch(MealMatchProfile{
 		UserID:                         "u1",
 		Gender:                         "female",
+		SchoolID:                       "infinitech_university",
+		DeviceID:                       "device_contract_1",
+		DeviceRiskState:                MealMatchDeviceRiskPassed,
 		IdentityTruthSigned:            true,
 		PlatformLiabilityReleaseSigned: true,
 		QuestionnaireCompleted:         true,
 		PersonalityTraits:              []string{"准时"},
 		DietaryHabits:                  []string{"不吃辣"},
 	})
+	if ok || len(missing) != 1 || missing[0] != "moderation_pending" {
+		t.Fatalf("complete meal match profile must wait for moderation, got ok=%v missing=%v", ok, missing)
+	}
+	ok, missing = CanUseMealMatch(MealMatchProfile{
+		UserID:                         "u1",
+		Gender:                         "female",
+		SchoolID:                       "infinitech_university",
+		DeviceID:                       "device_contract_1",
+		DeviceRiskState:                MealMatchDeviceRiskPassed,
+		IdentityTruthSigned:            true,
+		PlatformLiabilityReleaseSigned: true,
+		QuestionnaireCompleted:         true,
+		PersonalityTraits:              []string{"准时"},
+		DietaryHabits:                  []string{"不吃辣"},
+		ModerationStatus:               MealMatchModerationApproved,
+	})
 	if !ok || len(missing) != 0 {
-		t.Fatalf("complete meal match profile must pass, got ok=%v missing=%v", ok, missing)
+		t.Fatalf("approved meal match profile must pass, got ok=%v missing=%v", ok, missing)
 	}
 
 	platformCoupon := CouponPolicyFromInput(CouponPolicy{IssuerType: CouponIssuerPlatform, CostBearer: CouponCostBearerPlatform})

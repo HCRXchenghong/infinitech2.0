@@ -30,6 +30,7 @@
       <button class="ghost-action" @click="goProducts">商品</button>
       <button class="ghost-action" @click="goGroupbuy">团购</button>
       <button class="ghost-action" @click="goCompliance">资料</button>
+      <button class="ghost-action" @click="goNotificationPreferences">通知</button>
       <button class="ghost-action">钱包</button>
     </view>
 
@@ -123,6 +124,9 @@ export default {
     },
     goCompliance() {
       uni.navigateTo({ url: "/pages/compliance/index" });
+    },
+    goNotificationPreferences() {
+      uni.navigateTo({ url: "/pages/notification-preferences/index" });
     },
     async accept(orderId) {
       await acceptMerchantOrder(orderId);

@@ -1,0 +1,64 @@
+<view class="page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">通知偏好</text>
+    <text class="nav-action">已同步</text>
+  </view>
+  <view class="header">
+    <text class="title">通知偏好</text>
+    <text class="subtitle">按通知类型管理微信订阅、短信和 App Push，夜间可进入静默窗口。</text>
+  </view>
+
+  <view wx:for="{{types}}" wx:for-index="typeIndex" wx:key="value" class="preference-card">
+    <view class="card-head">
+      <view>
+        <text class="card-title">{{item.label}}</text>
+        <text class="card-subtitle">{{item.description}}</text>
+      </view>
+      <text class="badge">{{item.statusText}}</text>
+    </view>
+
+    <view class="channel-grid">
+      <view wx:for="{{item.channels}}" wx:for-item="channel" wx:key="key" class="channel-row">
+        <view>
+          <text class="channel-title">{{channel.label}}</text>
+          <text class="channel-hint">{{channel.hint}}</text>
+        </view>
+        <switch checked="{{channel.enabled}}" color="#009bf5" data-type-index="{{typeIndex}}" data-channel="{{channel.key}}" bindchange="handleChannelChange" />
+      </view>
+    </view>
+
+    <view class="quiet-panel">
+      <view class="quiet-head">
+        <view>
+          <text class="quiet-title">静默时间</text>
+          <text class="channel-hint">静默期内外部触达进入延迟队列，站内重要状态保留。</text>
+        </view>
+        <switch checked="{{item.quiet.enabled}}" color="#009bf5" data-type-index="{{typeIndex}}" bindchange="handleQuietEnabledChange" />
+      </view>
+
+      <view class="time-grid">
+        <label class="field">
+          <text>开始</text>
+          <input value="{{item.quiet.start}}" data-type-index="{{typeIndex}}" data-field="start" bindinput="handleQuietInput" />
+        </label>
+        <label class="field">
+          <text>结束</text>
+          <input value="{{item.quiet.end}}" data-type-index="{{typeIndex}}" data-field="end" bindinput="handleQuietInput" />
+        </label>
+      </view>
+
+      <view class="quiet-channels">
+        <text class="quiet-title">静默渠道</text>
+        <view class="quiet-channel-list">
+          <label wx:for="{{item.channels}}" wx:for-item="channel" wx:key="key" class="quiet-channel">
+            <checkbox checked="{{channel.quiet}}" color="#009bf5" data-type-index="{{typeIndex}}" data-channel="{{channel.key}}" bindtap="handleQuietChannelToggle" />
+            <text>{{channel.label}}</text>
+          </label>
+        </view>
+      </view>
+    </view>
+
+    <button class="save-button" loading="{{item.saving}}" disabled="{{item.saving}}" data-type-index="{{typeIndex}}" bindtap="handleSave">保存</button>
+  </view>
+</view>

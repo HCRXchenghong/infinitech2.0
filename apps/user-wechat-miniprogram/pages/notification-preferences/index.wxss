@@ -1,0 +1,156 @@
+.page {
+  min-height: 100vh;
+  padding: 28rpx;
+  box-sizing: border-box;
+  background: #f3f4f6;
+}
+
+.header {
+  padding: 24rpx 4rpx 18rpx;
+}
+
+.title {
+  display: block;
+  color: #111827;
+  font-size: 42rpx;
+  font-weight: 800;
+}
+
+.subtitle {
+  display: block;
+  margin-top: 12rpx;
+  color: #6b7280;
+  font-size: 25rpx;
+  line-height: 1.6;
+}
+
+.preference-card {
+  margin-top: 20rpx;
+  padding: 26rpx;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.card-head,
+.channel-row,
+.quiet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+}
+
+.card-title {
+  display: block;
+  color: #111827;
+  font-size: 31rpx;
+  font-weight: 800;
+}
+
+.card-subtitle,
+.channel-hint {
+  display: block;
+  margin-top: 8rpx;
+  color: #6b7280;
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+
+.badge {
+  flex-shrink: 0;
+  min-width: 96rpx;
+  padding: 8rpx 14rpx;
+  border-radius: 999rpx;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 22rpx;
+  text-align: center;
+}
+
+.channel-grid {
+  margin-top: 22rpx;
+  border-top: 1rpx solid #eef2f7;
+}
+
+.channel-row {
+  min-height: 92rpx;
+  border-bottom: 1rpx solid #eef2f7;
+}
+
+.channel-title,
+.quiet-title {
+  display: block;
+  color: #1f2937;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.quiet-panel {
+  margin-top: 22rpx;
+  padding: 22rpx;
+  border-radius: 14rpx;
+  background: #f8fafc;
+}
+
+.time-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+
+.field {
+  display: block;
+}
+
+.field text {
+  display: block;
+  color: #6b7280;
+  font-size: 22rpx;
+}
+
+.field input {
+  height: 72rpx;
+  margin-top: 8rpx;
+  padding: 0 18rpx;
+  border: 1rpx solid #d1d5db;
+  border-radius: 12rpx;
+  background: #ffffff;
+  color: #111827;
+  font-size: 26rpx;
+  box-sizing: border-box;
+}
+
+.quiet-channels {
+  margin-top: 20rpx;
+}
+
+.quiet-channel-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+  margin-top: 14rpx;
+}
+
+.quiet-channel {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 10rpx 14rpx;
+  border: 1rpx solid #dbeafe;
+  border-radius: 999rpx;
+  background: #ffffff;
+  color: #1f2937;
+  font-size: 23rpx;
+}
+
+.save-button {
+  margin-top: 22rpx;
+  border-radius: 12rpx;
+  background: #009bf5;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 700;
+}

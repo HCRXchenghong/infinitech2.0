@@ -1,0 +1,70 @@
+<view class="medicine-confirm-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">确认订单</text>
+    <text class="nav-action"></text>
+  </view>
+
+  <view class="address-card" bindtap="handleAddressTap">
+    <view class="address-icon">位</view>
+    <view>
+      <text>配送到</text>
+      <text>{{address.detail}}</text>
+      <text>{{address.contact}}</text>
+      <text>{{addressStatusText}} · 校内骑手配送</text>
+    </view>
+    <text>›</text>
+  </view>
+
+  <view class="clinic-card">
+    <view class="clinic-icon">+</view>
+    <view>
+      <text>{{clinic.name}}</text>
+      <text>{{clinic.location}}</text>
+      <text>药品购买与用药请遵循校医建议</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">药品清单</text>
+    <view class="item-row" wx:for="{{items}}" wx:key="product_id">
+      <view class="medicine-box">
+        <image wx:if="{{item.imageUrl}}" class="medicine-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+        <text wx:else>药</text>
+      </view>
+      <view>
+        <text class="item-name">{{item.name}}</text>
+        <view class="tag-row"><text>{{item.tag}}</text><text wx:if="{{item.approved}}">已审核</text></view>
+        <text wx:if="{{item.approved}}" class="item-note">处方审核通过</text>
+      </view>
+      <text>x{{item.quantity}}</text>
+      <text>¥{{item.price}}</text>
+    </view>
+    <view class="rx-pass" wx:if="{{prescriptionId}}">
+      <text>处方药已通过校医审核</text>
+      <text>查看处方 ›</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="fee-row" wx:for="{{fees}}" wx:key="title">
+      <text>{{item.title}}</text>
+      <text>{{item.value}} ›</text>
+    </view>
+  </view>
+
+  <view class="remark-card">
+    <text>订单备注</text>
+    <text>给校医务室或骑手留言 ›</text>
+  </view>
+
+  <view class="advice-row">处方药请按校医指导使用；如症状加重请及时就医。</view>
+
+  <view class="bottom-bar">
+    <view>
+      <text>合计</text>
+      <text>¥{{payable}}</text>
+    </view>
+    <button loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">提交订单</button>
+  </view>
+</view>

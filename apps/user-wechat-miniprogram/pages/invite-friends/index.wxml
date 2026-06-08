@@ -1,0 +1,44 @@
+<view class="invite-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">邀请好友</text>
+    <text class="nav-action">已同步</text>
+  </view>
+
+  <view class="hero-card">
+    <view class="people-art">友</view>
+    <view class="hero-copy">
+      <text class="hero-title">邀请好友一起点餐</text>
+      <text class="hero-subtitle">{{rewardText}}</text>
+      <text class="gift-badge">礼 自动发放</text>
+    </view>
+  </view>
+
+  <view class="invite-card">
+    <text class="label">我的邀请码</text>
+    <view class="code-row">
+      <text class="code">{{inviteCode}}</text>
+      <button class="copy-button" bindtap="handleCopy">复制</button>
+    </view>
+    <view class="record-link" bindtap="handleRecordTap">查看邀请记录 ›</view>
+  </view>
+
+  <view class="invite-card action-card">
+    <button class="share-button" open-type="share">分享给好友</button>
+    <view class="poster-link" bindtap="handlePosterTap">生成分享图</view>
+  </view>
+
+  <view class="invite-card" wx:if="{{records.length}}">
+    <text class="label">最近邀请</text>
+    <view class="record-row" wx:for="{{records}}" wx:key="id">
+      <text class="friend-avatar">{{item.friendName}}</text>
+      <view class="record-main">
+        <text class="friend-name">{{item.friendName}}</text>
+        <text class="record-status">{{item.status}}</text>
+      </view>
+      <text class="record-reward">{{item.rewardText}}</text>
+    </view>
+  </view>
+
+  <text class="risk-tip">{{riskTip}}</text>
+</view>

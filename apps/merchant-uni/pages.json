@@ -34,6 +34,13 @@
         "navigationBarTitleText": "资质资料",
         "navigationStyle": "custom"
       }
+    },
+    {
+      "path": "pages/notification-preferences/index",
+      "style": {
+        "navigationBarTitleText": "通知偏好",
+        "navigationStyle": "custom"
+      }
     }
   ],
   "globalStyle": {

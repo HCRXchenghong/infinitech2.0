@@ -21,7 +21,7 @@ func TestBackofficeRBACScopeMatrix(t *testing.T) {
 		{
 			name:    "ops admin can operate but not finance",
 			role:    RoleOpsAdmin,
-			allowed: []string{AdminScopeInviteWrite, AdminScopeAfterSalesReview, AdminScopeOrderCompensate, AdminScopeOutboxWrite, AdminScopeObjectCleanupWrite, AdminScopeRBACRead},
+			allowed: []string{AdminScopeInviteWrite, AdminScopeMealMatchRead, AdminScopeMealMatchReview, AdminScopeMerchantReview, AdminScopeNotificationRead, AdminScopeNotificationWrite, AdminScopeAfterSalesReview, AdminScopeOrderCompensate, AdminScopeOutboxWrite, AdminScopeObjectCleanupWrite, AdminScopeRBACRead},
 			denied:  []string{AdminScopeRefundWrite, AdminScopeAuditRead, AdminScopeRBACWrite, AdminScopeSettlementRead},
 		},
 		{
@@ -39,14 +39,14 @@ func TestBackofficeRBACScopeMatrix(t *testing.T) {
 		{
 			name:    "support admin can read and add after sales events but not approve refunds",
 			role:    RoleSupportAdmin,
-			allowed: []string{AdminScopeAfterSalesRead, AdminScopeAfterSalesEvent, AdminScopeRBACRead},
-			denied:  []string{AdminScopeAfterSalesReview, AdminScopeRefundWrite, AdminScopeAuditRead, AdminScopeRBACWrite},
+			allowed: []string{AdminScopeAfterSalesRead, AdminScopeAfterSalesEvent, AdminScopeMealMatchRead, AdminScopeMealMatchReview, AdminScopeNotificationRead, AdminScopeRBACRead},
+			denied:  []string{AdminScopeAfterSalesReview, AdminScopeNotificationWrite, AdminScopeRefundWrite, AdminScopeAuditRead, AdminScopeRBACWrite},
 		},
 		{
 			name:    "security auditor is read only for audit",
 			role:    RoleSecurityAuditor,
 			allowed: []string{AdminScopeAuditRead, AdminScopeRBACRead, AdminScopeSystemLogsRead},
-			denied:  []string{AdminScopeAuditWrite, AdminScopeInviteWrite, AdminScopeRefundWrite, AdminScopeOutboxWrite, AdminScopeRBACWrite},
+			denied:  []string{AdminScopeAuditWrite, AdminScopeNotificationRead, AdminScopeNotificationWrite, AdminScopeInviteWrite, AdminScopeRefundWrite, AdminScopeOutboxWrite, AdminScopeRBACWrite},
 		},
 	}
 
@@ -72,10 +72,10 @@ func TestBackofficeRBACPolicyCatalog(t *testing.T) {
 	if policy.Version != adminRBACPolicyVersion || !policy.CanRequestChanges {
 		t.Fatalf("expected super admin policy with change access, got %+v", policy)
 	}
-	if len(policy.Roles) < 7 || len(policy.Scopes) < 20 {
+	if len(policy.Roles) < 7 || len(policy.Scopes) < 21 {
 		t.Fatalf("expected built-in roles and scopes, got %+v", policy)
 	}
-	if !IsKnownAdminScope(AdminScopeRBACRead) || !IsKnownAdminScope(AdminScopeRBACWrite) {
+	if !IsKnownAdminScope(AdminScopeRBACRead) || !IsKnownAdminScope(AdminScopeRBACWrite) || !IsKnownAdminScope(AdminScopeMerchantReview) || !IsKnownAdminScope(AdminScopeMealMatchReview) {
 		t.Fatalf("expected RBAC scopes to be catalogued")
 	}
 	normalized, ok := NormalizeAdminScopeList([]string{AdminScopeRefundWrite, AdminScopeRefundWrite, " "})

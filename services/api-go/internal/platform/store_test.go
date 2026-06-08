@@ -212,6 +212,70 @@ func TestRefundOrderWithAuditRecordsVerifiedAudit(t *testing.T) {
 	}
 }
 
+func TestAdminRefundTransactionsFiltersByOrderAndDestination(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	order1, err := store.CreateOrder(CreateOrderRequest{UserID: "user_refund_1", Type: OrderTypeTakeout, AmountFen: 1500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	order2, err := store.CreateOrder(CreateOrderRequest{UserID: "user_refund_2", Type: OrderTypeTakeout, AmountFen: 2200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, setup := range []struct {
+		orderID string
+		userID  string
+		amount  int64
+		credit  string
+		pay     string
+	}{
+		{order1.ID, order1.UserID, 1500, "credit_admin_refund_list_1", "pay_admin_refund_list_1"},
+		{order2.ID, order2.UserID, 2200, "credit_admin_refund_list_2", "pay_admin_refund_list_2"},
+	} {
+		if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: setup.userID, AmountFen: setup.amount, IdempotencyKey: setup.credit}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.SetWalletPaymentPassword(SetWalletPaymentPasswordRequest{UserID: setup.userID, Password: "123456"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, _, err := store.PayOrderWithBalance(BalancePayRequest{UserID: setup.userID, OrderID: setup.orderID, PaymentPassword: "123456", IdempotencyKey: setup.pay}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, _, err := store.RefundOrder(RefundOrderRequest{
+		OrderID:        order1.ID,
+		Reason:         "售后补退",
+		IdempotencyKey: "refund_admin_list_balance",
+		Destination:    RefundDestinationBalance,
+		ActorID:        "admin_1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.RefundOrder(RefundOrderRequest{
+		OrderID:        order2.ID,
+		Reason:         "原路退回",
+		IdempotencyKey: "refund_admin_list_original",
+		Destination:    RefundDestinationOriginalRoute,
+		ActorID:        "admin_1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	refunds, err := store.AdminRefundTransactions(RefundTransactionListRequest{OrderID: order1.ID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refunds) != 1 || refunds[0].OrderID != order1.ID || refunds[0].Destination != RefundDestinationBalance {
+		t.Fatalf("expected refund list filtered by order, got %+v", refunds)
+	}
+	originalRouteRefunds, err := store.AdminRefundTransactions(RefundTransactionListRequest{Destination: RefundDestinationOriginalRoute, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(originalRouteRefunds) != 1 || originalRouteRefunds[0].OrderID != order2.ID || originalRouteRefunds[0].Status != RefundStatusPendingOriginal {
+		t.Fatalf("expected refund list filtered by destination, got %+v", originalRouteRefunds)
+	}
+}
+
 func TestSaveRefundSettingsWithAuditRecordsVerifiedAudit(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	store.ConfigureAuditLogIntegrity("refund-settings-audit-secret")
@@ -488,6 +552,68 @@ func TestAfterSalesReviewApprovesAndRefundsBalance(t *testing.T) {
 	}
 	if len(afterSalesEvents) != 2 || afterSalesEvents[0].AggregateID != order.ID {
 		t.Fatalf("expected created and approved after-sales outbox events, got %+v", afterSalesEvents)
+	}
+}
+
+func TestUserAfterSalesRequestsExposeOrderContextAndFilter(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	order, err := store.CreateOrder(CreateOrderRequest{UserID: "user_1", Type: OrderTypeTakeout, AmountFen: 1200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.orders[order.ID].ShopID = "shop_1"
+	store.orders[order.ID].ShopName = "蓝海餐厅"
+	store.orders[order.ID].Items = []OrderItem{{ProductID: "prod_beef_rice", ProductName: "招牌牛肉饭", UnitPriceFen: 1200, Quantity: 2}}
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: "user_1", AmountFen: 1200, IdempotencyKey: "credit_after_sales_view"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(SetWalletPaymentPasswordRequest{UserID: "user_1", Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, paidOrder, _, err := store.PayOrderWithBalance(BalancePayRequest{UserID: "user_1", OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_after_sales_view"}); err != nil || paidOrder.Status != StatusMerchantPending {
+		t.Fatalf("expected paid merchant order setup, order=%+v err=%v", paidOrder, err)
+	}
+
+	request, err := store.CreateAfterSales(CreateAfterSalesRequest{
+		UserID:             "user_1",
+		OrderID:            order.ID,
+		Type:               AfterSalesRefundOnly,
+		Reason:             "餐品漏送",
+		RequestedAmountFen: 1200,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AddAfterSalesEvent(AddAfterSalesEventRequest{
+		RequestID: request.ID,
+		ActorID:   "merchant_1",
+		ActorRole: "merchant",
+		Action:    AfterSalesActionMerchantReply,
+		Message:   "商家已核对后厨记录，正在复核补偿方案",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	requests, err := store.UserAfterSalesRequests(AfterSalesListRequest{UserID: "user_1", OrderID: order.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 1 {
+		t.Fatalf("expected one filtered after-sales request, got %+v", requests)
+	}
+	if requests[0].ShopName != "蓝海餐厅" || requests[0].OrderStatus != StatusMerchantPending || requests[0].OrderItemSummary != "招牌牛肉饭 x 2" {
+		t.Fatalf("expected order context on after-sales list item, got %+v", requests[0])
+	}
+	if requests[0].LatestEventMessage != "商家已核对后厨记录，正在复核补偿方案" || requests[0].LatestEventAt.IsZero() {
+		t.Fatalf("expected latest visible event metadata, got %+v", requests[0])
+	}
+
+	requests, err = store.UserAfterSalesRequests(AfterSalesListRequest{UserID: "user_1", OrderID: "ord_missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 0 {
+		t.Fatalf("expected empty filtered result for unmatched order, got %+v", requests)
 	}
 }
 
@@ -857,6 +983,306 @@ func TestAfterSalesEventsEscalateToAdminReviewAndAuditTimeline(t *testing.T) {
 	}
 	if len(events) != 4 || events[0].Action != AfterSalesActionCreated || events[1].Action != AfterSalesActionEvidenceUploaded || events[2].Action != AfterSalesActionCustomerCare || events[3].Action != AfterSalesActionReviewApproved {
 		t.Fatalf("expected created, escalation and review audit timeline, got %+v", events)
+	}
+}
+
+func TestAdminAfterSalesDetailAggregatesTimelineEvidenceAndDispatch(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	order, err := store.CreateOrder(CreateOrderRequest{UserID: "user_1", Type: OrderTypeTakeout, AmountFen: 1800})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.orders[order.ID].ShopID = "shop_1"
+	store.orders[order.ID].ShopName = "蓝海餐厅"
+	store.orders[order.ID].Items = []OrderItem{{ProductID: "prod_beef_rice", ProductName: "招牌牛肉饭", UnitPriceFen: 1800, Quantity: 1}}
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: "user_1", AmountFen: 1800, IdempotencyKey: "credit_after_sales_detail"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(SetWalletPaymentPasswordRequest{UserID: "user_1", Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, paidOrder, _, err := store.PayOrderWithBalance(BalancePayRequest{UserID: "user_1", OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_after_sales_detail"}); err != nil || paidOrder.Status != StatusMerchantPending {
+		t.Fatalf("expected paid merchant order, order=%+v err=%v", paidOrder, err)
+	}
+	request, err := store.CreateAfterSales(CreateAfterSalesRequest{
+		UserID:             "user_1",
+		OrderID:            order.ID,
+		Reason:             "餐品漏送",
+		RequestedAmountFen: 800,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AddAfterSalesEvent(AddAfterSalesEventRequest{
+		RequestID:   request.ID,
+		ActorID:     "merchant_1",
+		ActorRole:   "merchant",
+		Action:      AfterSalesActionMerchantReply,
+		Message:     "已核实后厨打包记录",
+		Attachments: []string{"https://cdn.test/after-sales/pack.jpg"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	visible := false
+	if _, _, err := store.AddAfterSalesEvent(AddAfterSalesEventRequest{
+		RequestID:     request.ID,
+		ActorID:       "admin_1",
+		ActorRole:     "admin",
+		Action:        AfterSalesActionInternalNote,
+		Message:       "客服内部备注",
+		VisibleToUser: &visible,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	serviceTicketDetail, err := store.CreateServiceTicket(CreateServiceTicketRequest{
+		UserID:             "user_1",
+		Category:           "配送问题",
+		Title:              "配送问题 · 预计送达未更新",
+		Content:            "骑手到店很久了",
+		RelatedOrderID:     order.ID,
+		RelatedOrderTitle:  "蓝海餐厅 · 招牌牛肉饭",
+		RelatedOrderStatus: StatusMerchantPending,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceTicketID := serviceTicketDetail.Ticket.ID
+	now := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+	store.mu.Lock()
+	storedRequest := store.afterSalesRequests[request.ID]
+	storedRequest.EvidenceURLs = []string{"https://cdn.test/after-sales/evidence.jpg"}
+	storedRequest.UpdatedAt = now
+	store.afterSalesEvidence["ase_detail_1"] = &AfterSalesEvidence{
+		ID:             "ase_detail_1",
+		RequestID:      request.ID,
+		OrderID:        order.ID,
+		ObjectKey:      "after-sales/" + request.ID + "/detail/evidence.jpg",
+		PublicURL:      "https://cdn.test/after-sales/evidence.jpg",
+		FileName:       "evidence.jpg",
+		ContentType:    "image/jpeg",
+		SizeBytes:      2048,
+		ContentSHA:     "sha256:detail",
+		UploadedByID:   "user_1",
+		UploadedByRole: "user",
+		Status:         AfterSalesEvidenceUploaded,
+		CreatedAt:      now,
+		ConfirmedAt:    now.Add(2 * time.Minute),
+	}
+	store.recordDispatchEventLocked(store.orders[order.ID], &DispatchDecision{
+		OrderID:                      order.ID,
+		StationID:                    "station_1",
+		Mode:                         DispatchModeAutoAssign,
+		IdempotencyKey:               "dispatch:detail:auto",
+		RemainingOnlineCandidateSize: 2,
+	}, "dispatch.auto_assign", "rider_1", "system", "", now.Add(3*time.Minute))
+	store.recordDispatchEventLocked(store.orders[order.ID], &DispatchDecision{
+		OrderID:                      order.ID,
+		StationID:                    "station_1",
+		Mode:                         DispatchModeAutoAssign,
+		IdempotencyKey:               "dispatch:detail:timeout",
+		RemainingOnlineCandidateSize: 1,
+	}, "dispatch.timeout", "rider_1", "system", "assignment_timeout", now.Add(8*time.Minute))
+	store.mu.Unlock()
+	if _, _, _, _, err := store.ReviewAfterSales(ReviewAfterSalesRequest{
+		RequestID: request.ID,
+		Decision:  AfterSalesDecisionApprove,
+		Reason:    "平台仲裁通过部分退款",
+		ActorID:   "admin_1",
+		ActorRole: "admin",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "support_1",
+		Action:     "admin.service_ticket.assigned",
+		TargetType: "service_ticket",
+		TargetID:   serviceTicketID,
+		RequestID:  "req_after_sales_detail_ticket",
+		Payload:    map[string]any{"support_id": "support_1"},
+		CreatedAt:  now.Add(9 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "after_sales.reviewed",
+		TargetType: "after_sales",
+		TargetID:   request.ID,
+		RequestID:  "req_after_sales_detail_review",
+		Payload:    map[string]any{"decision": "approve"},
+		CreatedAt:  now.Add(10 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   order.ID,
+		RequestID:  "req_after_sales_detail_refund",
+		Payload:    map[string]any{"amount_fen": int64(800)},
+		CreatedAt:  now.Add(11 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := store.AdminAfterSalesDetail(request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Request.ID != request.ID || detail.Request.ShopName != "蓝海餐厅" || detail.Request.OrderItemSummary != "招牌牛肉饭 x 1" || detail.Request.Status != AfterSalesRefunded {
+		t.Fatalf("expected detail request context, got %+v", detail.Request)
+	}
+	if len(detail.Events) != 4 || detail.EventSummary.Total != 4 || detail.EventSummary.UserVisible != 3 || detail.EventSummary.InternalOnly != 1 || detail.EventSummary.AttachmentCount != 1 || detail.EventSummary.LatestAction != AfterSalesActionReviewApproved {
+		t.Fatalf("expected aggregated after-sales event summary, detail=%+v", detail)
+	}
+	if len(detail.Evidence) != 1 || detail.EvidenceSummary.Total != 1 || detail.EvidenceSummary.ImageCount != 1 || detail.EvidenceSummary.ConfirmedCount != 1 || detail.EvidenceSummary.TotalSizeBytes != 2048 {
+		t.Fatalf("expected aggregated after-sales evidence summary, detail=%+v", detail)
+	}
+	if len(detail.DispatchEvents) != 2 || detail.DispatchSummary.Total != 2 || detail.DispatchSummary.AutoAssignCount != 2 || detail.DispatchSummary.TimeoutCount != 1 || detail.DispatchSummary.LatestType != "dispatch.timeout" {
+		t.Fatalf("expected aggregated dispatch summary, detail=%+v", detail)
+	}
+	if len(detail.Refunds) != 1 || detail.RefundSummary.Total != 1 || detail.RefundSummary.SuccessCount != 1 || detail.RefundSummary.TotalAmountFen != 800 || detail.RefundSummary.LatestDestination != RefundDestinationBalance {
+		t.Fatalf("expected aggregated refund summary, detail=%+v", detail)
+	}
+	if len(detail.ServiceTickets) != 1 || detail.ServiceTicketSummary.Total != 1 || detail.ServiceTicketSummary.OpenCount != 1 || detail.ServiceTicketSummary.LatestStatus != ServiceTicketStatusProcessing {
+		t.Fatalf("expected aggregated service ticket summary, detail=%+v", detail)
+	}
+	if len(detail.RelatedAudits) != 3 || detail.AuditSummary.Total != 3 || detail.AuditSummary.VerifiedCount != 3 || detail.AuditSummary.OrderCount != 1 || detail.AuditSummary.AfterSalesCount != 1 || detail.AuditSummary.ServiceTicketCount != 1 || detail.AuditSummary.LatestAction != "admin.order.refunded" {
+		t.Fatalf("expected aggregated audit summary, detail=%+v", detail)
+	}
+}
+
+func TestAdminOrderDetailAggregatesAfterSalesRefundsSupportDispatchAndAudits(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	order, err := store.CreateOrder(CreateOrderRequest{UserID: "user_1", Type: OrderTypeTakeout, AmountFen: 1800})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.orders[order.ID].ShopID = "shop_1"
+	store.orders[order.ID].ShopName = "蓝海餐厅"
+	store.orders[order.ID].Items = []OrderItem{{ProductID: "prod_beef_rice", ProductName: "招牌牛肉饭", UnitPriceFen: 1800, Quantity: 1}}
+	store.orders[order.ID].AddressSnapshot = OrderAddress{ContactName: "张三", ContactPhone: "13800000000", City: "北京", Detail: "望京SOHO", Tag: "公司"}
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: "user_1", AmountFen: 1800, IdempotencyKey: "credit_admin_order_detail"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(SetWalletPaymentPasswordRequest{UserID: "user_1", Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, paidOrder, _, err := store.PayOrderWithBalance(BalancePayRequest{UserID: "user_1", OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_admin_order_detail"}); err != nil || paidOrder.Status != StatusMerchantPending {
+		t.Fatalf("expected paid merchant order, order=%+v err=%v", paidOrder, err)
+	}
+	request, err := store.CreateAfterSales(CreateAfterSalesRequest{
+		UserID:             "user_1",
+		OrderID:            order.ID,
+		Reason:             "餐品漏送",
+		RequestedAmountFen: 800,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceTicketDetail, err := store.CreateServiceTicket(CreateServiceTicketRequest{
+		UserID:             "user_1",
+		Category:           "配送问题",
+		Title:              "配送问题 · 预计送达未更新",
+		Content:            "骑手到店很久了",
+		RelatedOrderID:     order.ID,
+		RelatedOrderTitle:  "蓝海餐厅 · 招牌牛肉饭",
+		RelatedOrderStatus: StatusMerchantPending,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceTicketID := serviceTicketDetail.Ticket.ID
+	now := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+	store.mu.Lock()
+	storedRequest := store.afterSalesRequests[request.ID]
+	storedRequest.UpdatedAt = now
+	store.recordDispatchEventLocked(store.orders[order.ID], &DispatchDecision{
+		OrderID:                      order.ID,
+		StationID:                    "station_1",
+		Mode:                         DispatchModeAutoAssign,
+		IdempotencyKey:               "dispatch:order-detail:auto",
+		RemainingOnlineCandidateSize: 2,
+	}, "dispatch.auto_assign", "rider_1", "system", "", now.Add(3*time.Minute))
+	store.recordDispatchEventLocked(store.orders[order.ID], &DispatchDecision{
+		OrderID:                      order.ID,
+		StationID:                    "station_1",
+		Mode:                         DispatchModeAutoAssign,
+		IdempotencyKey:               "dispatch:order-detail:timeout",
+		RemainingOnlineCandidateSize: 1,
+	}, "dispatch.timeout", "rider_1", "system", "assignment_timeout", now.Add(8*time.Minute))
+	store.mu.Unlock()
+	if _, _, _, _, err := store.ReviewAfterSales(ReviewAfterSalesRequest{
+		RequestID: request.ID,
+		Decision:  AfterSalesDecisionApprove,
+		Reason:    "平台仲裁通过部分退款",
+		ActorID:   "admin_1",
+		ActorRole: "admin",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "support_1",
+		Action:     "admin.service_ticket.assigned",
+		TargetType: "service_ticket",
+		TargetID:   serviceTicketID,
+		RequestID:  "req_admin_order_detail_ticket",
+		Payload:    map[string]any{"support_id": "support_1"},
+		CreatedAt:  now.Add(9 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "after_sales.reviewed",
+		TargetType: "after_sales",
+		TargetID:   request.ID,
+		RequestID:  "req_admin_order_detail_review",
+		Payload:    map[string]any{"decision": "approve"},
+		CreatedAt:  now.Add(10 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   order.ID,
+		RequestID:  "req_admin_order_detail_refund",
+		Payload:    map[string]any{"amount_fen": int64(800)},
+		CreatedAt:  now.Add(11 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := store.AdminOrderDetail(order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Order.ID != order.ID || detail.Order.ShopName != "蓝海餐厅" || detail.Order.AddressSnapshot.ContactPhone != "13800000000" {
+		t.Fatalf("expected admin order detail context, got %+v", detail.Order)
+	}
+	if len(detail.AfterSalesRequests) != 1 || detail.AfterSalesSummary.Total != 1 || detail.AfterSalesSummary.RefundedCount != 1 || detail.AfterSalesSummary.LatestStatus != AfterSalesRefunded {
+		t.Fatalf("expected aggregated order after-sales summary, detail=%+v", detail)
+	}
+	if len(detail.Refunds) != 1 || detail.RefundSummary.Total != 1 || detail.RefundSummary.SuccessCount != 1 || detail.RefundSummary.TotalAmountFen != 800 || detail.RefundSummary.LatestDestination != RefundDestinationBalance {
+		t.Fatalf("expected aggregated order refund summary, detail=%+v", detail)
+	}
+	if len(detail.ServiceTickets) != 1 || detail.ServiceTicketSummary.Total != 1 || detail.ServiceTicketSummary.OpenCount != 1 || detail.ServiceTicketSummary.LatestStatus != ServiceTicketStatusProcessing {
+		t.Fatalf("expected aggregated order service ticket summary, detail=%+v", detail)
+	}
+	if len(detail.DispatchEvents) != 2 || detail.DispatchSummary.Total != 2 || detail.DispatchSummary.AutoAssignCount != 2 || detail.DispatchSummary.TimeoutCount != 1 || detail.DispatchSummary.LatestType != "dispatch.timeout" {
+		t.Fatalf("expected aggregated order dispatch summary, detail=%+v", detail)
+	}
+	if len(detail.RelatedAudits) != 3 || detail.AuditSummary.Total != 3 || detail.AuditSummary.VerifiedCount != 3 || detail.AuditSummary.OrderCount != 1 || detail.AuditSummary.AfterSalesCount != 1 || detail.AuditSummary.ServiceTicketCount != 1 || detail.AuditSummary.LatestAction != "admin.order.refunded" {
+		t.Fatalf("expected aggregated order audit summary, detail=%+v", detail)
 	}
 }
 
@@ -1396,6 +1822,238 @@ func TestWechatMiniLoginUsesProviderOpenID(t *testing.T) {
 	}
 }
 
+func TestPhoneCodeRegisterAndLogin(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	ticket, err := store.SendPhoneVerificationCode(SendPhoneVerificationCodeRequest{Phone: "13900001111", Purpose: "register"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.DevCode == "" || ticket.MaskedPhone != "139****1111" {
+		t.Fatalf("expected dev phone code ticket, got %+v", ticket)
+	}
+	registered, err := store.RegisterWithPhone(PhoneRegisterRequest{
+		Phone:             "13900001111",
+		Code:              ticket.DevCode,
+		Password:          "Pass123",
+		Nickname:          "小蓝",
+		AcceptedAgreement: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !registered.IsNewUser || registered.User.Phone != "13900001111" || registered.User.Nickname != "小蓝" {
+		t.Fatalf("expected phone registration to create user, got %+v", registered)
+	}
+	passwordLogin, err := store.LoginWithPhone(PhoneLoginRequest{Phone: "13900001111", Password: "Pass123", Mode: "password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if passwordLogin.User.ID != registered.User.ID || passwordLogin.IsNewUser {
+		t.Fatalf("expected password login to reuse registered user, got %+v", passwordLogin)
+	}
+	if _, err := store.LoginWithPhone(PhoneLoginRequest{Phone: "13900001111", Password: "wrong", Mode: "password"}); err == nil {
+		t.Fatal("expected invalid password to fail")
+	}
+}
+
+type recordingPhoneDispatcher struct {
+	calls []PhoneVerificationDispatchRequest
+}
+
+func (dispatcher *recordingPhoneDispatcher) DispatchPhoneVerificationCode(req PhoneVerificationDispatchRequest) (*PhoneVerificationDispatchResult, error) {
+	dispatcher.calls = append(dispatcher.calls, req)
+	return &PhoneVerificationDispatchResult{Provider: "mock-sms", RequestID: req.RequestID + "_provider", Status: "delivered", SentAt: time.Now().UTC()}, nil
+}
+
+func TestPhoneCodeProviderModeHidesCodeAndRateLimits(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	dispatcher := &recordingPhoneDispatcher{}
+	if err := store.ConfigurePhoneVerification(PhoneVerificationConfig{
+		Mode:            "provider",
+		Provider:        "mock-sms",
+		TemplateID:      "tpl_login",
+		Cooldown:        time.Minute,
+		ExpiresIn:       10 * time.Minute,
+		MaxPerPhoneHour: 5,
+		MaxPerPhoneDay:  20,
+		Dispatcher:      dispatcher,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ticket, err := store.SendPhoneVerificationCode(SendPhoneVerificationCodeRequest{Phone: "13900003333", Purpose: "login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ticket.DevCode != "" || ticket.DeliveryProvider != "mock-sms" || ticket.DeliveryStatus != "delivered" || !strings.HasSuffix(ticket.DeliveryRequestID, "_provider") {
+		t.Fatalf("expected provider ticket without dev code, got %+v", ticket)
+	}
+	if len(dispatcher.calls) != 1 || dispatcher.calls[0].Code == "" || dispatcher.calls[0].TemplateID != "tpl_login" {
+		t.Fatalf("expected provider dispatch to receive hidden code and template, got %+v", dispatcher.calls)
+	}
+	login, err := store.LoginWithPhone(PhoneLoginRequest{Phone: "13900003333", Mode: "code", Code: dispatcher.calls[0].Code})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if login.User.Phone != "13900003333" || !login.IsNewUser {
+		t.Fatalf("expected provider code login to create user, got %+v", login)
+	}
+	if _, err := store.SendPhoneVerificationCode(SendPhoneVerificationCodeRequest{Phone: "13900003333", Purpose: "login"}); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("expected cooldown rate limit, got %v", err)
+	}
+}
+
+func TestMealMatchCandidatesReportAndBlock(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	savedProfile, err := store.SaveMealMatchProfile(MealMatchProfile{
+		UserID:                         "user_1",
+		Gender:                         "female",
+		SchoolID:                       "infinitech_university",
+		SchoolName:                     "无限科技大学",
+		CampusName:                     "东区",
+		BuildingID:                     "east_canteen",
+		BuildingName:                   "东区食堂",
+		PrivacyScope:                   MealMatchPrivacySameBuilding,
+		LocationPrecision:              MealMatchLocationBuildingOnly,
+		IdentityTruthSigned:            true,
+		PlatformLiabilityReleaseSigned: true,
+		QuestionnaireCompleted:         true,
+		PersonalityTraits:              []string{"细心", "守时"},
+		DietaryHabits:                  []string{"清淡", "不浪费"},
+		DeviceID:                       "device_user_1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedProfile.ModerationStatus != MealMatchModerationPending || savedProfile.ModerationRecordID == "" {
+		t.Fatalf("expected saved profile to enter moderation, got %+v", savedProfile)
+	}
+	if savedProfile.DeviceRiskState != MealMatchDeviceRiskPassed || savedProfile.PrivacyScope != MealMatchPrivacySameBuilding {
+		t.Fatalf("expected profile device and privacy checks, got %+v", savedProfile)
+	}
+	pendingCandidates, err := store.MealMatchCandidates("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pendingCandidates.CanUse || !pendingCandidates.ReviewRequired || len(pendingCandidates.Candidates) != 0 {
+		t.Fatalf("expected pending profile to hide candidates, got %+v", pendingCandidates)
+	}
+	profileReviews, err := store.AdminMealMatchModerationRecords(MealMatchModerationListRequest{Status: MealMatchModerationPending, Action: MealMatchModerationProfileReview})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profileReviews) != 1 || profileReviews[0].ID != savedProfile.ModerationRecordID {
+		t.Fatalf("expected one profile review record, got %+v", profileReviews)
+	}
+	approved, err := store.ReviewMealMatchModeration(MealMatchModerationReviewRequest{RecordID: profileReviews[0].ID, Decision: "approve", ReviewerID: "support_1", ReviewNote: "资料清晰"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Status != MealMatchModerationApproved || approved.ReviewerID != "support_1" {
+		t.Fatalf("expected approved profile review, got %+v", approved)
+	}
+	candidates, err := store.MealMatchCandidates("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !candidates.CanUse || len(candidates.Candidates) == 0 {
+		t.Fatalf("expected available candidates, got %+v", candidates)
+	}
+	if candidates.PrivacyScope != MealMatchPrivacySameBuilding || candidates.DeviceRiskState != MealMatchDeviceRiskPassed {
+		t.Fatalf("expected candidate list privacy and device risk summary, got %+v", candidates)
+	}
+	for _, candidate := range candidates.Candidates {
+		if !candidate.SameSchool || !candidate.SameBuilding || candidate.PrivacyScope == "" || candidate.LocationPrecision == "" || candidate.DistanceText == "距离 800m" {
+			t.Fatalf("expected same-school same-building privacy-filtered candidate, got %+v", candidate)
+		}
+	}
+	sharedDeviceProfile, err := store.SaveMealMatchProfile(MealMatchProfile{
+		UserID:                         "user_2",
+		Gender:                         "male",
+		SchoolID:                       "infinitech_university",
+		SchoolName:                     "无限科技大学",
+		CampusName:                     "东区",
+		BuildingID:                     "east_canteen",
+		BuildingName:                   "东区食堂",
+		IdentityTruthSigned:            true,
+		PlatformLiabilityReleaseSigned: true,
+		QuestionnaireCompleted:         true,
+		PersonalityTraits:              []string{"守时"},
+		DietaryHabits:                  []string{"清淡"},
+		DeviceID:                       "device_user_1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sharedDeviceProfile.DeviceRiskState != MealMatchDeviceRiskReview || sharedDeviceProfile.DeviceRiskReasonCode != MealMatchDeviceRiskSharedDevice {
+		t.Fatalf("expected shared device to require review, got %+v", sharedDeviceProfile)
+	}
+	if _, err := store.SaveMealMatchProfile(MealMatchProfile{
+		UserID:                         "user_3",
+		Gender:                         "female",
+		SchoolID:                       "infinitech_university",
+		IdentityTruthSigned:            true,
+		PlatformLiabilityReleaseSigned: true,
+		QuestionnaireCompleted:         true,
+		PersonalityTraits:              []string{"守时"},
+		DietaryHabits:                  []string{"清淡"},
+		DeviceID:                       "blocked_device_farm",
+	}); !errors.Is(err, ErrRiskControlRejected) {
+		t.Fatalf("expected blocked device risk rejection, got %v", err)
+	}
+	targetID := candidates.Candidates[0].UserID
+	report, err := store.ReportMealMatchCandidate(MealMatchReportRequest{ReporterUserID: "user_1", TargetUserID: targetID, Reason: "unsafe_or_fake_profile"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Action != MealMatchModerationReported || report.Status != MealMatchModerationPending {
+		t.Fatalf("expected pending report, got %+v", report)
+	}
+	reports, err := store.AdminMealMatchModerationRecords(MealMatchModerationListRequest{Status: MealMatchModerationPending, Action: MealMatchModerationReported, TargetUserID: targetID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 || reports[0].ID != report.ID {
+		t.Fatalf("expected reported record in moderation queue, got %+v", reports)
+	}
+	reviewedReport, err := store.ReviewMealMatchModeration(MealMatchModerationReviewRequest{RecordID: report.ID, Decision: MealMatchModerationApproved, ReviewerID: "support_1", ReviewNote: "举报成立"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviewedReport.Status != MealMatchModerationApproved {
+		t.Fatalf("expected approved report moderation, got %+v", reviewedReport)
+	}
+	afterReport, err := store.MealMatchCandidates("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range afterReport.Candidates {
+		if candidate.UserID == targetID {
+			t.Fatalf("reported target must be hidden after approval, got %+v", afterReport.Candidates)
+		}
+	}
+	if len(afterReport.Candidates) == 0 {
+		t.Fatalf("expected another candidate to test blocking, got %+v", afterReport)
+	}
+	blockTargetID := afterReport.Candidates[0].UserID
+	block, err := store.BlockMealMatchCandidate(MealMatchBlockRequest{UserID: "user_1", TargetUserID: blockTargetID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if block.Action != MealMatchModerationBlocked || block.Status != MealMatchModerationActive {
+		t.Fatalf("expected block record, got %+v", block)
+	}
+	afterBlock, err := store.MealMatchCandidates("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range afterBlock.Candidates {
+		if candidate.UserID == blockTargetID {
+			t.Fatalf("blocked candidate must be hidden, got %+v", afterBlock.Candidates)
+		}
+	}
+}
+
 func TestWechatPrepayAndCallbackAreIdempotent(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	order, err := store.CreateOrder(CreateOrderRequest{UserID: "user_1", Type: OrderTypeTakeout, AmountFen: 900})
@@ -1481,8 +2139,28 @@ func TestMerchantInviteRegistrationAndQualificationGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(profile.MissingQualifications) != 2 || profile.Qualifications[0].Status != QualificationStatusPendingReview {
+		t.Fatalf("expected submitted license to wait for review, got %+v", profile)
+	}
+	licenseID := profile.Qualifications[0].ID
+	profile, _, _, _, err = store.ReviewMerchantQualificationWithAudit(ReviewMerchantQualificationRequest{
+		MerchantID:      profile.Account.ID,
+		QualificationID: licenseID,
+		Decision:        "approve",
+		Reason:          "营业执照核验通过",
+		ReviewedAt:      time.Now().UTC(),
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.merchant_qualification.reviewed",
+		TargetType: "merchant_qualification",
+		TargetID:   licenseID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(profile.MissingQualifications) != 1 || profile.MissingQualifications[0] != QualificationHealthCertificate {
-		t.Fatalf("expected health certificate still missing, got %+v", profile)
+		t.Fatalf("expected approved license with health certificate still missing, got %+v", profile)
 	}
 	profile, err = store.SaveMerchantQualification(UploadMerchantQualificationRequest{
 		MerchantID: profile.Account.ID,
@@ -1493,8 +2171,562 @@ func TestMerchantInviteRegistrationAndQualificationGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(profile.MissingQualifications) != 1 || profile.Qualifications[1].Status != QualificationStatusPendingReview {
+		t.Fatalf("expected submitted health certificate to wait for review, got %+v", profile)
+	}
+	healthID := profile.Qualifications[1].ID
+	profile, qualification, auditLog, outboxEvent, err := store.ReviewMerchantQualificationWithAudit(ReviewMerchantQualificationRequest{
+		MerchantID:      profile.Account.ID,
+		QualificationID: healthID,
+		Decision:        "approve",
+		Reason:          "健康证核验通过",
+		ReviewedAt:      time.Now().UTC(),
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.merchant_qualification.reviewed",
+		TargetType: "merchant_qualification",
+		TargetID:   healthID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qualification.Status != QualificationStatusApproved || auditLog.Action != "admin.merchant_qualification.reviewed" {
+		t.Fatalf("expected approved qualification audit, qualification=%+v audit=%+v", qualification, auditLog)
+	}
+	if outboxEvent == nil || outboxEvent.Topic != "merchant.qualification_reviewed" || outboxEvent.AggregateID != healthID {
+		t.Fatalf("expected merchant qualification review outbox event, got %+v", outboxEvent)
+	}
 	if len(profile.MissingQualifications) != 0 || profile.CanAcceptOrders {
 		t.Fatalf("expected qualifications complete but deposit still gating orders, got %+v", profile)
+	}
+}
+
+func TestAdminMerchantQualificationQueueAndDetail(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	invite, err := store.CreateMerchantInvite(CreateMerchantInviteRequest{AdminID: "admin_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := store.AcceptMerchantInvite(AcceptMerchantInviteRequest{
+		Token:       invite.Token,
+		DisplayName: "待审商户",
+		AccountType: MerchantAccountStandard,
+		Password:    "MerchantPass123",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiresAt := time.Now().UTC().Add(365 * 24 * time.Hour)
+	profile, err = store.SaveMerchantQualification(UploadMerchantQualificationRequest{
+		MerchantID: profile.Account.ID,
+		Type:       QualificationBusinessLicense,
+		FileURL:    "https://example.test/license-review.jpg",
+		ExpiresAt:  expiresAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualificationID := profile.Qualifications[0].ID
+	now := time.Now().UTC()
+	queue, err := store.AdminMerchantQualifications(AdminMerchantQualificationListRequest{
+		Status:     QualificationStatusPendingReview,
+		MerchantID: profile.Account.ID,
+		Limit:      10,
+		Now:        now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queue.Counts.PendingReview != 1 || len(queue.Qualifications) != 1 {
+		t.Fatalf("expected one pending qualification in admin queue, got %+v", queue)
+	}
+	if queue.Qualifications[0].Qualification.ID != qualificationID || queue.Qualifications[0].RecommendedOperation.Key != "merchant-qualification-review" {
+		t.Fatalf("expected review recommendation for pending qualification, got %+v", queue.Qualifications[0])
+	}
+	if queue.Qualifications[0].Merchant.ID != profile.Account.ID || len(queue.Qualifications[0].MissingQualifications) != 2 {
+		t.Fatalf("expected merchant context and gate state, got %+v", queue.Qualifications[0])
+	}
+
+	detail, err := store.AdminMerchantQualificationDetail(AdminMerchantQualificationDetailRequest{
+		QualificationID: qualificationID,
+		Now:             now,
+		AuditLimit:      5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Qualification.ID != qualificationID || detail.IncidentCode != "merchant_qualification.pending_review" {
+		t.Fatalf("expected pending qualification detail, got %+v", detail)
+	}
+	if len(detail.Checklist) == 0 || detail.AuditFilters[0].TargetID != qualificationID {
+		t.Fatalf("expected checklist and audit filter in detail, got %+v", detail)
+	}
+
+	_, _, auditLog, outboxEvent, err := store.ReviewMerchantQualificationWithAudit(ReviewMerchantQualificationRequest{
+		MerchantID:      profile.Account.ID,
+		QualificationID: qualificationID,
+		Decision:        "approve",
+		Reason:          "营业执照核验通过",
+		ReviewedAt:      now,
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "admin_1",
+		Action:     "admin.merchant_qualification.reviewed",
+		TargetType: "merchant_qualification",
+		TargetID:   qualificationID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outboxEvent == nil || outboxEvent.Topic != "merchant.qualification_reviewed" || outboxEvent.Payload["merchant_id"] != profile.Account.ID {
+		t.Fatalf("expected merchant qualification reviewed outbox event, got %+v", outboxEvent)
+	}
+	reviewEvents, err := store.OutboxEvents(OutboxEventsRequest{Topic: "merchant.qualification_reviewed", Limit: 10, Now: now.Add(time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviewEvents) != 1 || reviewEvents[0].ID != outboxEvent.ID || reviewEvents[0].Payload["status"] != QualificationStatusApproved {
+		t.Fatalf("expected review outbox event in queue, got %+v", reviewEvents)
+	}
+	detail, err = store.AdminMerchantQualificationDetail(AdminMerchantQualificationDetailRequest{
+		QualificationID: qualificationID,
+		Now:             now,
+		AuditLimit:      5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Qualification.Status != QualificationStatusApproved || detail.RecommendedOperation.Key != "audit-logs" {
+		t.Fatalf("expected approved detail to recommend audit lookup, got %+v", detail)
+	}
+	if len(detail.RecentAudits) != 1 || detail.RecentAudits[0].ID != auditLog.ID {
+		t.Fatalf("expected recent review audit in detail, got %+v", detail.RecentAudits)
+	}
+}
+
+func TestMerchantNotificationCenterStoresAndReadsQualificationReview(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
+	created, err := store.CreateNotification(CreateNotificationRequest{
+		TargetRole:     "merchant",
+		TargetID:       "merchant_1",
+		Type:           "merchant.qualification_reviewed",
+		Title:          "商户资质审核结果",
+		Body:           "资质审核已通过，系统已更新商户接单资格。",
+		SourceTopic:    "merchant.qualification_reviewed",
+		SourceEventID:  "obe_mq_1",
+		IdempotencyKey: "notify:merchant.qualification_reviewed:obe_mq_1",
+		CreatedAt:      now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.ID == "" || created.Channel != NotificationChannelInApp || created.Status != NotificationStatusUnread {
+		t.Fatalf("expected unread in-app notification, got %+v", created)
+	}
+	duplicate, err := store.CreateNotification(CreateNotificationRequest{
+		TargetRole:     "merchant",
+		TargetID:       "merchant_1",
+		Type:           "merchant.qualification_reviewed",
+		Title:          "重复投递",
+		Body:           "重复投递",
+		IdempotencyKey: "notify:merchant.qualification_reviewed:obe_mq_1",
+		CreatedAt:      now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicate.ID != created.ID || duplicate.Title != created.Title {
+		t.Fatalf("expected notification idempotency to return original record, got %+v", duplicate)
+	}
+	unread, err := store.Notifications(NotificationListRequest{TargetRole: "merchant", TargetID: "merchant_1", Status: NotificationStatusUnread, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unread) != 1 || unread[0].ID != created.ID || unread[0].SourceEventID != "obe_mq_1" {
+		t.Fatalf("expected one unread merchant notification, got %+v", unread)
+	}
+	delivered, err := store.RecordNotificationDelivery(RecordNotificationDeliveryRequest{
+		NotificationID:    created.ID,
+		Channel:           NotificationChannelInApp,
+		Provider:          "in_app",
+		Status:            NotificationDeliveryDelivered,
+		ProviderMessageID: created.ID,
+		IdempotencyKey:    "delivery:notify:merchant.qualification_reviewed:obe_mq_1:in_app",
+		AttemptedAt:       now.Add(10 * time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delivered.TargetRole != "merchant" || delivered.TargetID != "merchant_1" || delivered.DeliveredAt.IsZero() {
+		t.Fatalf("expected delivered merchant notification receipt, got %+v", delivered)
+	}
+	duplicateDelivery, err := store.RecordNotificationDelivery(RecordNotificationDeliveryRequest{
+		NotificationID: created.ID,
+		Status:         NotificationDeliveryFailed,
+		ErrorMessage:   "duplicate should not overwrite",
+		IdempotencyKey: "delivery:notify:merchant.qualification_reviewed:obe_mq_1:in_app",
+		AttemptedAt:    now.Add(20 * time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicateDelivery.ID != delivered.ID || duplicateDelivery.Status != NotificationDeliveryDelivered {
+		t.Fatalf("expected delivery idempotency to return original receipt, got %+v", duplicateDelivery)
+	}
+	failed, err := store.RecordNotificationDelivery(RecordNotificationDeliveryRequest{
+		NotificationID: created.ID,
+		Channel:        NotificationWechatSubscribe,
+		Provider:       "wechat_subscribe",
+		Status:         NotificationDeliveryFailed,
+		ErrorCode:      "invalid_openid",
+		ErrorMessage:   "openid missing",
+		IdempotencyKey: "delivery:notify:merchant.qualification_reviewed:obe_mq_1:wechat",
+		AttemptedAt:    now.Add(30 * time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedDeliveries, err := store.NotificationDeliveries(NotificationDeliveryListRequest{TargetRole: "merchant", TargetID: "merchant_1", Status: NotificationDeliveryFailed, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(failedDeliveries) != 1 || failedDeliveries[0].ID != failed.ID || failedDeliveries[0].ErrorCode != "invalid_openid" {
+		t.Fatalf("expected failed delivery receipt list, got %+v", failedDeliveries)
+	}
+	emission, event, audit, err := store.EmitNotificationFailureAlerts(NotificationFailureAlertEmissionRequest{
+		TargetRole: "merchant",
+		TargetID:   "merchant_1",
+		Channel:    NotificationWechatSubscribe,
+		Limit:      10,
+		Now:        now.Add(time.Minute),
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "ops_1",
+		Action:     "admin.notification_delivery_failure_alerts.emitted",
+		TargetType: "notification_delivery_alerts",
+		TargetID:   "failed",
+		CreatedAt:  now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if emission.Status != "emitted" || emission.FailedCount != 1 || emission.OutboxEventID == "" || emission.Deliveries[0].ID != failed.ID {
+		t.Fatalf("expected failed delivery alert emission, got %+v", emission)
+	}
+	if event == nil || event.Topic != "notification.delivery_failed_alerts" || event.EventType != "notification.delivery_failed_alerts.emitted" {
+		t.Fatalf("expected notification failure alert outbox event, got %+v", event)
+	}
+	if audit == nil || audit.Action != "admin.notification_delivery_failure_alerts.emitted" || audit.Payload["failed_count"] != 1 || audit.Payload["outbox_event_id"] != event.ID {
+		t.Fatalf("expected audit log for notification failure alert, got %+v", audit)
+	}
+	alertEvents, err := store.OutboxEvents(OutboxEventsRequest{Topic: "notification.delivery_failed_alerts", Now: now.Add(time.Minute), Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alertEvents) != 1 || alertEvents[0].ID != event.ID {
+		t.Fatalf("expected notification failure alert outbox event to be queryable, got %+v", alertEvents)
+	}
+	retrySchedule, retryEvent, retryAudit, err := store.ScheduleNotificationDeliveryRetries(NotificationDeliveryRetryScheduleRequest{
+		TargetRole:        "merchant",
+		TargetID:          "merchant_1",
+		Channel:           NotificationWechatSubscribe,
+		Provider:          "wechat_subscribe",
+		Limit:             10,
+		RetryAfterSeconds: 300,
+		Now:               now.Add(2 * time.Minute),
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "ops_1",
+		Action:     "admin.notification_delivery_retries.scheduled",
+		TargetType: "notification_delivery_retries",
+		TargetID:   "failed",
+		CreatedAt:  now.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retrySchedule.Status != "scheduled" || retrySchedule.ScheduledCount != 1 || retrySchedule.RetryAfterSeconds != 300 || retrySchedule.Deliveries[0].ID != failed.ID {
+		t.Fatalf("expected notification delivery retry schedule, got %+v", retrySchedule)
+	}
+	if len(retrySchedule.Notifications) != 1 || retrySchedule.Notifications[0].ID != created.ID || retrySchedule.Notifications[0].Body == "" {
+		t.Fatalf("expected retry schedule to carry notification snapshot for provider resend, got %+v", retrySchedule.Notifications)
+	}
+	if retryEvent == nil || retryEvent.Topic != "notification.delivery_retries" || retryEvent.EventType != "notification.delivery_retries.scheduled" || !retryEvent.AvailableAt.Equal(retrySchedule.RetryAt) {
+		t.Fatalf("expected scheduled notification delivery retry outbox event, got %+v", retryEvent)
+	}
+	if notifications, ok := retryEvent.Payload["notifications"].([]PlatformNotification); !ok || len(notifications) != 1 || notifications[0].ID != created.ID {
+		t.Fatalf("expected retry outbox payload to include notification snapshot, got %+v", retryEvent.Payload["notifications"])
+	}
+	if retryAudit == nil || retryAudit.Action != "admin.notification_delivery_retries.scheduled" || retryAudit.Payload["scheduled_count"] != 1 || retryAudit.Payload["retry_after_seconds"] != 300 {
+		t.Fatalf("expected audit log for notification delivery retry schedule, got %+v", retryAudit)
+	}
+	blockedRetryEvents, err := store.OutboxEvents(OutboxEventsRequest{Topic: "notification.delivery_retries", Now: now.Add(2 * time.Minute), Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blockedRetryEvents) != 0 {
+		t.Fatalf("expected retry outbox to stay hidden during provider backoff, got %+v", blockedRetryEvents)
+	}
+	readyRetryEvents, err := store.OutboxEvents(OutboxEventsRequest{Topic: "notification.delivery_retries", Now: retrySchedule.RetryAt, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(readyRetryEvents) != 1 || readyRetryEvents[0].ID != retryEvent.ID {
+		t.Fatalf("expected retry outbox event after backoff, got %+v", readyRetryEvents)
+	}
+	quietQueued, err := store.RecordNotificationDelivery(RecordNotificationDeliveryRequest{
+		NotificationID: created.ID,
+		Channel:        NotificationPush,
+		Provider:       "push",
+		Status:         NotificationDeliveryQueued,
+		ErrorCode:      "notification_quiet_window",
+		ErrorMessage:   "notification quiet window suppressed push",
+		IdempotencyKey: "delivery:notify:merchant.qualification_reviewed:obe_mq_1:push:quiet",
+		AttemptedAt:    now.Add(40 * time.Second),
+		RetryAt:        now.Add(10 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	quietDeliveries, err := store.NotificationDeliveries(NotificationDeliveryListRequest{
+		TargetRole: "merchant",
+		TargetID:   "merchant_1",
+		Status:     NotificationDeliveryQueued,
+		ErrorCode:  "notification_quiet_window",
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(quietDeliveries) != 1 || quietDeliveries[0].ID != quietQueued.ID {
+		t.Fatalf("expected queued quiet-window delivery filter, got %+v", quietDeliveries)
+	}
+	if quietDeliveries[0].RetryAt.IsZero() || !quietDeliveries[0].RetryAt.Equal(now.Add(10*time.Minute)) {
+		t.Fatalf("expected queued quiet-window delivery retry_at, got %+v", quietDeliveries[0])
+	}
+	quietRetryAt := now.Add(10 * time.Minute)
+	quietRetrySchedule, quietRetryEvent, quietRetryAudit, err := store.ScheduleNotificationDeliveryRetries(NotificationDeliveryRetryScheduleRequest{
+		TargetRole: "merchant",
+		TargetID:   "merchant_1",
+		Channel:    NotificationPush,
+		Provider:   "push",
+		Status:     NotificationDeliveryQueued,
+		ErrorCode:  "notification_quiet_window",
+		Limit:      10,
+		RetryAt:    quietRetryAt,
+		Now:        now.Add(3 * time.Minute),
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "ops_1",
+		Action:     "admin.notification_delivery_retries.scheduled",
+		TargetType: "notification_delivery_retries",
+		TargetID:   NotificationDeliveryQueued,
+		CreatedAt:  now.Add(3 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quietRetrySchedule.Status != "scheduled" || quietRetrySchedule.DeliveryStatus != NotificationDeliveryQueued || quietRetrySchedule.ErrorCode != "notification_quiet_window" || !quietRetrySchedule.RetryAt.Equal(quietRetryAt) {
+		t.Fatalf("expected quiet-window queued retry schedule, got %+v", quietRetrySchedule)
+	}
+	if quietRetryEvent == nil || quietRetryEvent.AggregateID != NotificationDeliveryQueued || !quietRetryEvent.AvailableAt.Equal(quietRetryAt) || quietRetryEvent.Payload["delivery_status"] != NotificationDeliveryQueued {
+		t.Fatalf("expected quiet-window retry outbox event, got %+v", quietRetryEvent)
+	}
+	if quietRetryAudit == nil || quietRetryAudit.TargetID != NotificationDeliveryQueued || quietRetryAudit.Payload["error_code"] != "notification_quiet_window" {
+		t.Fatalf("expected quiet-window retry audit payload, got %+v", quietRetryAudit)
+	}
+	autoQuietQueued, err := store.RecordNotificationDelivery(RecordNotificationDeliveryRequest{
+		NotificationID: created.ID,
+		Channel:        NotificationSMS,
+		Provider:       "sms",
+		Status:         NotificationDeliveryQueued,
+		ErrorCode:      "notification_quiet_window",
+		ErrorMessage:   "notification quiet window suppressed sms",
+		IdempotencyKey: "delivery:notify:merchant.qualification_reviewed:obe_mq_1:sms:quiet",
+		AttemptedAt:    now.Add(45 * time.Second),
+		RetryAt:        now.Add(11 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockedQuietSchedule, blockedQuietEvent, _, err := store.ScheduleNotificationQuietWindowRetries(NotificationQuietWindowRetryScheduleRequest{
+		Channel:  NotificationSMS,
+		Provider: "sms",
+		Limit:    10,
+		Now:      now.Add(10 * time.Minute),
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "ops_1",
+		Action:     "admin.notification_delivery_retries.scheduled",
+		TargetType: "notification_delivery_retries",
+		TargetID:   NotificationDeliveryQueued,
+		CreatedAt:  now.Add(10 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blockedQuietSchedule.Status != "skipped" || blockedQuietSchedule.ScheduledCount != 0 || blockedQuietEvent != nil {
+		t.Fatalf("expected quiet-window auto scan to skip future retry_at delivery, got %+v event=%+v", blockedQuietSchedule, blockedQuietEvent)
+	}
+	autoQuietSchedule, autoQuietEvent, autoQuietAudit, err := store.ScheduleNotificationQuietWindowRetries(NotificationQuietWindowRetryScheduleRequest{
+		Channel:  NotificationSMS,
+		Provider: "sms",
+		Limit:    10,
+		Now:      now.Add(11 * time.Minute),
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "ops_1",
+		Action:     "admin.notification_delivery_retries.scheduled",
+		TargetType: "notification_delivery_retries",
+		TargetID:   NotificationDeliveryQueued,
+		CreatedAt:  now.Add(11 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if autoQuietSchedule.Status != "scheduled" || autoQuietSchedule.ScheduledCount != 1 || autoQuietSchedule.Deliveries[0].ID != autoQuietQueued.ID || !autoQuietSchedule.RetryAt.Equal(now.Add(11*time.Minute)) {
+		t.Fatalf("expected due quiet-window auto retry schedule, got %+v", autoQuietSchedule)
+	}
+	if autoQuietEvent == nil || autoQuietEvent.AggregateID != NotificationDeliveryQueued || !autoQuietEvent.AvailableAt.Equal(autoQuietSchedule.RetryAt) {
+		t.Fatalf("expected due quiet-window auto retry outbox event, got %+v", autoQuietEvent)
+	}
+	if autoQuietAudit == nil || autoQuietAudit.Payload["delivery_status"] != NotificationDeliveryQueued || autoQuietAudit.Payload["error_code"] != "notification_quiet_window" {
+		t.Fatalf("expected due quiet-window auto retry audit, got %+v", autoQuietAudit)
+	}
+	preference, preferenceAudit, err := store.SaveNotificationPreferenceWithAudit(SaveNotificationPreferenceRequest{
+		TargetRole:       "merchant",
+		TargetID:         "merchant_1",
+		NotificationType: "merchant.qualification_reviewed",
+		EnabledChannels:  []string{NotificationWechatSubscribe, NotificationPush},
+		DisabledChannels: []string{NotificationSMS},
+		QuietHours: NotificationQuietHours{
+			Enabled:        true,
+			Start:          "22:00",
+			End:            "08:00",
+			TimezoneOffset: "+08:00",
+			Channels:       []string{NotificationWechatSubscribe, NotificationPush},
+		},
+		UpdatedAt: now.Add(3 * time.Minute),
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "ops_1",
+		Action:     "admin.notification_preferences.saved",
+		TargetType: "notification_preference",
+		TargetID:   "pending",
+		CreatedAt:  now.Add(3 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preference.PreferenceKey != "merchant:merchant_1:merchant.qualification_reviewed" || preference.QuietHours.TimezoneOffset != "+08:00" {
+		t.Fatalf("expected merchant notification preference rule, got %+v", preference)
+	}
+	if preferenceAudit == nil || preferenceAudit.Action != "admin.notification_preferences.saved" || preferenceAudit.TargetID != preference.ID {
+		t.Fatalf("expected notification preference audit log, got %+v", preferenceAudit)
+	}
+	preferences, err := store.NotificationPreferences(NotificationPreferenceListRequest{
+		TargetRole:       "merchant",
+		TargetID:         "merchant_1",
+		NotificationType: "merchant.qualification_reviewed",
+		Limit:            10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preferences) != 1 || preferences[0].ID != preference.ID || preferences[0].DisabledChannels[0] != NotificationSMS {
+		t.Fatalf("expected saved merchant notification preference to be queryable, got %+v", preferences)
+	}
+	batch, batchAudit, err := store.SaveNotificationPreferenceBatchWithAudit(SaveNotificationPreferenceBatchRequest{
+		Reason:    "bulk notification policy rollout",
+		UpdatedAt: now.Add(4 * time.Minute),
+		Preferences: []SaveNotificationPreferenceRequest{
+			{
+				TargetRole:       "merchant",
+				TargetID:         "merchant_1",
+				NotificationType: "order.status_changed",
+				EnabledChannels:  []string{NotificationWechatSubscribe, NotificationPush},
+				DisabledChannels: []string{NotificationSMS},
+			},
+			{
+				TargetRole:       "user",
+				TargetID:         "user_1",
+				NotificationType: "after_sales.updated",
+				DisabledChannels: []string{NotificationSMS},
+			},
+		},
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "ops_1",
+		Action:     "admin.notification_preferences.batch_saved",
+		TargetType: "notification_preference_batch",
+		TargetID:   "pending",
+		CreatedAt:  now.Add(4 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if batch.Saved != 2 || len(batch.PreferenceKeys) != 2 || batch.BatchID == "" {
+		t.Fatalf("expected notification preference batch result, got %+v", batch)
+	}
+	if batchAudit == nil || batchAudit.Action != "admin.notification_preferences.batch_saved" || batchAudit.TargetID != batch.BatchID || batchAudit.Payload["saved"] != 2 {
+		t.Fatalf("expected notification preference batch audit, got %+v", batchAudit)
+	}
+	batchPreferences, err := store.NotificationPreferences(NotificationPreferenceListRequest{
+		TargetRole: "user",
+		TargetID:   "user_1",
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batchPreferences) != 1 || batchPreferences[0].PreferenceKey != "user:user_1:after_sales.updated" {
+		t.Fatalf("expected batch-saved user notification preference, got %+v", batchPreferences)
+	}
+	if _, _, err := store.SaveNotificationPreferenceBatchWithAudit(SaveNotificationPreferenceBatchRequest{
+		Reason: "duplicate policy",
+		Preferences: []SaveNotificationPreferenceRequest{
+			{TargetRole: "merchant", TargetID: "merchant_1", NotificationType: "order.status_changed"},
+			{TargetRole: "merchant", TargetID: "merchant_1", NotificationType: "order.status_changed"},
+		},
+	}, RecordAuditLogRequest{
+		ActorType:  "admin",
+		ActorID:    "ops_1",
+		Action:     "admin.notification_preferences.batch_saved",
+		TargetType: "notification_preference_batch",
+		TargetID:   "pending",
+		CreatedAt:  now.Add(4 * time.Minute),
+	}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("expected duplicate notification preference batch keys to be rejected, got %v", err)
+	}
+	if _, err := store.SaveNotificationPreference(SaveNotificationPreferenceRequest{
+		TargetRole:       "merchant",
+		TargetID:         "merchant_1",
+		NotificationType: "merchant.qualification_reviewed",
+		EnabledChannels:  []string{NotificationSMS},
+		DisabledChannels: []string{NotificationSMS},
+	}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("expected overlapping notification preference channels to be rejected, got %v", err)
+	}
+	read, err := store.MarkNotificationRead(MarkNotificationReadRequest{
+		NotificationID: created.ID,
+		TargetRole:     "merchant",
+		TargetID:       "merchant_1",
+		ReadAt:         now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Status != NotificationStatusRead || read.ReadAt.IsZero() {
+		t.Fatalf("expected notification to be marked read, got %+v", read)
+	}
+	unread, err = store.Notifications(NotificationListRequest{TargetRole: "merchant", TargetID: "merchant_1", Status: NotificationStatusUnread, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unread) != 0 {
+		t.Fatalf("expected unread list to be empty after read, got %+v", unread)
 	}
 }
 
@@ -1648,7 +2880,7 @@ func TestRiderAndStationManagerInviteRegistration(t *testing.T) {
 func TestCreateMerchantInviteWithAuditRecordsVerifiedAudit(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	store.ConfigureAuditLogIntegrity("invite-admin-audit-secret")
-	expiresAt := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	expiresAt := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Second)
 
 	invite, audit, err := store.CreateMerchantInviteWithAudit(
 		CreateMerchantInviteRequest{AdminID: "admin_1", ExpiresAt: expiresAt},
@@ -1691,7 +2923,7 @@ func TestCreateMerchantInviteWithAuditRecordsVerifiedAudit(t *testing.T) {
 func TestCreateRiderInviteWithAuditRecordsVerifiedAudit(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	store.ConfigureAuditLogIntegrity("invite-rider-audit-secret")
-	expiresAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	expiresAt := time.Now().UTC().Add(72 * time.Hour).Truncate(time.Second)
 
 	invite, audit, err := store.CreateRiderInviteWithAudit(
 		CreateRiderInviteRequest{
@@ -1876,6 +3108,177 @@ func TestBalancePaymentRequiresPaymentPassword(t *testing.T) {
 	}
 }
 
+func TestShopDetailAggregatesReviewsAndMerchantInfo(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+
+	created, err := store.CreateReview(Review{
+		UserID:      "user_1",
+		TargetType:  ReviewTargetShop,
+		TargetID:    "shop_1",
+		Rating:      5,
+		RiderRating: 4,
+		Content:     "今天这单出餐很稳，备注也有照顾到。",
+		ImageURLs:   []string{"https://cdn.test/reviews/shop-detail-1.jpg"},
+		ItemRatings: []ReviewItemRating{
+			{ProductName: "招牌牛肉饭", Rating: 5},
+			{ProductName: "柠檬茶", Rating: 4},
+		},
+		Tags: []string{"出餐快", "备注有看"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := store.ShopDetail("shop_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.ShopID != "shop_1" || detail.Name != "蓝海餐厅" {
+		t.Fatalf("expected seeded shop detail, got %+v", detail)
+	}
+	if detail.MerchantInfo.ContactPhone != "13800000001" || detail.MerchantInfo.BusinessHours == "" {
+		t.Fatalf("expected merchant info to include contact and hours, got %+v", detail.MerchantInfo)
+	}
+	if len(detail.ActivityTags) < 3 || len(detail.MerchantInfo.QualificationItems) == 0 {
+		t.Fatalf("expected activity tags and qualification items, got %+v", detail)
+	}
+	if detail.ReviewSummary.ReviewCount < 4 || detail.ReviewSummary.AverageRating == "" || detail.ReviewSummary.PositiveRate == "" {
+		t.Fatalf("expected aggregated review summary, got %+v", detail.ReviewSummary)
+	}
+	if len(detail.Reviews) < 4 {
+		t.Fatalf("expected seeded and dynamic reviews, got %+v", detail.Reviews)
+	}
+	if detail.Reviews[0].ReviewID != created.ID || detail.Reviews[0].UserName == "" || detail.Reviews[0].CreatedText == "" {
+		t.Fatalf("expected latest dynamic review to surface first, got %+v", detail.Reviews[0])
+	}
+	if len(detail.Reviews[0].ImageURLs) != 1 || detail.Reviews[0].ImageURLs[0] != "https://cdn.test/reviews/shop-detail-1.jpg" {
+		t.Fatalf("expected review images to surface in shop detail, got %+v", detail.Reviews[0])
+	}
+	if detail.Reviews[0].RiderRating != 4 || detail.Reviews[0].RiderStarsText == "" || len(detail.Reviews[0].ItemHighlights) != 2 {
+		t.Fatalf("expected rider rating and item highlights in shop detail, got %+v", detail.Reviews[0])
+	}
+}
+
+func TestOrderReviewStateAndOrderScopedLookup(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+
+	lat := 39.99
+	lng := 116.48
+	address, err := store.SaveAddress(UserAddress{
+		UserID:       "user_1",
+		ContactName:  "张三",
+		ContactPhone: "13800000000",
+		City:         "北京",
+		Detail:       "望京SOHO",
+		Latitude:     &lat,
+		Longitude:    &lng,
+		Tag:          AddressTagHome,
+		IsDefault:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertCartItem(UpsertCartItemRequest{
+		UserID:    "user_1",
+		ShopID:    "shop_1",
+		ProductID: "prod_beef_rice",
+		Quantity:  1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	order, _, err := store.CheckoutCart(CheckoutCartRequest{
+		UserID:    "user_1",
+		ShopID:    "shop_1",
+		AddressID: address.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := store.CreateReview(Review{
+		UserID:      "user_1",
+		OrderID:     order.ID,
+		TargetType:  ReviewTargetOrder,
+		Rating:      4,
+		RiderRating: 5,
+		Content:     "整体都挺稳，包装也没漏。",
+		ImageURLs:   []string{"https://cdn.test/reviews/review-1.jpg"},
+		ItemRatings: []ReviewItemRating{
+			{ProductID: "prod_beef_rice", ProductName: "招牌牛肉饭", Rating: 5, Tags: []string{"分量在线", "值得回购"}},
+		},
+		Tags:      []string{"包装完整", "出餐快"},
+		Anonymous: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created.Anonymous || created.TargetID != order.ID {
+		t.Fatalf("expected anonymous order review bound to order, got %+v", created)
+	}
+
+	loadedOrder, err := store.OrderByID(order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loadedOrder.Reviewed {
+		t.Fatalf("expected order to report reviewed state, got %+v", loadedOrder)
+	}
+
+	reviews, err := store.UserReviews(ReviewListRequest{UserID: "user_1", OrderID: order.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 1 || reviews[0].ID != created.ID || !reviews[0].Anonymous {
+		t.Fatalf("expected one anonymous order-scoped review, got %+v", reviews)
+	}
+	if len(reviews[0].ImageURLs) != 1 || reviews[0].ImageURLs[0] != "https://cdn.test/reviews/review-1.jpg" || len(reviews[0].ItemRatings) != 1 || reviews[0].ItemRatings[0].Rating != 5 || reviews[0].RiderRating != 5 {
+		t.Fatalf("expected review image urls and item ratings to persist, got %+v", reviews[0])
+	}
+
+	detail, err := store.ShopDetail("shop_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Reviews[0].ReviewID != created.ID || detail.Reviews[0].UserName != "匿名用户" || detail.Reviews[0].AvatarText != "匿" {
+		t.Fatalf("expected anonymous review to be masked in shop detail, got %+v", detail.Reviews[0])
+	}
+	if len(detail.Reviews[0].ImageURLs) != 1 || detail.Reviews[0].RiderStarsText == "" || len(detail.Reviews[0].ItemHighlights) != 1 {
+		t.Fatalf("expected shop detail to expose review media and item highlights, got %+v", detail.Reviews[0])
+	}
+
+	updated, err := store.CreateReview(Review{
+		UserID:      "user_1",
+		OrderID:     order.ID,
+		TargetType:  ReviewTargetOrder,
+		Rating:      5,
+		RiderRating: 3,
+		Content:     "更新后还是很满意。",
+		ImageURLs:   []string{"https://cdn.test/reviews/review-2.jpg"},
+		ItemRatings: []ReviewItemRating{
+			{ProductID: "prod_beef_rice", ProductName: "招牌牛肉饭", Rating: 4, Tags: []string{"口味稳定"}},
+		},
+		Tags:      []string{"味道不错"},
+		Anonymous: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != created.ID || updated.Content != "更新后还是很满意。" || updated.Anonymous {
+		t.Fatalf("expected same review id to be updated in place, got created=%+v updated=%+v", created, updated)
+	}
+
+	reviews, err = store.UserReviews(ReviewListRequest{UserID: "user_1", OrderID: order.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 1 || reviews[0].Content != "更新后还是很满意。" || reviews[0].Anonymous {
+		t.Fatalf("expected updated order-scoped review, got %+v", reviews)
+	}
+	if len(reviews[0].ImageURLs) != 1 || reviews[0].ImageURLs[0] != "https://cdn.test/reviews/review-2.jpg" || len(reviews[0].ItemRatings) != 1 || reviews[0].ItemRatings[0].Rating != 4 || reviews[0].RiderRating != 3 {
+		t.Fatalf("expected updated review images and item ratings, got %+v", reviews[0])
+	}
+}
+
 func TestShopAddressCartCheckoutPaymentAndGrabFlow(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	shops := store.Shops()
@@ -1922,7 +3325,7 @@ func TestShopAddressCartCheckoutPaymentAndGrabFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.PayableFen != 5598 {
+	if summary.PayableFen != 5598 || summary.ShopName != "蓝海餐厅" {
 		t.Fatalf("expected payable 5598, got %+v", summary)
 	}
 
@@ -1940,6 +3343,9 @@ func TestShopAddressCartCheckoutPaymentAndGrabFlow(t *testing.T) {
 	}
 	if order.Status != StatusPendingPayment || order.AmountFen != checkoutSummary.PayableFen || len(order.Items) != 1 {
 		t.Fatalf("unexpected checkout order: order=%+v summary=%+v", order, checkoutSummary)
+	}
+	if order.ShopName != "蓝海餐厅" || order.AddressSnapshot.ContactName != "张三" || order.AddressSnapshot.Detail != "望京SOHO" {
+		t.Fatalf("expected order snapshot fields, got %+v", order)
 	}
 	emptySummary, err := store.CartSummary("user_1", "shop_1")
 	if err != nil {
@@ -1995,6 +3401,9 @@ func TestShopAddressCartCheckoutPaymentAndGrabFlow(t *testing.T) {
 	}
 	if orderDetail.ID != order.ID || len(orderDetail.Events) < 2 {
 		t.Fatalf("expected order detail with events, got %+v", orderDetail)
+	}
+	if orderDetail.ShopName != "蓝海餐厅" || orderDetail.AddressSnapshot.ContactPhone != "13800000000" {
+		t.Fatalf("expected order detail snapshot fields, got %+v", orderDetail)
 	}
 }
 
@@ -2075,18 +3484,23 @@ func TestAutoAssignAndRejectDispatchesNextOnlineRider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assignedOrder.Status != StatusRiderAssigned || assignedOrder.RiderID != "rider_1" || decision.Mode != DispatchModeAutoAssign {
-		t.Fatalf("expected rider_1 auto assignment, order=%+v decision=%+v", assignedOrder, decision)
+	if assignedOrder.Status != StatusRiderAssigned || decision.Mode != DispatchModeAutoAssign {
+		t.Fatalf("expected successful auto assignment, order=%+v decision=%+v", assignedOrder, decision)
 	}
 	if decision.StationID != "station_1" {
 		t.Fatalf("expected station_1 dispatch decision, got %+v", decision)
 	}
-	reassignedOrder, nextDecision, err := store.RejectRiderAssignment(RejectRiderAssignmentRequest{OrderID: paidOrder.ID, RiderID: "rider_1"})
+	firstRiderID := assignedOrder.RiderID
+	nextRiderID := "rider_1"
+	if firstRiderID == "rider_1" {
+		nextRiderID = "rider_2"
+	}
+	reassignedOrder, nextDecision, err := store.RejectRiderAssignment(RejectRiderAssignmentRequest{OrderID: paidOrder.ID, RiderID: firstRiderID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reassignedOrder.Status != StatusRiderAssigned || reassignedOrder.RiderID != "rider_2" || nextDecision.CandidateRiderID != "rider_2" {
-		t.Fatalf("expected rejection to assign rider_2, order=%+v decision=%+v", reassignedOrder, nextDecision)
+	if reassignedOrder.Status != StatusRiderAssigned || reassignedOrder.RiderID != nextRiderID || nextDecision.CandidateRiderID != nextRiderID {
+		t.Fatalf("expected rejection to assign next rider, order=%+v decision=%+v", reassignedOrder, nextDecision)
 	}
 	events, err := store.DispatchEvents(paidOrder.ID, "station_manager_1")
 	if err != nil {
@@ -2118,8 +3532,10 @@ func TestTimeoutReassignSkipsTimedOutRider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assignedOrder.RiderID != "rider_1" {
-		t.Fatalf("expected rider_1 initial assignment, got %+v", assignedOrder)
+	firstRiderID := assignedOrder.RiderID
+	nextRiderID := "rider_1"
+	if firstRiderID == "rider_1" {
+		nextRiderID = "rider_2"
 	}
 	if _, _, err := store.TimeoutReassignOrder(TimeoutReassignOrderRequest{OrderID: paidOrder.ID, Now: assignNow.Add(59 * time.Second), TimeoutSeconds: 60}); !errors.Is(err, ErrInvalidOrderState) {
 		t.Fatalf("expected early timeout reassign to be rejected, got %v", err)
@@ -2128,8 +3544,8 @@ func TestTimeoutReassignSkipsTimedOutRider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reassignedOrder.Status != StatusRiderAssigned || reassignedOrder.RiderID != "rider_2" || decision.CandidateRiderID != "rider_2" || decision.Reason != "assignment_timeout" {
-		t.Fatalf("expected timeout to reassign rider_2, order=%+v decision=%+v", reassignedOrder, decision)
+	if reassignedOrder.Status != StatusRiderAssigned || reassignedOrder.RiderID != nextRiderID || decision.CandidateRiderID != nextRiderID || decision.Reason != "assignment_timeout" {
+		t.Fatalf("expected timeout to reassign next rider, order=%+v decision=%+v", reassignedOrder, decision)
 	}
 	events, err := store.DispatchEvents(paidOrder.ID, "station_manager_1")
 	if err != nil {
@@ -2138,8 +3554,8 @@ func TestTimeoutReassignSkipsTimedOutRider(t *testing.T) {
 	if len(events) != 3 || events[0].Type != "dispatch.auto_assign" || events[1].Type != "dispatch.timeout" || events[2].Type != "dispatch.auto_assign" {
 		t.Fatalf("expected auto/timeout/auto dispatch events, got %+v", events)
 	}
-	if len(events[1].RejectedRiderIDs) != 1 || events[1].RejectedRiderIDs[0] != "rider_1" {
-		t.Fatalf("expected timeout event to skip rider_1, got %+v", events[1])
+	if len(events[1].RejectedRiderIDs) != 1 || events[1].RejectedRiderIDs[0] != firstRiderID {
+		t.Fatalf("expected timeout event to skip first rider, got %+v", events[1])
 	}
 }
 
@@ -2247,9 +3663,7 @@ func TestCompensateOrderStateRepairsPaymentAndDispatchDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assignedOrder.RiderID != "rider_1" {
-		t.Fatalf("expected auto assignment to rider_1, got %+v", assignedOrder)
-	}
+	firstRiderID := assignedOrder.RiderID
 	store.orders[paidOrder.ID].Status = StatusDispatching
 	store.orders[paidOrder.ID].RiderID = ""
 
@@ -2257,7 +3671,7 @@ func TestCompensateOrderStateRepairsPaymentAndDispatchDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !repaired.Changed || repaired.ExpectedStatus != StatusRiderAssigned || repaired.ExpectedRiderID != "rider_1" || repaired.Order.Status != StatusRiderAssigned || repaired.Order.RiderID != "rider_1" {
+	if !repaired.Changed || repaired.ExpectedStatus != StatusRiderAssigned || repaired.ExpectedRiderID != firstRiderID || repaired.Order.Status != StatusRiderAssigned || repaired.Order.RiderID != firstRiderID {
 		t.Fatalf("expected dispatch event compensation to restore rider assignment, got %+v", repaired)
 	}
 	rechecked, err := store.CompensateOrderState(CompensateOrderStateRequest{OrderID: paidOrder.ID, ActorID: "admin_1"})
@@ -2518,12 +3932,133 @@ func TestStationManagerManualAssignUsesStationScope(t *testing.T) {
 	if _, err := store.SaveStationTaskConfig(SaveStationTaskConfigRequest{StationManagerID: "station_manager_1", DailyTaskDurationMinutes: 25 * 60, DailyFixedOrderCount: 28}); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("expected invalid duration to be rejected, got %v", err)
 	}
+	if _, err := store.CreateReview(Review{
+		UserID:      assignedOrder.UserID,
+		OrderID:     assignedOrder.ID,
+		TargetType:  ReviewTargetOrder,
+		TargetID:    assignedOrder.ID,
+		Rating:      5,
+		RiderRating: 4,
+		Content:     "配送准时，餐品完好。",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	performance, err := store.StationRiderPerformance("station_manager_1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(performance) != 2 || performance[0].RiderID != "rider_2" || performance[0].Level == "" || performance[0].DispatchPriority == 0 {
 		t.Fatalf("expected station rider performance ranked for station_1, got %+v", performance)
+	}
+	if performance[0].RiderAverageRating != 4 || performance[0].RiderReviewCount != 1 {
+		t.Fatalf("expected rider performance to include delivery rating aggregation, got %+v", performance[0])
+	}
+	if performance[0].Score <= 0 {
+		t.Fatalf("expected rider performance score to stay positive, got %+v", performance[0])
+	}
+	if performance[0].ScoreBreakdown.RatingScore <= 0 || performance[0].ScoreBreakdown.TeamAverageAcceptSeconds <= 0 || performance[0].ScoreBreakdown.CompletionScore <= 0 {
+		t.Fatalf("expected rider performance score breakdown to be populated, got %+v", performance[0].ScoreBreakdown)
+	}
+	if len(performance[0].RecentTrend) != 3 {
+		t.Fatalf("expected rider performance to include 3-day trend points, got %+v", performance[0].RecentTrend)
+	}
+	if len(performance[0].RecentReviews) != 1 || performance[0].RecentReviews[0].Content != "配送准时，餐品完好。" {
+		t.Fatalf("expected rider performance to include recent review excerpts, got %+v", performance[0].RecentReviews)
+	}
+	if performance[0].ExceptionSummary.DispatchTimeoutCount != 0 || performance[0].ExceptionSummary.DispatchRejectCount != 0 || performance[0].ExceptionSummary.LowRatingCount != 0 {
+		t.Fatalf("expected rider performance exception summary to stay empty for happy-path review, got %+v", performance[0].ExceptionSummary)
+	}
+}
+
+func TestRiderPerformanceExceptionDetailsExposeDrilldownContext(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	now := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+	order := &Order{
+		ID:        "ord_exception_1",
+		UserID:    "user_1",
+		ShopID:    "shop_1",
+		ShopName:  "蓝海餐厅",
+		Type:      OrderTypeTakeout,
+		Status:    StatusCompleted,
+		RiderID:   "rider_1",
+		AmountFen: 1999,
+		Items: []OrderItem{{
+			ProductID:    "prod_beef_rice",
+			ProductName:  "招牌牛肉饭",
+			Quantity:     1,
+			UnitPriceFen: 1999,
+		}},
+		CreatedAt: now.Add(-2 * time.Hour),
+		UpdatedAt: now.Add(-90 * time.Minute),
+	}
+	store.orders[order.ID] = order
+	store.recordDispatchEventLocked(order, &DispatchDecision{
+		OrderID:        order.ID,
+		StationID:      "station_1",
+		Mode:           DispatchModeAutoAssign,
+		IdempotencyKey: "dispatch_exception_1",
+	}, "dispatch.timeout", "rider_1", "system", "assignment_timeout", now.Add(-40*time.Minute))
+	store.afterSalesRequests["asr_exception_1"] = &AfterSalesRequest{
+		ID:        "asr_exception_1",
+		OrderID:   order.ID,
+		UserID:    "user_1",
+		Type:      AfterSalesRefundOnly,
+		Reason:    "餐品撒漏",
+		Status:    AfterSalesAdminReview,
+		CreatedAt: now.Add(-20 * time.Minute),
+		UpdatedAt: now.Add(-15 * time.Minute),
+	}
+	store.afterSalesEvents["asev_exception_1"] = &AfterSalesEvent{
+		ID:            "asev_exception_1",
+		RequestID:     "asr_exception_1",
+		OrderID:       order.ID,
+		ActorID:       "admin_1",
+		ActorRole:     "admin",
+		Action:        AfterSalesActionEscalated,
+		Message:       "平台已介入核实",
+		VisibleToUser: true,
+		CreatedAt:     now.Add(-15 * time.Minute),
+	}
+	store.reviews["rev_exception_1"] = &Review{
+		ID:          "rev_exception_1",
+		UserID:      "user_1",
+		OrderID:     order.ID,
+		TargetType:  ReviewTargetOrder,
+		TargetID:    order.ID,
+		Rating:      3,
+		RiderRating: 2,
+		Content:     "高峰期晚到了十分钟",
+		CreatedAt:   now.Add(-10 * time.Minute),
+	}
+
+	performance, err := store.StationRiderPerformance("station_manager_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var riderPerformance *RiderPerformance
+	for index := range performance {
+		if performance[index].RiderID == "rider_1" {
+			riderPerformance = &performance[index]
+			break
+		}
+	}
+	if riderPerformance == nil {
+		t.Fatalf("expected rider_1 performance in station scope, got %+v", performance)
+	}
+	if riderPerformance.ExceptionSummary.DispatchTimeoutCount != 1 || riderPerformance.ExceptionSummary.AfterSalesCount != 1 || riderPerformance.ExceptionSummary.LowRatingCount != 1 {
+		t.Fatalf("expected rider exception summary to aggregate timeout, after-sales and low rating, got %+v", riderPerformance.ExceptionSummary)
+	}
+	if len(riderPerformance.ExceptionDetails) != 3 {
+		t.Fatalf("expected rider exception details to expose latest drilldown records, got %+v", riderPerformance.ExceptionDetails)
+	}
+	if riderPerformance.ExceptionDetails[0].Kind != "low_rating" || riderPerformance.ExceptionDetails[0].ReviewID != "rev_exception_1" || riderPerformance.ExceptionDetails[0].OrderID != order.ID {
+		t.Fatalf("expected latest exception detail to be low rating review, got %+v", riderPerformance.ExceptionDetails[0])
+	}
+	if riderPerformance.ExceptionDetails[1].Kind != "after_sales" || riderPerformance.ExceptionDetails[1].AfterSalesRequestID != "asr_exception_1" || riderPerformance.ExceptionDetails[1].Message != "平台已介入核实" {
+		t.Fatalf("expected second exception detail to be after-sales drilldown, got %+v", riderPerformance.ExceptionDetails[1])
+	}
+	if riderPerformance.ExceptionDetails[2].Kind != "dispatch_timeout" || riderPerformance.ExceptionDetails[2].DispatchEventID == "" || riderPerformance.ExceptionDetails[2].Message != "assignment_timeout" {
+		t.Fatalf("expected oldest exception detail to be dispatch timeout drilldown, got %+v", riderPerformance.ExceptionDetails[2])
 	}
 }
 
@@ -2626,6 +4161,92 @@ func TestStationServiceAreaScopesOrdersAndDispatchCandidates(t *testing.T) {
 	}
 }
 
+func TestAutoAssignRefreshesPriorityFromRiderRatings(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	store.riders["rider_1"].Online = false
+	store.riders["rider_2"].Online = false
+	store.riders["station_manager_2"] = &RiderAccount{
+		ID:        "station_manager_2",
+		StationID: "station_2",
+		Type:      RiderAccountStationManager,
+		Status:    "active",
+		Online:    true,
+	}
+	store.riders["rider_3"] = &RiderAccount{
+		ID:                   "rider_3",
+		StationID:            "station_2",
+		Type:                 RiderAccountRider,
+		Status:               "active",
+		Online:               true,
+		DepositStatus:        DepositStatusPaid,
+		Capacity:             2,
+		DispatchPriority:     RiderDispatchPriority(RiderLevelB),
+		AverageAcceptSeconds: 16,
+		AverageDailyOrders:   20,
+		CompletionRate:       0.95,
+		DistanceMeters:       260,
+	}
+	store.riders["rider_4"] = &RiderAccount{
+		ID:                   "rider_4",
+		StationID:            "station_2",
+		Type:                 RiderAccountRider,
+		Status:               "active",
+		Online:               true,
+		DepositStatus:        DepositStatusPaid,
+		Capacity:             2,
+		DispatchPriority:     RiderDispatchPriority(RiderLevelB),
+		AverageAcceptSeconds: 16,
+		AverageDailyOrders:   20,
+		CompletionRate:       0.95,
+		DistanceMeters:       420,
+	}
+	store.shops["shop_2"] = &Shop{
+		ID:             "shop_2",
+		MerchantID:     "merchant_1",
+		StationID:      "station_2",
+		Name:           "东城热炒",
+		Category:       "restaurant",
+		AccountType:    MerchantAccountStandard,
+		Status:         ShopStatusActive,
+		Capabilities:   []string{ShopCapabilityTakeout},
+		Qualifications: []string{QualificationBusinessLicense, QualificationHealthCertificate},
+	}
+	store.stationServiceAreas["station_2"] = &StationServiceArea{StationID: "station_2", ShopIDs: []string{"shop_2"}}
+
+	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
+	store.orders["ord_rider_3_done"] = &Order{ID: "ord_rider_3_done", UserID: "user_2", ShopID: "shop_2", Type: OrderTypeTakeout, Status: StatusCompleted, RiderID: "rider_3", AmountFen: 1800, CreatedAt: now.Add(-5 * time.Hour), UpdatedAt: now.Add(-4 * time.Hour)}
+	store.orders["ord_rider_4_done"] = &Order{ID: "ord_rider_4_done", UserID: "user_3", ShopID: "shop_2", Type: OrderTypeTakeout, Status: StatusCompleted, RiderID: "rider_4", AmountFen: 1800, CreatedAt: now.Add(-5 * time.Hour), UpdatedAt: now.Add(-4 * time.Hour)}
+	if _, err := store.CreateReview(Review{UserID: "user_2", OrderID: "ord_rider_3_done", TargetType: ReviewTargetOrder, TargetID: "ord_rider_3_done", Rating: 5, RiderRating: 5, Content: "张师傅配送很稳。"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateReview(Review{UserID: "user_3", OrderID: "ord_rider_4_done", TargetType: ReviewTargetOrder, TargetID: "ord_rider_4_done", Rating: 5, RiderRating: 2, Content: "这单配送一般。"}); err != nil {
+		t.Fatal(err)
+	}
+
+	pendingOrder := &Order{
+		ID:        "ord_station_2_dispatch",
+		UserID:    "user_4",
+		ShopID:    "shop_2",
+		Type:      OrderTypeTakeout,
+		Status:    StatusDispatching,
+		AmountFen: 2200,
+		CreatedAt: now.Add(-11 * time.Minute),
+		UpdatedAt: now.Add(-11 * time.Minute),
+	}
+	store.orders[pendingOrder.ID] = pendingOrder
+
+	assigned, decision, err := store.AutoAssignOrder(AutoAssignOrderRequest{OrderID: pendingOrder.ID, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assigned.RiderID != "rider_3" || decision.CandidateRiderID != "rider_3" {
+		t.Fatalf("expected higher rated rider_3 to win refreshed dispatch priority, got order=%+v decision=%+v", assigned, decision)
+	}
+	if store.riders["rider_3"].DispatchPriority < store.riders["rider_4"].DispatchPriority {
+		t.Fatalf("expected rider_3 priority to refresh above rider_4, got rider_3=%d rider_4=%d", store.riders["rider_3"].DispatchPriority, store.riders["rider_4"].DispatchPriority)
+	}
+}
+
 func TestFreeDispatchCancelCanOnlyBeConsumedOncePerDay(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	now := time.Date(2026, 5, 21, 8, 0, 0, 0, time.UTC)
@@ -2689,10 +4310,11 @@ func TestDispatchEventsCreateOutboxEvents(t *testing.T) {
 	store := NewStore(DefaultHomeModules())
 	rejectOrder := mustPaidDispatchOrder(t, store, "outbox_reject")
 	assignNow := rejectOrder.CreatedAt.Add(10 * time.Minute)
-	if _, _, err := store.AutoAssignOrder(AutoAssignOrderRequest{OrderID: rejectOrder.ID, Now: assignNow}); err != nil {
+	assignedOrder, _, err := store.AutoAssignOrder(AutoAssignOrderRequest{OrderID: rejectOrder.ID, Now: assignNow})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.RejectRiderAssignment(RejectRiderAssignmentRequest{OrderID: rejectOrder.ID, RiderID: "rider_1", Now: assignNow.Add(time.Minute)}); err != nil {
+	if _, _, err := store.RejectRiderAssignment(RejectRiderAssignmentRequest{OrderID: rejectOrder.ID, RiderID: assignedOrder.RiderID, Now: assignNow.Add(time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2781,6 +4403,67 @@ func TestOutboxFailedBackoffAndPublishedAck(t *testing.T) {
 	}
 	if len(pending) != 0 {
 		t.Fatalf("expected published event to leave pending relay query, got %+v", pending)
+	}
+}
+
+func TestOutboxEventDetailBuildsIncidentAssist(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	paidOrder := mustPaidDispatchOrder(t, store, "outbox_detail")
+	events, err := store.OutboxEvents(OutboxEventsRequest{Topic: "order.paid", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected one order.paid outbox event, got %+v", events)
+	}
+
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	failed, auditLog, err := store.MarkOutboxEventFailedWithAudit(
+		MarkOutboxEventFailedRequest{EventID: events[0].ID, Error: "relay down", RetryAfterSeconds: 120, Now: now},
+		RecordAuditLogRequest{ActorType: "admin", ActorID: "ops_1", Action: "admin.outbox.failed", TargetType: "outbox_event", TargetID: events[0].ID, RequestID: "req_outbox_detail", IPHash: "ip_hash"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auditLog == nil || auditLog.Action != "admin.outbox.failed" {
+		t.Fatalf("expected outbox failure audit, got %+v", auditLog)
+	}
+
+	detail, err := store.OutboxEventDetail(OutboxEventDetailRequest{EventID: failed.ID, Now: now.Add(30 * time.Second), AuditLimit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Event.ID != failed.ID || detail.Event.LastError != "relay down" {
+		t.Fatalf("expected failed event detail, got %+v", detail.Event)
+	}
+	if detail.IncidentCode != "outbox.retry_backoff" || detail.IncidentSeverity != "warning" || !detail.Blocked || detail.Ready {
+		t.Fatalf("expected retry-backoff incident state, got %+v", detail)
+	}
+	if detail.RetryAvailableInSeconds != 90 || detail.RecommendedOperation.Key != "outbox-replay-event" {
+		t.Fatalf("expected replay recommendation after backoff, got %+v", detail.RecommendedOperation)
+	}
+	if len(detail.RecentAudits) != 1 || detail.RecentAudits[0].ID != auditLog.ID {
+		t.Fatalf("expected recent outbox audit, got %+v", detail.RecentAudits)
+	}
+	hasOrderPayload := false
+	for _, field := range detail.PayloadSummary {
+		if field.Key == "order_id" && field.Value == paidOrder.ID {
+			hasOrderPayload = true
+			break
+		}
+	}
+	if !hasOrderPayload {
+		t.Fatalf("expected payload summary to include order id, got %+v", detail.PayloadSummary)
+	}
+	hasOrderTarget := false
+	for _, target := range detail.RelatedTargets {
+		if target.TargetType == "order" && target.TargetID == paidOrder.ID {
+			hasOrderTarget = true
+			break
+		}
+	}
+	if !hasOrderTarget {
+		t.Fatalf("expected related order target, got %+v", detail.RelatedTargets)
 	}
 }
 
@@ -3879,4 +5562,1069 @@ func mustPaidDispatchOrder(t *testing.T, store *Store, suffix string) *Order {
 		t.Fatal(err)
 	}
 	return paidOrder
+}
+
+func TestUserAssetCatalogAndErrandAPIs(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	profile, err := store.UserProfileOverview("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.WalletBalanceFen != 12850 || profile.CouponCount == 0 || profile.Points == 0 {
+		t.Fatalf("expected seeded user asset overview, got %+v", profile)
+	}
+
+	wallet, err := store.WalletOverview("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wallet.BalanceFen != 12850 || len(wallet.Transactions) == 0 {
+		t.Fatalf("expected wallet overview with preview ledger, got %+v", wallet)
+	}
+	withdraw, account, err := store.RequestWalletWithdraw(WalletWithdrawRequest{UserID: "user_1", AmountFen: 5000, Channel: "wechat_change"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withdraw.Status != "processing" || account.Frozen != 5000 {
+		t.Fatalf("expected processing withdraw with frozen balance, withdraw=%+v account=%+v", withdraw, account)
+	}
+
+	coupons, err := store.UserCoupons("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coupons.AvailableCount == 0 || coupons.ExpiringCount == 0 {
+		t.Fatalf("expected available and expiring coupons, got %+v", coupons)
+	}
+	claimed, err := store.ClaimUserCoupon("user_1", "YXES2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.AmountFen != 500 {
+		t.Fatalf("expected claimed coupon, got %+v", claimed)
+	}
+
+	points, err := store.CheckInPoints("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if points.Points < 2685 {
+		t.Fatalf("expected check-in points to be included, got %+v", points)
+	}
+	invite, err := store.InviteSummary("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invite.InviteCode == "" || len(invite.Records) == 0 {
+		t.Fatalf("expected invite summary, got %+v", invite)
+	}
+
+	search, err := store.SearchCatalog("user_1", "牛肉饭", "all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if search.Total == 0 {
+		t.Fatalf("expected search results, got %+v", search)
+	}
+	medicine, err := store.MedicineHome("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(medicine.Products) == 0 || medicine.CartAmountFen == 0 {
+		t.Fatalf("expected medicine catalog, got %+v", medicine)
+	}
+	prescription, err := store.CreatePrescriptionReview(CreatePrescriptionReviewRequest{UserID: "user_1", PatientName: "张三", ProductID: "med_amoxicillin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prescription.Status != PrescriptionReviewApproved || len(prescription.Steps) == 0 {
+		t.Fatalf("expected approved prescription review, got %+v", prescription)
+	}
+	medicineOrder, err := store.CreateMedicineOrder(MedicineOrderRequest{UserID: "user_1", PrescriptionID: prescription.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if medicineOrder.Order.Type != OrderTypeMedicine || medicineOrder.PrescriptionStatus != PrescriptionReviewApproved || len(medicineOrder.Timeline) == 0 {
+		t.Fatalf("expected medicine order detail with prescription, got %+v", medicineOrder)
+	}
+	loadedMedicineOrder, err := store.MedicineOrderDetail("user_1", medicineOrder.Order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loadedMedicineOrder.Order.ID != medicineOrder.Order.ID || len(loadedMedicineOrder.Items) == 0 {
+		t.Fatalf("expected stored medicine order detail, got %+v", loadedMedicineOrder)
+	}
+
+	serviceTicket, err := store.CreateServiceTicket(CreateServiceTicketRequest{UserID: "user_1", Category: "配送问题", Content: "预计送达时间一直没变化"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if serviceTicket.Ticket.Status != ServiceTicketStatusProcessing || len(serviceTicket.Events) == 0 {
+		t.Fatalf("expected service ticket with events, got %+v", serviceTicket)
+	}
+	if serviceTicket.Ticket.RiskState != MessageRiskPassed || serviceTicket.Ticket.RiskCheckedAt.IsZero() {
+		t.Fatalf("expected service ticket content risk pass, got %+v", serviceTicket.Ticket)
+	}
+	updatedTicket, err := store.AddServiceTicketEvent(AddServiceTicketEventRequest{TicketID: serviceTicket.Ticket.ID, ActorID: "user_1", ActorRole: "user", Message: "请帮我催一下商家"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updatedTicket.Events) <= len(serviceTicket.Events) {
+		t.Fatalf("expected appended service ticket event, got before=%d after=%d", len(serviceTicket.Events), len(updatedTicket.Events))
+	}
+	flaggedTicket, err := store.AddServiceTicketEvent(AddServiceTicketEventRequest{TicketID: serviceTicket.Ticket.ID, ActorID: "user_1", ActorRole: "user", Message: "有人让我提供验证码"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flaggedEvent *ServiceTicketEvent
+	for index := range flaggedTicket.Events {
+		if flaggedTicket.Events[index].Message == "有人让我提供验证码" {
+			flaggedEvent = &flaggedTicket.Events[index]
+		}
+	}
+	if flaggedEvent == nil || flaggedEvent.RiskState != MessageRiskFlagged || flaggedEvent.RiskReasonCode != MessageRiskSensitiveMention {
+		t.Fatalf("expected sensitive mention to be flagged but allowed, got %+v", flaggedTicket.Events)
+	}
+	if _, err := store.AddServiceTicketEvent(AddServiceTicketEventRequest{TicketID: serviceTicket.Ticket.ID, ActorID: "user_1", ActorRole: "user", Message: "我的验证码是 123456"}); !errors.Is(err, ErrRiskControlRejected) {
+		t.Fatalf("expected service ticket sensitive message to be blocked, got %v", err)
+	}
+	if _, err := store.CreateServiceTicket(CreateServiceTicketRequest{UserID: "user_1", Category: "账户安全", Content: "我的支付密码是 123456"}); !errors.Is(err, ErrRiskControlRejected) {
+		t.Fatalf("expected sensitive ticket content to be blocked, got %v", err)
+	}
+
+	redPacket, err := store.CreateRedPacket(RedPacket{SenderID: "user_1", TotalAmountFen: 3000, Quantity: 6, Type: RedPacketTypeRandom})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := store.ClaimRedPacket(redPacket.Packet.ID, "user_2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claim.Share.UserID != "user_2" || claim.Share.AmountFen == 0 {
+		t.Fatalf("expected user_2 red packet claim, got %+v", claim)
+	}
+	refundedPacket, err := store.RefundRedPacket(redPacket.Packet.ID, "user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refundedPacket.Packet.Status != RedPacketStatusRefunded {
+		t.Fatalf("expected refunded red packet, got %+v", refundedPacket.Packet)
+	}
+
+	errand, err := store.CreateErrandOrder(ErrandOrderRequest{UserID: "user_1", Type: OrderTypeErrandPickup, AmountFen: 1600, CouponAmountFen: 300})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errand.Order.Status != StatusRiderAssigned || len(errand.Timeline) == 0 {
+		t.Fatalf("expected rider-assigned errand detail, got %+v", errand)
+	}
+	detail, err := store.ErrandOrderDetail("user_1", errand.Order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.PickupAddress == "" || detail.Rider.Name == "" {
+		t.Fatalf("expected stored errand detail, got %+v", detail)
+	}
+}
+
+func TestPrescriptionImageUploadReviewAndMedicineOrder(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	upload, err := store.CreatePrescriptionImageUpload(CreatePrescriptionImageUploadRequest{
+		UserID:      "user_1",
+		ProductID:   "med_amoxicillin",
+		FileName:    "prescription.jpg",
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upload.TicketID == "" || upload.Method != "PUT" || !strings.HasPrefix(upload.ObjectKey, "prescriptions/") {
+		t.Fatalf("expected prescription image upload ticket, got %+v", upload)
+	}
+	confirmed, err := store.ConfirmPrescriptionImageUpload(ConfirmPrescriptionImageUploadRequest{
+		UserID:      "user_1",
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+		ContentSHA:  "sha256:rx",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.Status != AfterSalesUploadTicketConfirmed || confirmed.PublicURL == "" {
+		t.Fatalf("expected confirmed prescription image ticket, got %+v", confirmed)
+	}
+	review, err := store.CreatePrescriptionReview(CreatePrescriptionReviewRequest{
+		UserID:                    "user_1",
+		PatientName:               "张三",
+		ProductID:                 "med_amoxicillin",
+		PrescriptionImageTicketID: upload.TicketID,
+		PrescriptionObjectKey:     upload.ObjectKey,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if review.Status != PrescriptionReviewApproved || review.ImageObjectKey != upload.ObjectKey || review.ImageUploadTicketID != upload.TicketID || review.ImageURL != upload.PublicURL {
+		t.Fatalf("expected prescription review to bind uploaded image, got %+v", review)
+	}
+	if review.OCRResult == nil || review.OCRResult.Status != PrescriptionOCRMatched || review.OCRResult.MatchedProductID != "med_amoxicillin" {
+		t.Fatalf("expected prescription review to include OCR result, got %+v", review.OCRResult)
+	}
+	if review.Archive == nil || review.Archive.ArchiveID == "" || review.Archive.ObjectKey != upload.ObjectKey {
+		t.Fatalf("expected prescription review to include archive record, got %+v", review.Archive)
+	}
+	if _, err := store.CreatePrescriptionReview(CreatePrescriptionReviewRequest{
+		UserID:                    "user_2",
+		PatientName:               "李四",
+		ProductID:                 "med_amoxicillin",
+		PrescriptionImageTicketID: upload.TicketID,
+		PrescriptionObjectKey:     upload.ObjectKey,
+	}); err != ErrInvalidArgument {
+		t.Fatalf("expected other user to be blocked from image ticket, got %v", err)
+	}
+	order, err := store.CreateMedicineOrder(MedicineOrderRequest{UserID: "user_1", PrescriptionID: review.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if order.PrescriptionID != review.ID || order.PrescriptionStatus != PrescriptionReviewApproved {
+		t.Fatalf("expected medicine order to use reviewed prescription, got %+v", order)
+	}
+
+	queue, err := store.AdminPrescriptionReviews(PrescriptionReviewListRequest{Status: PrescriptionReviewApproved, Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queue) != 1 || queue[0].ID != review.ID || queue[0].OCRResult == nil {
+		t.Fatalf("expected pharmacist workbench queue with OCR data, got %+v", queue)
+	}
+	rejected, err := store.ReviewPrescription(ReviewPrescriptionRequest{ReviewID: review.ID, ReviewerID: "pharmacist_1", ReviewerName: "陈药师", Decision: PrescriptionReviewRejected, ReviewText: "处方影像与药品不匹配"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.Status != PrescriptionReviewRejected || rejected.DoctorName != "陈药师" || rejected.ReviewText == "" {
+		t.Fatalf("expected pharmacist rejection to update review, got %+v", rejected)
+	}
+	if _, err := store.CreateMedicineOrder(MedicineOrderRequest{UserID: "user_1", PrescriptionID: review.ID}); !errors.Is(err, ErrInvalidOrderState) {
+		t.Fatalf("expected rejected prescription to block medicine order, got %v", err)
+	}
+}
+
+func TestReviewImageUploadSupportsOrderReviewAssets(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	order, err := store.CreateOrder(CreateOrderRequest{UserID: "user_1", Type: OrderTypeTakeout, AmountFen: 2590})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload, err := store.CreateReviewImageUpload(CreateReviewImageUploadRequest{
+		UserID:      "user_1",
+		OrderID:     order.ID,
+		FileName:    "review.jpg",
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upload.TicketID == "" || upload.Method != "PUT" || !strings.HasPrefix(upload.ObjectKey, "reviews/") {
+		t.Fatalf("expected review image upload ticket, got %+v", upload)
+	}
+	confirmed, err := store.ConfirmReviewImageUpload(ConfirmReviewImageUploadRequest{
+		UserID:      "user_1",
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+		ContentSHA:  "sha256:review",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.Status != AfterSalesUploadTicketConfirmed || confirmed.PublicURL == "" || confirmed.OrderID != order.ID {
+		t.Fatalf("expected confirmed review image ticket, got %+v", confirmed)
+	}
+	if _, err := store.ConfirmReviewImageUpload(ConfirmReviewImageUploadRequest{
+		UserID:      "user_2",
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	}); err != ErrInvalidArgument {
+		t.Fatalf("expected other user to be blocked from review image ticket, got %v", err)
+	}
+}
+
+func TestReviewImageUploadRequiresUnifiedObjectScanApproval(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	if err := store.ConfigureObjectStorage(ObjectStorageConfig{
+		Provider:                        ObjectStorageProviderMinIO,
+		Bucket:                          "review-test",
+		UploadBaseURL:                   "https://minio.test/upload",
+		PublicBaseURL:                   "https://cdn.test/assets",
+		SigningSecret:                   "test-storage-secret",
+		CallbackSigningSecret:           "test-callback-secret",
+		MaxUploadBytes:                  AfterSalesEvidenceMaxBytes,
+		RequireUploadCallbackForConfirm: true,
+		RequireScanApprovalForConfirm:   true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	order, err := store.CreateOrder(CreateOrderRequest{UserID: "user_1", Type: OrderTypeTakeout, AmountFen: 2590})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload, err := store.CreateReviewImageUpload(CreateReviewImageUploadRequest{
+		UserID:      "user_1",
+		OrderID:     order.ID,
+		FileName:    "review.jpg",
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ConfirmReviewImageUpload(ConfirmReviewImageUploadRequest{
+		UserID:      "user_1",
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	}); !errors.Is(err, ErrInvalidOrderState) {
+		t.Fatalf("expected review image confirmation before callback to be blocked, got %v", err)
+	}
+
+	storage := store.objectStorageSnapshot()
+	uploadedAt := time.Date(2026, 5, 27, 11, 0, 0, 0, time.UTC)
+	uploadSignature := storage.signObjectUploadCallback(objectUploadCallbackSignatureInput{
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+		ContentSHA:  "sha256:review-scan",
+		UploadedAt:  uploadedAt,
+	})
+	uploaded, err := store.ConfirmObjectStorageUpload(ObjectStorageUploadCallbackRequest{
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+		ContentSHA:  "sha256:review-scan",
+		UploadedAt:  uploadedAt,
+		Signature:   uploadSignature,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uploaded.ID != upload.TicketID || uploaded.Status != AfterSalesUploadTicketUploaded || uploaded.ScanStatus != AfterSalesUploadScanPending {
+		t.Fatalf("expected review image upload callback to update status, got %+v", uploaded)
+	}
+
+	scannedAt := uploadedAt.Add(time.Minute)
+	scanSignature := storage.signObjectScanResult(objectScanResultSignatureInput{
+		TicketID:      upload.TicketID,
+		ObjectKey:     upload.ObjectKey,
+		ScanStatus:    AfterSalesUploadScanPassed,
+		ScanResult:    "clean",
+		Scanner:       "clamav",
+		ScanCheckedAt: scannedAt,
+	})
+	scanned, err := store.RecordObjectStorageScanResult(ObjectStorageScanResultRequest{
+		TicketID:      upload.TicketID,
+		ObjectKey:     upload.ObjectKey,
+		ScanStatus:    AfterSalesUploadScanPassed,
+		ScanResult:    "clean",
+		Scanner:       "clamav",
+		ScanCheckedAt: scannedAt,
+		Signature:     scanSignature,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned.ScanStatus != AfterSalesUploadScanPassed || scanned.ScanResult != "clean" {
+		t.Fatalf("expected review image scan result to persist, got %+v", scanned)
+	}
+	confirmed, err := store.ConfirmReviewImageUpload(ConfirmReviewImageUploadRequest{
+		UserID:      "user_1",
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.Status != AfterSalesUploadTicketConfirmed || confirmed.ScanStatus != AfterSalesUploadScanPassed || confirmed.ContentSHA != "sha256:review-scan" {
+		t.Fatalf("expected scanned review image to confirm, got %+v", confirmed)
+	}
+}
+
+func TestPrescriptionImageUploadRequiresUnifiedObjectScanApproval(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	if err := store.ConfigureObjectStorage(ObjectStorageConfig{
+		Provider:                        ObjectStorageProviderMinIO,
+		Bucket:                          "prescription-test",
+		UploadBaseURL:                   "https://minio.test/upload",
+		PublicBaseURL:                   "https://cdn.test/assets",
+		SigningSecret:                   "test-storage-secret",
+		CallbackSigningSecret:           "test-callback-secret",
+		MaxUploadBytes:                  AfterSalesEvidenceMaxBytes,
+		RequireUploadCallbackForConfirm: true,
+		RequireScanApprovalForConfirm:   true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	upload, err := store.CreatePrescriptionImageUpload(CreatePrescriptionImageUploadRequest{
+		UserID:      "user_1",
+		ProductID:   "med_amoxicillin",
+		FileName:    "prescription.jpg",
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ConfirmPrescriptionImageUpload(ConfirmPrescriptionImageUploadRequest{
+		UserID:      "user_1",
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	}); !errors.Is(err, ErrInvalidOrderState) {
+		t.Fatalf("expected prescription confirmation before object callback to be blocked, got %v", err)
+	}
+
+	storage := store.objectStorageSnapshot()
+	uploadedAt := time.Date(2026, 5, 27, 10, 0, 0, 0, time.UTC)
+	uploadSignature := storage.signObjectUploadCallback(objectUploadCallbackSignatureInput{
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+		ContentSHA:  "sha256:rx-scan",
+		UploadedAt:  uploadedAt,
+	})
+	uploaded, err := store.ConfirmObjectStorageUpload(ObjectStorageUploadCallbackRequest{
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+		ContentSHA:  "sha256:rx-scan",
+		UploadedAt:  uploadedAt,
+		Signature:   uploadSignature,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uploaded.ID != upload.TicketID || uploaded.Status != AfterSalesUploadTicketUploaded || uploaded.ScanStatus != AfterSalesUploadScanPending || uploaded.UploadedByID != "user_1" {
+		t.Fatalf("expected prescription upload callback to return unified object ticket view, got %+v", uploaded)
+	}
+	if _, err := store.ConfirmPrescriptionImageUpload(ConfirmPrescriptionImageUploadRequest{
+		UserID:      "user_1",
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	}); !errors.Is(err, ErrInvalidOrderState) {
+		t.Fatalf("expected prescription confirmation before scan approval to be blocked, got %v", err)
+	}
+
+	scannedAt := uploadedAt.Add(time.Minute)
+	scanSignature := storage.signObjectScanResult(objectScanResultSignatureInput{
+		TicketID:      upload.TicketID,
+		ObjectKey:     upload.ObjectKey,
+		ScanStatus:    AfterSalesUploadScanPassed,
+		ScanResult:    "clean",
+		Scanner:       "clamav",
+		ScanCheckedAt: scannedAt,
+	})
+	scanned, err := store.RecordObjectStorageScanResult(ObjectStorageScanResultRequest{
+		TicketID:      upload.TicketID,
+		ObjectKey:     upload.ObjectKey,
+		ScanStatus:    AfterSalesUploadScanPassed,
+		ScanResult:    "clean",
+		Scanner:       "clamav",
+		ScanCheckedAt: scannedAt,
+		Signature:     scanSignature,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned.ScanStatus != AfterSalesUploadScanPassed || scanned.ScanResult != "clean" || !scanned.ScanCheckedAt.Equal(scannedAt) {
+		t.Fatalf("expected prescription scan result to be recorded, got %+v", scanned)
+	}
+	confirmed, err := store.ConfirmPrescriptionImageUpload(ConfirmPrescriptionImageUploadRequest{
+		UserID:      "user_1",
+		TicketID:    upload.TicketID,
+		ObjectKey:   upload.ObjectKey,
+		ContentType: "image/jpeg",
+		SizeBytes:   2048,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.Status != AfterSalesUploadTicketConfirmed || confirmed.ScanStatus != AfterSalesUploadScanPassed || confirmed.ContentSHA != "sha256:rx-scan" || !confirmed.UploadedAt.Equal(uploadedAt) {
+		t.Fatalf("expected scanned prescription image to confirm, got %+v", confirmed)
+	}
+}
+
+func TestChatMessageSyncMarksReadAndQueuesRealtimeOutbox(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	threads, err := store.MessageThreads("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialUnread := chatThreadUnreadForTest(threads, "merchant_blue_sea")
+	if initialUnread != 1 {
+		t.Fatalf("expected seeded merchant group unread count, got %d", initialUnread)
+	}
+	otherUserThreads, err := store.MessageThreads("user_2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unread := chatThreadUnreadForTest(otherUserThreads, "merchant_blue_sea"); unread != -1 {
+		t.Fatalf("expected non-member user to be hidden from merchant thread, got %+v", otherUserThreads)
+	}
+	access, err := store.AuthorizeChatThreadAccess(ChatThreadAccessRequest{ThreadID: "merchant_blue_sea", SubjectType: "user", SubjectID: "user_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !access.Allowed || access.SubjectID != "user_1" {
+		t.Fatalf("expected member access to be allowed, got %+v", access)
+	}
+	overview, err := store.ChatThreadOverview("user_1", "merchant_blue_sea")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.MemberCount != 326 || overview.SettingsText != "群设置" || overview.Summary != "326 人已加入 · 新用户默认静音" {
+		t.Fatalf("expected merchant group overview to expose seeded summary, got %+v", overview)
+	}
+	members, err := store.ChatThreadMembers("user_1", "merchant_blue_sea")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) < 4 || !chatThreadMemberProfileExistsForTest(members, "merchant_1", "蓝海餐厅") || !chatThreadMemberProfileExistsForTest(members, "user_group_xiaolin", "小林") {
+		t.Fatalf("expected merchant group members to expose seeded profiles, got %+v", members)
+	}
+	officialPreference, err := store.ChatThreadPreference("user_1", "official")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !officialPreference.Muted {
+		t.Fatalf("expected official thread to default muted, got %+v", officialPreference)
+	}
+	merchantPreference, err := store.ChatThreadPreference("user_1", "merchant_blue_sea")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merchantPreference.Muted {
+		t.Fatalf("expected merchant group to default unmuted, got %+v", merchantPreference)
+	}
+	merchantPreference, err = store.UpdateChatThreadPreference(UpdateChatThreadPreferenceRequest{UserID: "user_1", ThreadID: "merchant_blue_sea", Muted: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !merchantPreference.Muted {
+		t.Fatalf("expected merchant group mute update to persist, got %+v", merchantPreference)
+	}
+	threads, err = store.MessageThreads("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !chatThreadMutedForTest(threads, "merchant_blue_sea") {
+		t.Fatalf("expected merchant group thread list to expose mute state, got %+v", threads)
+	}
+	access, err = store.AuthorizeChatThreadAccess(ChatThreadAccessRequest{ThreadID: "merchant_blue_sea", SubjectType: "user", SubjectID: "user_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !access.Muted {
+		t.Fatalf("expected realtime access result to carry mute state, got %+v", access)
+	}
+	if _, err := store.AuthorizeChatThreadAccess(ChatThreadAccessRequest{ThreadID: "merchant_blue_sea", SubjectType: "user", SubjectID: "user_2"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected non-member access to be hidden, got %v", err)
+	}
+	if _, err := store.UpdateChatThreadPreference(UpdateChatThreadPreferenceRequest{UserID: "user_2", ThreadID: "merchant_blue_sea", Muted: true}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected non-member mute update to be hidden, got %v", err)
+	}
+
+	firstSync, err := store.ChatMessageSync(ChatMessageSyncRequest{UserID: "user_1", ThreadID: "merchant_blue_sea", MarkRead: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(firstSync.Messages) == 0 || firstSync.UnreadCount != 0 || firstSync.ReadState == nil || firstSync.NextCursor == "" {
+		t.Fatalf("expected initial sync to return messages and clear unread, got %+v", firstSync)
+	}
+	threads, err = store.MessageThreads("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unread := chatThreadUnreadForTest(threads, "merchant_blue_sea"); unread != 0 {
+		t.Fatalf("expected message thread unread to clear after sync, got %d", unread)
+	}
+
+	sent, err := store.SendChatMessage(ChatMessage{
+		ThreadID:    "merchant_blue_sea",
+		SenderID:    "merchant_1",
+		Sender:      "蓝海餐厅",
+		Content:     "离线补偿测试消息",
+		MessageType: "text",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent.RiskState != MessageRiskPassed || sent.RiskCheckedAt.IsZero() {
+		t.Fatalf("expected sent chat message risk pass, got %+v", sent)
+	}
+	events, err := store.OutboxEvents(OutboxEventsRequest{Topic: "message.sent", Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].AggregateID != "merchant_blue_sea" || events[0].Payload["id"] != sent.ID || events[0].Payload["risk_state"] != MessageRiskPassed {
+		t.Fatalf("expected message.sent outbox event for realtime gateway, events=%+v sent=%+v", events, sent)
+	}
+	if _, err := store.SendChatMessage(ChatMessage{ThreadID: "merchant_blue_sea", SenderID: "user_1", Content: "我的验证码是 123456"}); !errors.Is(err, ErrRiskControlRejected) {
+		t.Fatalf("expected sensitive chat message to be blocked, got %v", err)
+	}
+	events, err = store.OutboxEvents(OutboxEventsRequest{Topic: "message.sent", Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected blocked chat message to skip outbox, got %+v", events)
+	}
+	if _, err := store.ChatMessageSync(ChatMessageSyncRequest{UserID: "user_2", ThreadID: "merchant_blue_sea", MarkRead: true}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected non-member chat sync to be hidden, got %v", err)
+	}
+	if _, err := store.SendChatMessage(ChatMessage{ThreadID: "merchant_blue_sea", SenderID: "user_2", Content: "越权消息"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected non-member chat send to be hidden, got %v", err)
+	}
+
+	offlineSync, err := store.ChatMessageSync(ChatMessageSyncRequest{UserID: "user_1", ThreadID: "merchant_blue_sea", SinceID: firstSync.NextCursor, MarkRead: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(offlineSync.Messages) != 1 || offlineSync.Messages[0].ID != sent.ID || offlineSync.UnreadCount != 1 {
+		t.Fatalf("expected offline sync to return one unread message, got %+v", offlineSync)
+	}
+	read, err := store.MarkChatThreadRead(MarkChatThreadReadRequest{UserID: "user_1", ThreadID: "merchant_blue_sea", LastMessageID: sent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.UnreadCount != 0 || read.LastReadMessageID != sent.ID {
+		t.Fatalf("expected read receipt to clear thread, got %+v", read)
+	}
+}
+
+func TestMerchantGroupMembershipJoinLeaveAndCouponEligibility(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	membership, err := store.ChatThreadMembership("user_2", "merchant_blue_sea")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if membership.Joined || !membership.CanJoin || membership.CanLeave || membership.MemberCount != 326 {
+		t.Fatalf("expected non-member merchant group state to allow join, got %+v", membership)
+	}
+	if membership.CouponRequirement != CouponRequirementGroupMembership || membership.CouponCode != "GROUP8" {
+		t.Fatalf("expected merchant group coupon requirement metadata, got %+v", membership)
+	}
+	if _, err := store.ClaimUserCoupon("user_2", "GROUP8"); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("expected group coupon to require membership, got %v", err)
+	}
+	joined, err := store.JoinChatThread(ChatThreadJoinRequest{UserID: "user_2", ThreadID: "merchant_blue_sea"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !joined.Joined || !joined.Muted || !joined.CanLeave || joined.MemberCount != 327 {
+		t.Fatalf("expected self-join to add muted member and increment count, got %+v", joined)
+	}
+	threads, err := store.MessageThreads("user_2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unread := chatThreadUnreadForTest(threads, "merchant_blue_sea"); unread < 0 {
+		t.Fatalf("expected joined user to see merchant group thread, got %+v", threads)
+	}
+	claimed, err := store.ClaimUserCoupon("user_2", "GROUP8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.AmountFen != 800 || claimed.Source != "商户群券" {
+		t.Fatalf("expected claimed merchant group coupon, got %+v", claimed)
+	}
+	claimedAgain, err := store.ClaimUserCoupon("user_2", "GROUP8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimedAgain.ID != claimed.ID {
+		t.Fatalf("expected group coupon claim to be idempotent, claimed=%+v claimedAgain=%+v", claimed, claimedAgain)
+	}
+	coupons, err := store.UserCoupons("user_2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !userCouponExistsForTest(coupons.Coupons, claimed.ID) {
+		t.Fatalf("expected claimed group coupon to appear in user assets, got %+v", coupons)
+	}
+	left, err := store.LeaveChatThread(ChatThreadLeaveRequest{UserID: "user_2", ThreadID: "merchant_blue_sea"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left.Joined || !left.CanJoin || left.CanLeave || left.MemberCount != 326 {
+		t.Fatalf("expected leave to hide membership and restore join action, got %+v", left)
+	}
+	threads, err = store.MessageThreads("user_2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unread := chatThreadUnreadForTest(threads, "merchant_blue_sea"); unread != -1 {
+		t.Fatalf("expected left user to lose merchant group thread visibility, got %+v", threads)
+	}
+	if _, err := store.ChatMessages("user_2", "merchant_blue_sea"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected left user chat access to be revoked, got %v", err)
+	}
+}
+
+func TestMedicineOrderLocksStockAndRejectsInsufficientInventory(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	home, err := store.MedicineHome("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialStock := medicineProductStockForTest(home.Products, "med_cooling_patch")
+	if initialStock != 26 {
+		t.Fatalf("expected seeded cooling patch stock, got %d", initialStock)
+	}
+
+	order, err := store.CreateMedicineOrder(MedicineOrderRequest{
+		UserID: "user_1",
+		Items: []MedicineOrderItemRequest{
+			{ProductID: "med_cooling_patch", Name: "退热贴", Category: "感冒发热", PriceFen: 1290, Quantity: 2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(order.Items) != 1 || !order.Items[0].StockLocked || order.Items[0].StockRemaining != initialStock-2 {
+		t.Fatalf("expected order item to lock stock, got %+v", order.Items)
+	}
+
+	home, err = store.MedicineHome("user_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stock := medicineProductStockForTest(home.Products, "med_cooling_patch"); stock != initialStock-2 {
+		t.Fatalf("expected medicine home stock to reflect locked inventory, got %d", stock)
+	}
+	if _, err := store.CreateMedicineOrder(MedicineOrderRequest{
+		UserID: "user_1",
+		Items: []MedicineOrderItemRequest{
+			{ProductID: "med_cooling_patch", Name: "退热贴", Category: "感冒发热", PriceFen: 1290, Quantity: initialStock},
+		},
+	}); !errors.Is(err, ErrInsufficientStock) {
+		t.Fatalf("expected insufficient stock to be rejected, got %v", err)
+	}
+}
+
+func medicineProductStockForTest(products []MedicineProduct, productID string) int {
+	for _, product := range products {
+		if product.ID == productID {
+			return product.StockCount
+		}
+	}
+	return -1
+}
+
+func chatThreadUnreadForTest(threads []ChatThread, threadID string) int {
+	for _, thread := range threads {
+		if thread.ID == threadID {
+			return thread.UnreadCount
+		}
+	}
+	return -1
+}
+
+func chatThreadMutedForTest(threads []ChatThread, threadID string) bool {
+	for _, thread := range threads {
+		if thread.ID == threadID {
+			return thread.Muted
+		}
+	}
+	return false
+}
+
+func chatThreadMemberProfileExistsForTest(members []ChatThreadMemberProfile, subjectID string, displayName string) bool {
+	for _, member := range members {
+		if member.SubjectID == subjectID && member.DisplayName == displayName {
+			return true
+		}
+	}
+	return false
+}
+
+func userCouponExistsForTest(coupons []UserCoupon, couponID string) bool {
+	for _, coupon := range coupons {
+		if coupon.ID == couponID {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRedPacketWalletFreezeClaimAndAutoRefund(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: "sender_1", AmountFen: 5000, IdempotencyKey: "seed_red_sender"}); err != nil {
+		t.Fatal(err)
+	}
+	packet, err := store.CreateRedPacket(RedPacket{
+		SenderID:       "sender_1",
+		Scene:          RedPacketSceneGroupChat,
+		TargetID:       "merchant_blue_sea",
+		Type:           RedPacketTypeFixed,
+		TotalAmountFen: 3000,
+		Quantity:       3,
+		PaymentMethod:  PaymentBalance,
+		ExpiresAt:      time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	senderWallet, err := store.WalletOverview("sender_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if senderWallet.Account.Balance != 2000 || senderWallet.Account.Frozen != 3000 {
+		t.Fatalf("expected red packet amount frozen, got %+v", senderWallet.Account)
+	}
+	freezeTransactions, err := store.WalletTransactions("sender_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundFreeze := false
+	for _, transaction := range freezeTransactions {
+		if transaction.Type == "red_packet_freeze" && transaction.Status == "frozen" {
+			foundFreeze = true
+		}
+	}
+	if len(freezeTransactions) != 2 || !foundFreeze {
+		t.Fatalf("expected frozen red packet ledger entry, got %+v", freezeTransactions)
+	}
+
+	claim, err := store.ClaimRedPacket(packet.Packet.ID, "receiver_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claim.Share.AmountFen != 1000 || claim.Detail.Packet.ClaimedAmountFen != 1000 {
+		t.Fatalf("expected one fixed share claimed, got %+v", claim)
+	}
+	receiverWallet, err := store.WalletOverview("receiver_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receiverWallet.Account.Balance != 1000 {
+		t.Fatalf("expected receiver balance credited, got %+v", receiverWallet.Account)
+	}
+	senderWallet, err = store.WalletOverview("sender_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if senderWallet.Account.Balance != 2000 || senderWallet.Account.Frozen != 2000 {
+		t.Fatalf("expected claimed share released from frozen, got %+v", senderWallet.Account)
+	}
+
+	refunded, err := store.AutoRefundExpiredRedPackets(time.Now().UTC().Add(25 * time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refunded) != 1 || refunded[0].Packet.Status != RedPacketStatusExpired || refunded[0].Packet.RefundedAmountFen != 2000 {
+		t.Fatalf("expected expired red packet auto-refund, got %+v", refunded)
+	}
+	senderWallet, err = store.WalletOverview("sender_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if senderWallet.Account.Balance != 4000 || senderWallet.Account.Frozen != 0 {
+		t.Fatalf("expected unclaimed amount returned to sender balance, got %+v", senderWallet.Account)
+	}
+	if _, err := store.ClaimRedPacket(packet.Packet.ID, "receiver_2"); !errors.Is(err, ErrInvalidOrderState) {
+		t.Fatalf("expected expired packet claim to fail, got %v", err)
+	}
+}
+
+func TestRedPacketClaimRiskControlsFrequencyAndIdempotency(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	if _, _, err := store.CreditWallet(CreditWalletRequest{UserID: "sender_risk", AmountFen: 2000, IdempotencyKey: "seed_red_risk_sender"}); err != nil {
+		t.Fatal(err)
+	}
+	var firstPacketID string
+	for index := 0; index < redPacketRiskClaimLimit; index++ {
+		packet, err := store.CreateRedPacket(RedPacket{
+			SenderID:       "sender_risk",
+			Scene:          RedPacketSceneGroupChat,
+			TargetID:       "merchant_blue_sea",
+			Type:           RedPacketTypeFixed,
+			TotalAmountFen: 100,
+			Quantity:       1,
+			PaymentMethod:  PaymentBalance,
+			ExpiresAt:      time.Now().UTC().Add(time.Hour),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if firstPacketID == "" {
+			firstPacketID = packet.Packet.ID
+		}
+		claim, err := store.ClaimRedPacket(packet.Packet.ID, "receiver_risk")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if claim.Risk == nil || claim.Risk.State != RedPacketRiskPassed {
+			t.Fatalf("expected passed risk check, got %+v", claim.Risk)
+		}
+	}
+	replayed, err := store.ClaimRedPacket(firstPacketID, "receiver_risk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.Share.AmountFen != 100 || replayed.Risk == nil || replayed.Risk.State != RedPacketRiskPassed {
+		t.Fatalf("expected idempotent claim replay to pass, got %+v", replayed)
+	}
+	blockedPacket, err := store.CreateRedPacket(RedPacket{
+		SenderID:       "sender_risk",
+		Scene:          RedPacketSceneGroupChat,
+		TargetID:       "merchant_blue_sea",
+		Type:           RedPacketTypeFixed,
+		TotalAmountFen: 100,
+		Quantity:       1,
+		PaymentMethod:  PaymentBalance,
+		ExpiresAt:      time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClaimRedPacket(blockedPacket.Packet.ID, "receiver_risk"); !errors.Is(err, ErrRiskControlRejected) {
+		t.Fatalf("expected frequency risk rejection, got %v", err)
+	}
+	detail, err := store.RedPacketDetail(blockedPacket.Packet.ID, "receiver_risk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Risk == nil || detail.Risk.State != RedPacketRiskBlocked || detail.Risk.ReasonCode != RedPacketRiskFrequencyLimit {
+		t.Fatalf("expected blocked risk detail, got %+v", detail.Risk)
+	}
+}
+
+func TestServiceTicketAssignmentResolveCloseAndFollowUp(t *testing.T) {
+	store := NewStore(DefaultHomeModules())
+	detail, err := store.CreateServiceTicket(CreateServiceTicketRequest{
+		UserID:            "user_1",
+		Category:          "配送问题",
+		Title:             "配送问题 · 预计送达未更新",
+		Content:           "骑手到店很久了",
+		RelatedOrderID:    "ord_support_1",
+		RelatedOrderTitle: "蓝海餐厅 · 招牌牛肉饭",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticketID := detail.Ticket.ID
+	assigned, err := store.AssignServiceTicket(AssignServiceTicketRequest{TicketID: ticketID, SupportID: "support_1", SupportName: "客服小悦"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assigned.Ticket.AssignedSupportID != "support_1" || len(assigned.Events) < 5 {
+		t.Fatalf("expected assigned ticket with event, got %+v", assigned)
+	}
+	adminTickets, err := store.AdminServiceTickets(ServiceTicketListRequest{AssignedSupportID: "support_1", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adminTickets) != 1 || adminTickets[0].ID != ticketID {
+		t.Fatalf("expected support workbench ticket, got %+v", adminTickets)
+	}
+	adminDetail, err := store.AdminServiceTicketDetail(ticketID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adminDetail.Ticket.ID != ticketID || len(adminDetail.Events) < 5 {
+		t.Fatalf("expected admin service ticket detail, got %+v", adminDetail)
+	}
+	overdueAt := time.Date(2026, 5, 28, 10, 30, 0, 0, time.UTC)
+	store.mu.Lock()
+	store.serviceTickets[ticketID].ReplyDueAt = overdueAt.Add(-time.Minute)
+	store.serviceTickets[ticketID].SLAStatus = ServiceTicketSLAStatusNormal
+	store.mu.Unlock()
+	overdueTickets, err := store.AdminServiceTickets(ServiceTicketListRequest{SLAStatus: ServiceTicketSLAStatusOverdue, Limit: 10, Now: overdueAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overdueTickets) != 1 || overdueTickets[0].SLAStatus != ServiceTicketSLAStatusOverdue {
+		t.Fatalf("expected overdue support ticket, got %+v", overdueTickets)
+	}
+	escalated, err := store.EscalateServiceTicket(EscalateServiceTicketRequest{TicketID: ticketID, ActorID: "support_lead_1", Reason: "超过 10 分钟未更新", EscalationLevel: "support_lead", Now: overdueAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if escalated.Ticket.SLAStatus != ServiceTicketSLAStatusEscalated || escalated.Ticket.EscalationReason == "" || escalated.Ticket.EscalatedAt.IsZero() {
+		t.Fatalf("expected escalated support ticket, got %+v", escalated.Ticket)
+	}
+	escalatedTickets, err := store.AdminServiceTickets(ServiceTicketListRequest{SLAStatus: ServiceTicketSLAStatusEscalated, Limit: 10, Now: overdueAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(escalatedTickets) != 1 || escalatedTickets[0].ID != ticketID {
+		t.Fatalf("expected escalated ticket in workbench, got %+v", escalatedTickets)
+	}
+	resolved, err := store.ResolveServiceTicket(ResolveServiceTicketRequest{TicketID: ticketID, ActorID: "support_1", Solution: "已发放 5 元延误券，请确认处理结果"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Ticket.Status != ServiceTicketStatusWaitingConfirm || resolved.Ticket.Solution == "" || resolved.Ticket.SLAStatus != ServiceTicketSLAStatusCompleted {
+		t.Fatalf("expected waiting confirm ticket, got %+v", resolved.Ticket)
+	}
+	closed, err := store.CloseServiceTicket(CloseServiceTicketRequest{TicketID: ticketID, UserID: "user_1", Reason: "用户接受方案"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed.Ticket.Status != ServiceTicketStatusClosed || closed.Ticket.ClosedAt.IsZero() {
+		t.Fatalf("expected closed ticket, got %+v", closed.Ticket)
+	}
+	followed, err := store.FollowUpServiceTicket(FollowUpServiceTicketRequest{TicketID: ticketID, UserID: "user_1", Rating: 5, Comment: "处理及时"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if followed.Ticket.FollowUpRating != 5 || followed.Ticket.FollowUpComment != "处理及时" {
+		t.Fatalf("expected follow-up rating, got %+v", followed.Ticket)
+	}
+	qualityReview, err := store.ReviewServiceTicketQuality(ServiceTicketQualityReviewRequest{
+		TicketID:         ticketID,
+		ReviewerID:       "quality_1",
+		ReviewerName:     "质检主管",
+		Score:            72,
+		Notes:            "首响超时后补偿方案完整，但需复盘主动同步话术",
+		CoachingRequired: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qualityReview.Result != ServiceTicketQualityNeedsCoaching || !qualityReview.CoachingRequired || qualityReview.SupportID != "support_1" {
+		t.Fatalf("expected quality review with coaching flag, got %+v", qualityReview)
+	}
+	qualityReviews, err := store.ServiceTicketQualityReviews(ServiceTicketQualityReviewListRequest{SupportID: "support_1", Result: ServiceTicketQualityNeedsCoaching, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(qualityReviews) != 1 || qualityReviews[0].TicketID != ticketID {
+		t.Fatalf("expected filtered quality review, got %+v", qualityReviews)
+	}
+	performance, err := store.ServiceTicketPerformance(ServiceTicketPerformanceRequest{SupportID: "support_1", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(performance) != 1 || performance[0].QualityReviewCount != 1 || performance[0].CoachingRequiredCount != 1 || performance[0].AverageFollowUpRating != 5 {
+		t.Fatalf("expected support performance summary, got %+v", performance)
+	}
+	if _, err := store.CloseServiceTicket(CloseServiceTicketRequest{TicketID: ticketID, UserID: "user_2"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected another user to be denied, got %v", err)
+	}
 }

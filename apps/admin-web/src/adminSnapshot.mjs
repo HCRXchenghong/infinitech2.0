@@ -73,6 +73,168 @@ function formatSeconds(value) {
   return `${Math.round(parsed)}s`;
 }
 
+function formatRiderRating(value, reviewCount = 0) {
+  const rating = numberValue(value);
+  const count = numberValue(reviewCount);
+  if (rating <= 0 || count <= 0) {
+    return "-";
+  }
+  return `${rating.toFixed(1)} / ${formatCount(count)}`;
+}
+
+function formatScorePart(label, value) {
+  const parsed = numberValue(value);
+  if (parsed <= 0) {
+    return "";
+  }
+  return `${label} ${Math.round(parsed)}`;
+}
+
+function formatRiderScoreBreakdown(breakdown) {
+  const parts = [
+    formatScorePart("接单", breakdown?.accept_score),
+    formatScorePart("单量", breakdown?.order_volume_score),
+    formatScorePart("履约", breakdown?.completion_score),
+    formatScorePart("评分", breakdown?.rating_score)
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : "-";
+}
+
+function formatRiderTrendSummary(points = []) {
+  const items = (points || []).map((point) => {
+    const date = compact(point?.date, "").slice(5);
+    const score = formatCount(point?.score);
+    const completedOrders = formatCount(point?.completed_orders);
+    const rating = numberValue(point?.average_rating) > 0 ? `${numberValue(point?.average_rating).toFixed(1)}星` : "无评分";
+    return `${date || "--"} ${score}分 / ${completedOrders}单 / ${rating}`;
+  });
+  return items.length > 0 ? items.join(" | ") : "最近 3 天暂无趋势样本";
+}
+
+function formatRiderRecentReviews(reviews = []) {
+  const items = (reviews || []).map((review) => {
+    const rating = numberValue(review?.rider_rating || review?.rating);
+    const stars = rating > 0 ? `${rating}星` : "无评分";
+    const content = compact(review?.content, "").slice(0, 18) || "无评价内容";
+    return `${stars} ${content}`;
+  });
+  return items.length > 0 ? items.join(" | ") : "最近暂无骑手评价";
+}
+
+function formatRiderExceptionSummary(summary) {
+  const timeoutCount = formatCount(summary?.dispatch_timeout_count);
+  const rejectCount = formatCount(summary?.dispatch_reject_count);
+  const afterSalesCount = formatCount(summary?.after_sales_count);
+  const lowRatingCount = formatCount(summary?.low_rating_count);
+  const lastEventAt = summary?.last_event_at ? formatShortTime(summary.last_event_at) : "无";
+  return `超时 ${timeoutCount} / 拒单 ${rejectCount} / 售后 ${afterSalesCount} / 低分 ${lowRatingCount} / 最近 ${lastEventAt}`;
+}
+
+function formatRiderExceptionDetail(detail) {
+  const label = compact(detail?.label, "异常履约");
+  const orderID = compact(detail?.order_id, "");
+  const message = compact(detail?.message, "待补详情");
+  const createdAt = detail?.created_at ? formatShortTime(detail.created_at) : "-";
+  const status = compact(detail?.status, "");
+  const parts = [label];
+  if (orderID) parts.push(orderID);
+  if (status) parts.push(status);
+  parts.push(message);
+  parts.push(createdAt);
+  return parts.join(" / ");
+}
+
+function buildRiderExceptionActions(details = []) {
+  const actions = [];
+  const dedupe = new Set();
+  for (const detail of details || []) {
+    const kind = compact(detail?.kind, "");
+    const orderID = compact(detail?.order_id, "");
+    const requestID = compact(detail?.after_sales_request_id, "");
+    let action = null;
+    if ((kind === "dispatch_timeout" || kind === "dispatch_reject") && orderID) {
+      action = {
+        label: `查看 ${orderID} 派单事件`,
+        operationKey: "dispatch-order-events",
+        values: { order_id: orderID, station_manager_id: "" }
+      };
+    } else if (kind === "after_sales" && requestID) {
+      const detailAction = {
+        label: `查看 ${requestID} 详情`,
+        operationKey: "after-sales-detail",
+        values: { request_id: requestID }
+      };
+      const timelineAction = {
+        label: `查看 ${requestID} 时间线`,
+        operationKey: "after-sales-events",
+        values: { request_id: requestID }
+      };
+      const evidenceAction = {
+        label: `查看 ${requestID} 凭证`,
+        operationKey: "after-sales-evidence",
+        values: { request_id: requestID }
+      };
+      const listAction = {
+        label: `查看 ${requestID} 售后`,
+        operationKey: "after-sales-list",
+        values: { request_id: requestID, order_id: orderID, status: compact(detail?.status, "") }
+      };
+      const supportAction = {
+        label: orderID ? `查看 ${orderID} 客服工单` : `查看 ${requestID} 客服工单`,
+        operationKey: "support-tickets",
+        values: { related_order_id: orderID, status: "", sla_status: "", assigned_support_id: "", limit: 20 }
+      };
+      const refundListAction = {
+        label: `查看 ${orderID} 退款流水`,
+        operationKey: "refund-transactions",
+        values: { order_id: orderID, user_id: "", destination: "", status: "", limit: 20 }
+      };
+      const orderAuditAction = {
+        label: `查看 ${orderID} 订单审计`,
+        operationKey: "audit-logs",
+        values: { target_type: "order", target_id: orderID, action: "", actor_type: "", actor_id: "", after: "", before: "", limit: 20 }
+      };
+      const refundAuditAction = {
+        label: `查看 ${orderID} 退款审计`,
+        operationKey: "audit-logs",
+        values: { target_type: "order", target_id: orderID, action: "admin.order.refunded", actor_type: "", actor_id: "", after: "", before: "", limit: 20 }
+      };
+      const candidates = [detailAction, timelineAction, evidenceAction, listAction, supportAction];
+      if (orderID) {
+        candidates.push(refundListAction, orderAuditAction, refundAuditAction);
+      }
+      for (const candidate of candidates) {
+        const dedupeKey = `${candidate.operationKey}:${JSON.stringify(candidate.values)}`;
+        if (dedupe.has(dedupeKey)) {
+          continue;
+        }
+        dedupe.add(dedupeKey);
+        actions.push(candidate);
+      }
+      continue;
+    } else if (kind === "low_rating" && orderID) {
+      action = {
+        label: `查看 ${orderID} 审计`,
+        operationKey: "audit-logs",
+        values: { target_type: "order", target_id: orderID, action: "", actor_type: "", actor_id: "", after: "", before: "", limit: 20 }
+      };
+    }
+    if (!action) {
+      continue;
+    }
+    const dedupeKey = `${action.operationKey}:${JSON.stringify(action.values)}`;
+    if (dedupe.has(dedupeKey)) {
+      continue;
+    }
+    dedupe.add(dedupeKey);
+    actions.push(action);
+    if (actions.length >= 5) {
+      break;
+    }
+  }
+  return actions;
+}
+
 function formatShortTime(value) {
   if (!value) {
     return "-";
@@ -227,7 +389,7 @@ export function buildSnapshotQueues(snapshot, fallbackQueues) {
   const counts = snapshot.counts;
   return [
     { key: "after-sales-list", title: "售后审核", level: "P0", target: `${formatCount(numberValue(counts.after_sales_pending) + numberValue(counts.after_sales_admin_review))} 个待处理`, operationKey: "after-sales-list" },
-    { key: "merchant-risk", title: "商户资质/保证金", level: "P0", target: `${formatCount(numberValue(counts.merchant_qualification_risks) + numberValue(counts.merchant_deposit_missing))} 个风险`, operationKey: "operations-snapshot" },
+    { key: "merchant-risk", title: "商户资质/保证金", level: "P0", target: `${formatCount(numberValue(counts.merchant_qualification_risks) + numberValue(counts.merchant_deposit_missing))} 个风险`, operationKey: "merchant-qualifications" },
     { key: "rider-risk", title: "骑手准入", level: "P0", target: `${formatCount(counts.rider_deposit_missing)} 个未满足保证金`, operationKey: "operations-snapshot" },
     { key: "dispatch", title: "派单审计", level: "P0", target: `${formatCount(counts.dispatch_event_count)} 条事件`, operationKey: "station-orders" },
     { key: "outbox-stats", title: "事件队列健康", level: "P0", target: `Ready ${formatCount(counts.outbox_ready)} / Blocked ${formatCount(counts.outbox_blocked)}`, operationKey: "outbox-stats" },
@@ -326,20 +488,40 @@ export function applySnapshotToAdminView(view, snapshot) {
   }
   if (view.key === "rider-performance") {
     const sLevelCount = (snapshot.rider_performance || []).filter((item) => item.level === "S").length;
+    const ratedCount = (snapshot.rider_performance || []).filter((item) => numberValue(item.rider_review_count) > 0).length;
     next.metrics = [
       { label: "绩效样本", value: formatCount((snapshot.rider_performance || []).length), tone: "blue" },
       { label: "S 级骑手", value: formatCount(sLevelCount), tone: "green" },
-      { label: "在线骑手", value: formatCount(counts.online_riders), tone: "green" },
+      { label: "有评分样本", value: formatCount(ratedCount), tone: ratedCount > 0 ? "green" : "slate" },
       { label: "待缴保证金", value: formatCount(counts.rider_deposit_missing), tone: counts.rider_deposit_missing > 0 ? "amber" : "green" }
     ];
     next.rows = limitedRows((snapshot.rider_performance || []).map((item) => [
       compact(item.rider_id),
       formatSeconds(item.average_accept_seconds),
       formatPercent(item.completion_rate),
-      "-",
+      formatRiderRating(item.rider_average_rating, item.rider_review_count),
+      formatCount(item.score),
+      formatRiderScoreBreakdown(item.score_breakdown),
       compact(item.level),
       formatCount(item.dispatch_priority)
     ]), next.columns);
+    next.detailRows = (snapshot.rider_performance || []).map((item) => ({
+      facts: [
+        { label: "近 3 日趋势", value: formatRiderTrendSummary(item.recent_trend) },
+        { label: "最近评价", value: formatRiderRecentReviews(item.recent_reviews) },
+        { label: "异常履约", value: formatRiderExceptionSummary(item.exception_summary) },
+        ...((item.exception_details || []).map((detail, index) => ({
+          label: `异常明细 ${index + 1}`,
+          value: formatRiderExceptionDetail(detail)
+        })))
+      ],
+      actions: buildRiderExceptionActions(item.exception_details),
+      checklist: [
+        "近 3 日趋势需要同时回看评分、单量和超时/拒单波动",
+        "最近评价和售后异常要和派单分拆解一起复核",
+        "异常明细要能回看派单事件、售后记录或关联审计"
+      ]
+    }));
     return next;
   }
   if (view.key === "dispatch") {

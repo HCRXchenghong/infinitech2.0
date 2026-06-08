@@ -1,38 +1,67 @@
 <view class="page">
-  <view class="shop-hero">
+  <view class="hero-image">
+    <image class="hero-cover" src="{{shop.coverUrl}}" mode="aspectFill"></image>
+    <view class="hero-mask"></view>
+    <view class="hero-nav">
+      <text class="hero-back" bindtap="handleBack">‹</text>
+      <text class="hero-title">{{shop.name}}</text>
+      <view class="hero-capsule-space"></view>
+    </view>
+  </view>
+
+  <view class="shop-card">
     <view class="brand-mark">
-      <image class="brand-logo" src="/assets/brand/logo.jpg" mode="aspectFill"></image>
+      <image class="brand-logo" src="{{shop.logoUrl}}" mode="aspectFill"></image>
     </view>
     <view class="shop-info">
       <text class="shop-name">{{shop.name}}</text>
-      <text class="shop-meta">{{shop.rating}} 分 · {{shop.delivery}}</text>
+      <text class="shop-meta">{{shop.rating}} 分 · {{shop.sales}} · {{shop.delivery}}</text>
+      <text class="qualification">{{shop.qualification}}</text>
       <text class="announcement">{{shop.announcement}}</text>
     </view>
   </view>
 
-  <view class="section">
-    <view class="section-head">
-      <text class="section-title">外卖商品</text>
-      <text class="section-note">图片、描述、配料表由商户维护</text>
+  <view class="activity-bar">
+    <text wx:for="{{activities}}" wx:key="*this" class="activity-tag">{{item}}</text>
+  </view>
+
+  <view class="merchant-group-card">
+    <view class="group-copy">
+      <text class="group-title">商户群福利</text>
+      <text class="group-summary">{{merchantGroup.summary}}</text>
+      <text class="group-note">{{merchantGroup.joined ? "已在群内，可直接查看优惠和拼单消息。" : merchantGroup.notice}}</text>
     </view>
-    <view wx:for="{{products}}" wx:key="id" class="product-row">
-      <view class="product-image"></view>
-      <view class="product-main">
-        <text class="product-name">{{item.name}}</text>
-        <text class="product-desc">{{item.description}}</text>
-        <view class="product-bottom">
-          <text class="price">¥{{item.price}}</text>
-          <button class="add-button" size="mini" data-id="{{item.id}}" bindtap="handleAddTap">加入</button>
+    <button class="group-button {{merchantGroup.joined ? 'joined' : ''}}" bindtap="handleMerchantGroupAction">{{merchantGroup.buttonText}}</button>
+  </view>
+
+  <view class="shop-tabs">
+    <view wx:for="{{tabs}}" wx:key="*this" class="shop-tab {{activeTab === item ? 'active' : ''}}" data-tab="{{item}}" bindtap="handleTabTap">{{item}}</view>
+  </view>
+
+  <view wx:if="{{activeTab === '点餐'}}" class="order-layout">
+    <view class="category-list">
+      <view wx:for="{{categories}}" wx:key="*this" class="category {{activeCategory === item ? 'active' : ''}}" data-category="{{item}}" bindtap="handleCategoryTap">{{item}}</view>
+    </view>
+    <view class="product-list">
+      <view wx:for="{{products}}" wx:key="id" class="product-row">
+        <view class="product-image">
+          <image wx:if="{{item.imageUrl}}" class="product-photo" src="{{item.imageUrl}}" mode="aspectFill"></image>
+          <text wx:else>{{item.thumb}}</text>
+        </view>
+        <view class="product-main">
+          <text class="product-name">{{item.name}}</text>
+          <text class="product-desc">{{item.description}}</text>
+          <text class="product-sales">{{item.sales}}</text>
+          <view class="product-bottom">
+            <text class="price">¥{{item.price}}</text>
+            <button class="add-button" size="mini" data-id="{{item.id}}" bindtap="handleAddTap">+</button>
+          </view>
         </view>
       </view>
     </view>
   </view>
 
-  <view class="section">
-    <view class="section-head">
-      <text class="section-title">团购券</text>
-      <text class="section-note">到店扫码核销</text>
-    </view>
+  <view wx:elif="{{activeTab === '团购券'}}" class="section">
     <view wx:for="{{groupbuyDeals}}" wx:key="id" class="coupon-card">
       <text class="coupon-title">{{item.title}}</text>
       <text class="product-desc">{{item.note}}</text>
@@ -42,11 +71,122 @@
       </view>
     </view>
   </view>
+  <view wx:elif="{{activeTab === '评价'}}" class="section review-section">
+    <view class="review-summary-card">
+      <view class="review-score-block">
+        <text class="review-score">{{reviewSummary.averageRating}}</text>
+        <text class="review-score-label">综合评分</text>
+      </view>
+      <view class="review-summary-meta">
+        <text class="review-summary-text">{{reviewSummary.reviewCount}} 条真实评价</text>
+        <text class="review-summary-text">{{reviewSummary.positiveRate}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{reviewSummary.highlightTags.length}}" class="review-tag-row">
+      <text wx:for="{{reviewSummary.highlightTags}}" wx:key="*this" wx:for-item="tag" class="review-summary-tag">{{tag}}</text>
+    </view>
+
+    <view wx:for="{{reviews}}" wx:key="reviewId" wx:for-index="reviewIndex" class="review-card">
+      <view class="review-user-row">
+        <view class="review-avatar">{{item.avatarText}}</view>
+        <view class="review-user-main">
+          <view class="review-user-head">
+            <text class="review-user-name">{{item.userName}}</text>
+            <text class="review-time">{{item.createdText}}</text>
+          </view>
+          <text class="review-stars">{{item.starsText}}</text>
+        </view>
+      </view>
+      <text class="review-content">{{item.content}}</text>
+      <view wx:if="{{item.imageTiles.length}}" class="review-image-grid">
+        <view
+          wx:for="{{item.imageTiles}}"
+          wx:key="id"
+          wx:for-item="tile"
+          wx:for-index="tileIndex"
+          class="review-image-frame"
+          data-review-index="{{reviewIndex}}"
+          data-image-index="{{tile.imageIndex}}"
+          bindtap="handleReviewImagePreview"
+        >
+          <image class="review-image" src="{{tile.url}}" mode="aspectFill"></image>
+          <view wx:if="{{item.imageOverflowCount > 0 && tileIndex === item.imageTiles.length - 1}}" class="review-image-overlay">
+            <text class="review-image-overlay-text">+{{item.imageOverflowCount}}</text>
+          </view>
+        </view>
+      </view>
+      <view wx:if="{{item.itemHighlights.length}}" class="review-tag-row detail-tags">
+        <text wx:for="{{item.itemHighlights}}" wx:key="*this" wx:for-item="highlight" class="review-detail-chip">{{highlight}}</text>
+      </view>
+      <view wx:if="{{item.riderStarsText}}" class="review-rider-row">
+        <text class="review-rider-label">配送服务</text>
+        <text class="review-rider-stars">{{item.riderStarsText}}</text>
+      </view>
+      <view wx:if="{{item.tags.length}}" class="review-tag-row card-tags">
+        <text wx:for="{{item.tags}}" wx:key="*this" wx:for-item="tag" class="review-chip">{{tag}}</text>
+      </view>
+      <view wx:if="{{item.replyText}}" class="merchant-reply">
+        <text class="merchant-reply-label">商家回复</text>
+        <text class="merchant-reply-text">{{item.replyText}}</text>
+      </view>
+    </view>
+  </view>
+  <view wx:else class="section merchant-section">
+    <view class="merchant-card">
+      <view class="merchant-head">
+        <view class="merchant-head-copy">
+          <text class="merchant-name">{{merchantInfo.merchantName}}</text>
+          <text class="merchant-meta">{{merchantInfo.qualificationText}}</text>
+        </view>
+        <text class="qualification merchant-badge">{{merchantInfo.qualificationText}}</text>
+      </view>
+      <view class="merchant-info-row">
+        <text class="merchant-info-label">营业时间</text>
+        <text class="merchant-info-value">{{merchantInfo.businessHours}}</text>
+      </view>
+      <view class="merchant-info-row">
+        <text class="merchant-info-label">联系电话</text>
+        <text class="merchant-info-value">{{merchantInfo.contactPhone}}</text>
+      </view>
+      <view class="merchant-info-row">
+        <text class="merchant-info-label">商家地址</text>
+        <text class="merchant-info-value">{{merchantInfo.address}}</text>
+      </view>
+      <view class="merchant-actions">
+        <button class="outline-button merchant-action-button" bindtap="handleCallMerchant">联系商家</button>
+        <button class="ghost-button merchant-action-button" bindtap="handleCopyAddress">复制地址</button>
+      </view>
+    </view>
+
+    <view wx:if="{{merchantInfo.serviceCommitments.length}}" class="merchant-card">
+      <text class="section-title">服务承诺</text>
+      <view class="review-tag-row merchant-chip-row">
+        <text wx:for="{{merchantInfo.serviceCommitments}}" wx:key="*this" wx:for-item="itemText" class="merchant-chip">{{itemText}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{merchantInfo.qualificationItems.length}}" class="merchant-card">
+      <text class="section-title">商家资质</text>
+      <view wx:for="{{merchantInfo.qualificationItems}}" wx:key="*this" wx:for-item="itemText" class="merchant-bullet-row">
+        <text class="merchant-bullet-dot"></text>
+        <text class="merchant-bullet-text">{{itemText}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{merchantInfo.supportBulletins.length}}" class="merchant-card">
+      <text class="section-title">配送说明</text>
+      <view wx:for="{{merchantInfo.supportBulletins}}" wx:key="*this" wx:for-item="itemText" class="merchant-bullet-row">
+        <text class="merchant-bullet-dot"></text>
+        <text class="merchant-bullet-text">{{itemText}}</text>
+      </view>
+    </view>
+  </view>
 
   <view class="cart-bar">
     <view>
-      <text class="cart-title">已选 1 件</text>
-      <text class="cart-subtitle">商品 ¥25.99 · 配送 ¥3 · 打包 ¥1</text>
+      <text class="cart-title">已选 {{cartSelectedCount}} 件</text>
+      <text class="cart-subtitle">{{cartSubtitle}}</text>
     </view>
     <button class="checkout-button" bindtap="handleCartTap">去结算</button>
   </view>

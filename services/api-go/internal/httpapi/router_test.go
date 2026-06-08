@@ -59,6 +59,128 @@ func TestHealthAndHomeModules(t *testing.T) {
 	}
 }
 
+func TestPrescriptionImageUploadReviewHTTPFlow(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	uploadBody := authPostJSON(t, server.URL+"/api/prescriptions/upload-ticket", userToken("user_1"), `{"product_id":"med_amoxicillin","file_name":"prescription.jpg","content_type":"image/jpeg","size_bytes":2048}`, http.StatusCreated)
+	uploadTicket := uploadBody["data"].(map[string]any)
+	if uploadTicket["ticket_id"] == "" || uploadTicket["method"] != "PUT" || !strings.HasPrefix(uploadTicket["object_key"].(string), "prescriptions/") {
+		t.Fatalf("expected prescription upload ticket, got %+v", uploadBody)
+	}
+
+	confirmBody := authPostJSON(t, server.URL+"/api/prescriptions/upload-confirm", userToken("user_1"), `{"ticket_id":"`+uploadTicket["ticket_id"].(string)+`","object_key":"`+uploadTicket["object_key"].(string)+`","content_type":"image/jpeg","size_bytes":2048,"content_sha":"sha256:rx-http"}`, http.StatusCreated)
+	confirmed := confirmBody["data"].(map[string]any)
+	if confirmed["status"] != platform.AfterSalesUploadTicketConfirmed || confirmed["public_url"] == "" {
+		t.Fatalf("expected confirmed prescription upload ticket, got %+v", confirmBody)
+	}
+
+	reviewBody := authPostJSON(t, server.URL+"/api/prescriptions", userToken("user_1"), `{"patient_name":"张三","product_id":"med_amoxicillin","prescription_image_ticket_id":"`+uploadTicket["ticket_id"].(string)+`","prescription_object_key":"`+uploadTicket["object_key"].(string)+`"}`, http.StatusCreated)
+	review := reviewBody["data"].(map[string]any)
+	if review["status"] != platform.PrescriptionReviewApproved || review["image_object_key"] != uploadTicket["object_key"] || review["image_upload_ticket_id"] != uploadTicket["ticket_id"] {
+		t.Fatalf("expected prescription review to bind image ticket, got %+v", reviewBody)
+	}
+	if review["ocr_result"].(map[string]any)["status"] != platform.PrescriptionOCRMatched || review["archive"].(map[string]any)["archive_id"] == "" {
+		t.Fatalf("expected prescription review to expose OCR and archive metadata, got %+v", reviewBody)
+	}
+
+	loadedBody := authGetJSON(t, server.URL+"/api/prescriptions/"+review["id"].(string), userToken("user_1"), http.StatusOK)
+	if loadedBody["data"].(map[string]any)["image_object_key"] != uploadTicket["object_key"] {
+		t.Fatalf("expected loaded review to retain image metadata, got %+v", loadedBody)
+	}
+	authGetJSON(t, server.URL+"/api/prescriptions/"+review["id"].(string), userToken("user_2"), http.StatusNotFound)
+
+	queueBody := authGetJSON(t, server.URL+"/api/admin/prescriptions?status=approved", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	queue := queueBody["data"].([]any)
+	if len(queue) != 1 || queue[0].(map[string]any)["id"] != review["id"] {
+		t.Fatalf("expected prescription workbench queue, got %+v", queueBody)
+	}
+	rejectedBody := authPostJSON(t, server.URL+"/api/admin/prescriptions/"+review["id"].(string)+"/review", roleToken(RoleSupportAdmin, "support_1"), `{"decision":"rejected","reviewer_name":"陈药师","review_text":"处方影像与药品不匹配"}`, http.StatusOK)
+	rejected := rejectedBody["data"].(map[string]any)
+	if rejected["status"] != platform.PrescriptionReviewRejected || rejected["doctor_name"] != "陈药师" {
+		t.Fatalf("expected pharmacist rejection, got %+v", rejectedBody)
+	}
+	rejectedUserBody := authGetJSON(t, server.URL+"/api/prescriptions/"+review["id"].(string), userToken("user_1"), http.StatusOK)
+	if rejectedUserBody["data"].(map[string]any)["status"] != platform.PrescriptionReviewRejected {
+		t.Fatalf("expected user prescription result to reflect rejection, got %+v", rejectedUserBody)
+	}
+}
+
+func TestMedicineOrderInventoryHTTPFlow(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	created := authPostJSON(t, server.URL+"/api/medicine/orders", userToken("user_1"), `{"items":[{"product_id":"med_cooling_patch","name":"退热贴","category":"感冒发热","price_fen":1290,"quantity":26}]}`, http.StatusCreated)
+	items := created["data"].(map[string]any)["items"].([]any)
+	firstItem := items[0].(map[string]any)
+	if firstItem["stock_locked"] != true || int(firstItem["stock_remaining"].(float64)) != 0 {
+		t.Fatalf("expected medicine order to expose stock lock, got %+v", created)
+	}
+
+	home := authGetJSON(t, server.URL+"/api/medicine/home", userToken("user_1"), http.StatusOK)
+	products := home["data"].(map[string]any)["products"].([]any)
+	if stock := medicineHTTPProductStock(products, "med_cooling_patch"); stock != 0 {
+		t.Fatalf("expected locked stock to be visible on home, got %d", stock)
+	}
+
+	rejected := authPostJSON(t, server.URL+"/api/medicine/orders", userToken("user_1"), `{"items":[{"product_id":"med_cooling_patch","name":"退热贴","category":"感冒发热","price_fen":1290,"quantity":1}]}`, http.StatusConflict)
+	if rejected["code"] != "INSUFFICIENT_STOCK" {
+		t.Fatalf("expected insufficient stock conflict, got %+v", rejected)
+	}
+}
+
+func medicineHTTPProductStock(products []any, productID string) int {
+	for _, raw := range products {
+		product, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if product["id"] == productID {
+			return int(product["stock_count"].(float64))
+		}
+	}
+	return -1
+}
+
+func chatHTTPThreadUnread(threads []any, threadID string) int {
+	for _, raw := range threads {
+		thread, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if thread["id"] == threadID {
+			return int(thread["unread_count"].(float64))
+		}
+	}
+	return -1
+}
+
+func chatHTTPThreadMuted(threads []any, threadID string) bool {
+	for _, raw := range threads {
+		thread, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if thread["id"] == threadID {
+			return thread["muted"] == true
+		}
+	}
+	return false
+}
+
+func chatHTTPMemberExists(members []any, subjectID string, displayName string) bool {
+	for _, raw := range members {
+		member, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if member["subject_id"] == subjectID && member["display_name"] == displayName {
+			return true
+		}
+	}
+	return false
+}
+
 func TestOrderCreditPayAndGrabHTTPFlow(t *testing.T) {
 	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
 	defer server.Close()
@@ -580,6 +702,448 @@ func TestCreateRiderInviteHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
 	}
 }
 
+func TestAdminMerchantQualificationReviewHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
+	store := &merchantQualificationReviewAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	body := authPostJSON(t, server.URL+"/api/admin/merchant-qualifications/mq_atomic/review", roleToken(RoleOpsAdmin, "ops_1"), `{"merchant_id":"merchant_1","decision":"approve","reason":"资质核验通过","reviewed_at":"2026-05-23T12:00:00Z"}`, http.StatusOK)
+	data := body["data"].(map[string]any)
+	if data["qualification"].(map[string]any)["status"] != platform.QualificationStatusApproved {
+		t.Fatalf("expected qualification approval response, got %+v", body)
+	}
+	if data["outbox_event"].(map[string]any)["topic"] != "merchant.qualification_reviewed" {
+		t.Fatalf("expected qualification review outbox response, got %+v", body)
+	}
+	if !store.atomicAuditCalled {
+		t.Fatal("expected merchant qualification review HTTP handler to call atomic audit repository path")
+	}
+	if store.reviewQualificationCalled {
+		t.Fatal("merchant qualification review HTTP handler must not call standalone ReviewMerchantQualification before audit write")
+	}
+	if store.recordAuditCalled {
+		t.Fatal("merchant qualification review HTTP handler must not call standalone RecordAuditLog after review")
+	}
+	if store.atomicReq.MerchantID != "merchant_1" || store.atomicReq.QualificationID != "mq_atomic" || store.atomicReq.Decision != "approve" {
+		t.Fatalf("expected route path and review payload in atomic request, got %+v", store.atomicReq)
+	}
+	if store.atomicAudit.Action != "admin.merchant_qualification.reviewed" || store.atomicAudit.TargetType != "merchant_qualification" || store.atomicAudit.TargetID != "mq_atomic" {
+		t.Fatalf("expected qualification review audit target from HTTP handler, got %+v", store.atomicAudit)
+	}
+	if store.atomicAudit.ActorType != RoleOpsAdmin || store.atomicAudit.ActorID != "ops_1" {
+		t.Fatalf("expected ops principal in qualification review audit request, got %+v", store.atomicAudit)
+	}
+}
+
+func TestAdminMerchantQualificationQueueHTTPFlow(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	expiresAt := "2027-05-23T00:00:00Z"
+	uploadBody := authPostJSON(t, server.URL+"/api/merchant/qualifications", merchantToken("merchant_1"), `{"type":"business_license","file_url":"https://example.test/license-admin-queue.jpg","expires_at":"`+expiresAt+`"}`, http.StatusOK)
+	uploadData := uploadBody["data"].(map[string]any)
+	qualificationID := uploadData["qualifications"].([]any)[0].(map[string]any)["id"].(string)
+
+	queueBody := authGetJSON(t, server.URL+"/api/admin/merchant-qualifications?status=pending_review&merchant_id=merchant_1&type=business_license&limit=5&now=2026-05-23T12:00:00Z", roleToken(RoleOpsAdmin, "ops_1"), http.StatusOK)
+	queueData := queueBody["data"].(map[string]any)
+	if queueData["counts"].(map[string]any)["pending_review"].(float64) != 1 {
+		t.Fatalf("expected one pending qualification in admin queue, got %+v", queueBody)
+	}
+	qualification := queueData["qualifications"].([]any)[0].(map[string]any)
+	if qualification["qualification"].(map[string]any)["id"] != qualificationID || qualification["recommended_operation"].(map[string]any)["key"] != "merchant-qualification-review" {
+		t.Fatalf("expected queue item to include review recommendation, got %+v", qualification)
+	}
+	if qualification["merchant"].(map[string]any)["id"] != "merchant_1" || qualification["incident_code"] != "merchant_qualification.pending_review" {
+		t.Fatalf("expected merchant and incident context, got %+v", qualification)
+	}
+
+	detailBody := authGetJSON(t, server.URL+"/api/admin/merchant-qualifications/"+qualificationID+"?audit_limit=5&now=2026-05-23T12:00:00Z", roleToken(RoleOpsAdmin, "ops_1"), http.StatusOK)
+	detailData := detailBody["data"].(map[string]any)
+	if detailData["qualification"].(map[string]any)["id"] != qualificationID || len(detailData["checklist"].([]any)) == 0 {
+		t.Fatalf("expected qualification detail with checklist, got %+v", detailBody)
+	}
+	authGetJSON(t, server.URL+"/api/admin/merchant-qualifications?status=pending_review", roleToken(RoleSupportAdmin, "support_1"), http.StatusForbidden)
+	authGetJSON(t, server.URL+"/api/admin/merchant-qualifications/"+qualificationID, roleToken(RoleSupportAdmin, "support_1"), http.StatusForbidden)
+
+	authPostJSON(t, server.URL+"/api/admin/merchant-qualifications/"+qualificationID+"/review", roleToken(RoleOpsAdmin, "ops_1"), `{"merchant_id":"merchant_1","decision":"approve","reason":"营业执照核验通过","reviewed_at":"2026-05-23T12:05:00Z"}`, http.StatusOK)
+	reviewedDetailBody := authGetJSON(t, server.URL+"/api/admin/merchant-qualifications/"+qualificationID+"?audit_limit=5", roleToken(RoleOpsAdmin, "ops_1"), http.StatusOK)
+	reviewedDetail := reviewedDetailBody["data"].(map[string]any)
+	if reviewedDetail["qualification"].(map[string]any)["status"] != platform.QualificationStatusApproved || reviewedDetail["recommended_operation"].(map[string]any)["key"] != "audit-logs" {
+		t.Fatalf("expected approved detail to recommend audit lookup, got %+v", reviewedDetailBody)
+	}
+	if len(reviewedDetail["recent_audits"].([]any)) != 1 {
+		t.Fatalf("expected recent review audit in detail, got %+v", reviewedDetailBody)
+	}
+	outboxBody := authGetJSON(t, server.URL+"/api/admin/outbox/events?topic=merchant.qualification_reviewed&limit=10", roleToken(RoleOpsAdmin, "ops_1"), http.StatusOK)
+	outboxEvents := outboxBody["data"].([]any)
+	if len(outboxEvents) != 1 || outboxEvents[0].(map[string]any)["aggregate_id"] != qualificationID {
+		t.Fatalf("expected merchant qualification review outbox event, got %+v", outboxBody)
+	}
+}
+
+func TestMerchantNotificationsHTTPFlow(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	createBody := authPostJSON(t, server.URL+"/api/notifications", roleToken(RoleOpsAdmin, "ops_1"), `{"target_role":"merchant","target_id":"merchant_1","type":"merchant.qualification_reviewed","title":"商户资质审核结果","body":"资质审核已通过，系统已更新商户接单资格。","source_topic":"merchant.qualification_reviewed","source_event_id":"obe_mq_1","idempotency_key":"notify:merchant.qualification_reviewed:obe_mq_1","created_at":"2026-05-25T12:00:00Z"}`, http.StatusCreated)
+	created := createBody["data"].(map[string]any)
+	notificationID := created["id"].(string)
+	if notificationID == "" || created["status"] != platform.NotificationStatusUnread || created["channel"] != platform.NotificationChannelInApp {
+		t.Fatalf("expected unread notification to be created, got %+v", createBody)
+	}
+	duplicateBody := authPostJSON(t, server.URL+"/api/notifications", roleToken(RoleOpsAdmin, "ops_1"), `{"target_role":"merchant","target_id":"merchant_1","type":"merchant.qualification_reviewed","title":"重复投递","body":"重复投递","idempotency_key":"notify:merchant.qualification_reviewed:obe_mq_1"}`, http.StatusCreated)
+	if duplicateBody["data"].(map[string]any)["id"] != notificationID {
+		t.Fatalf("expected duplicate notification create to return original record, got %+v", duplicateBody)
+	}
+	authPostJSON(t, server.URL+"/api/notifications", roleToken(RoleSupportAdmin, "support_1"), `{"target_role":"merchant","target_id":"merchant_1","type":"merchant.qualification_reviewed","title":"无权写入","body":"无权写入","idempotency_key":"notify:denied"}`, http.StatusForbidden)
+
+	adminListBody := authGetJSON(t, server.URL+"/api/admin/notifications?target_role=merchant&target_id=merchant_1&status=unread&source_topic=merchant.qualification_reviewed&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	adminNotifications := adminListBody["data"].([]any)
+	if len(adminNotifications) != 1 || adminNotifications[0].(map[string]any)["id"] != notificationID {
+		t.Fatalf("expected support admin to read merchant notification ledger, got %+v", adminListBody)
+	}
+	noSourceBody := authGetJSON(t, server.URL+"/api/admin/notifications?target_role=merchant&target_id=merchant_1&source_topic=audit.retention_alerts", roleToken(RoleOpsAdmin, "ops_1"), http.StatusOK)
+	if len(noSourceBody["data"].([]any)) != 0 {
+		t.Fatalf("expected source topic filter to isolate notification ledger, got %+v", noSourceBody)
+	}
+	authGetJSON(t, server.URL+"/api/admin/notifications?target_role=merchant", roleToken(RoleOpsAdmin, "ops_1"), http.StatusBadRequest)
+	authGetJSON(t, server.URL+"/api/admin/notifications?target_role=merchant&target_id=merchant_1", roleToken(RoleSecurityAuditor, "auditor_1"), http.StatusForbidden)
+
+	deliveryBody := authPostJSON(t, server.URL+"/api/notifications/"+notificationID+"/deliveries", roleToken(RoleOpsAdmin, "ops_1"), `{"channel":"in_app","provider":"in_app","status":"delivered","provider_message_id":"ntf_1","idempotency_key":"delivery:notify:merchant.qualification_reviewed:obe_mq_1:in_app","attempted_at":"2026-05-25T12:00:05Z"}`, http.StatusCreated)
+	delivery := deliveryBody["data"].(map[string]any)
+	if delivery["notification_id"] != notificationID || delivery["status"] != platform.NotificationDeliveryDelivered || delivery["target_id"] != "merchant_1" {
+		t.Fatalf("expected delivered notification receipt, got %+v", deliveryBody)
+	}
+	failedDeliveryBody := authPostJSON(t, server.URL+"/api/notifications/"+notificationID+"/deliveries", roleToken(RoleOpsAdmin, "ops_1"), `{"channel":"wechat_subscribe","provider":"wechat_subscribe","status":"failed","error_code":"invalid_openid","error_message":"openid missing","idempotency_key":"delivery:notify:merchant.qualification_reviewed:obe_mq_1:wechat","attempted_at":"2026-05-25T12:00:10Z"}`, http.StatusCreated)
+	if failedDeliveryBody["data"].(map[string]any)["error_code"] != "invalid_openid" {
+		t.Fatalf("expected failed notification receipt, got %+v", failedDeliveryBody)
+	}
+	authPostJSON(t, server.URL+"/api/notifications/"+notificationID+"/deliveries", roleToken(RoleSupportAdmin, "support_1"), `{"status":"delivered","idempotency_key":"delivery:denied"}`, http.StatusForbidden)
+	deliveriesBody := authGetJSON(t, server.URL+"/api/admin/notification-deliveries?target_role=merchant&target_id=merchant_1&status=failed&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	deliveries := deliveriesBody["data"].([]any)
+	if len(deliveries) != 1 || deliveries[0].(map[string]any)["error_code"] != "invalid_openid" {
+		t.Fatalf("expected support admin to read failed notification deliveries, got %+v", deliveriesBody)
+	}
+	authGetJSON(t, server.URL+"/api/admin/notification-deliveries?target_role=merchant", roleToken(RoleOpsAdmin, "ops_1"), http.StatusBadRequest)
+	authPostJSON(t, server.URL+"/api/admin/notification-deliveries/failure-alerts/emit", roleToken(RoleSupportAdmin, "support_1"), `{"target_role":"merchant","target_id":"merchant_1","limit":10}`, http.StatusForbidden)
+	alertBody := authPostJSON(t, server.URL+"/api/admin/notification-deliveries/failure-alerts/emit", roleToken(RoleOpsAdmin, "ops_1"), `{"target_role":"merchant","target_id":"merchant_1","channel":"wechat_subscribe","limit":10,"now":"2026-05-25T12:01:00Z"}`, http.StatusOK)
+	alertData := alertBody["data"].(map[string]any)
+	emission := alertData["emission"].(map[string]any)
+	if emission["status"] != "emitted" || emission["failed_count"].(float64) != 1 || emission["outbox_event_id"] == "" {
+		t.Fatalf("expected notification failure alert emission, got %+v", alertBody)
+	}
+	alertEvent := alertData["outbox_event"].(map[string]any)
+	if alertEvent["topic"] != "notification.delivery_failed_alerts" || alertEvent["event_type"] != "notification.delivery_failed_alerts.emitted" {
+		t.Fatalf("expected notification failure alert outbox event, got %+v", alertBody)
+	}
+	alertAudit := alertData["audit_log"].(map[string]any)
+	if alertAudit["action"] != "admin.notification_delivery_failure_alerts.emitted" || alertAudit["target_type"] != "notification_delivery_alerts" {
+		t.Fatalf("expected notification failure alert audit log, got %+v", alertBody)
+	}
+	alertEventsBody := authGetJSON(t, server.URL+"/api/admin/outbox/events?topic=notification.delivery_failed_alerts&limit=10&now=2026-05-25T12:01:00Z", roleToken(RoleOpsAdmin, "ops_1"), http.StatusOK)
+	alertEvents := alertEventsBody["data"].([]any)
+	if len(alertEvents) != 1 || alertEvents[0].(map[string]any)["id"] != alertEvent["id"] {
+		t.Fatalf("expected notification failure alert outbox event to be queryable, got %+v", alertEventsBody)
+	}
+	authPostJSON(t, server.URL+"/api/admin/notification-deliveries/retries/schedule", roleToken(RoleSupportAdmin, "support_1"), `{"target_role":"merchant","target_id":"merchant_1","limit":10}`, http.StatusForbidden)
+	retryBody := authPostJSON(t, server.URL+"/api/admin/notification-deliveries/retries/schedule", roleToken(RoleOpsAdmin, "ops_1"), `{"target_role":"merchant","target_id":"merchant_1","channel":"wechat_subscribe","provider":"wechat_subscribe","limit":10,"retry_after_seconds":300,"now":"2026-05-25T12:02:00Z"}`, http.StatusOK)
+	retryData := retryBody["data"].(map[string]any)
+	schedule := retryData["schedule"].(map[string]any)
+	if schedule["status"] != "scheduled" || schedule["scheduled_count"].(float64) != 1 || schedule["retry_after_seconds"].(float64) != 300 {
+		t.Fatalf("expected notification delivery retry schedule, got %+v", retryBody)
+	}
+	retryEvent := retryData["outbox_event"].(map[string]any)
+	if retryEvent["topic"] != "notification.delivery_retries" || retryEvent["event_type"] != "notification.delivery_retries.scheduled" {
+		t.Fatalf("expected notification delivery retry outbox event, got %+v", retryBody)
+	}
+	retryAudit := retryData["audit_log"].(map[string]any)
+	if retryAudit["action"] != "admin.notification_delivery_retries.scheduled" || retryAudit["target_type"] != "notification_delivery_retries" {
+		t.Fatalf("expected notification delivery retry audit log, got %+v", retryBody)
+	}
+	blockedRetryEventsBody := authGetJSON(t, server.URL+"/api/admin/outbox/events?topic=notification.delivery_retries&limit=10&now=2026-05-25T12:02:00Z", roleToken(RoleOpsAdmin, "ops_1"), http.StatusOK)
+	if len(blockedRetryEventsBody["data"].([]any)) != 0 {
+		t.Fatalf("expected notification retry event hidden before retry_at, got %+v", blockedRetryEventsBody)
+	}
+	retryEventsBody := authGetJSON(t, server.URL+"/api/admin/outbox/events?topic=notification.delivery_retries&limit=10&now=2026-05-25T12:07:00Z", roleToken(RoleOpsAdmin, "ops_1"), http.StatusOK)
+	retryEvents := retryEventsBody["data"].([]any)
+	if len(retryEvents) != 1 || retryEvents[0].(map[string]any)["id"] != retryEvent["id"] {
+		t.Fatalf("expected notification delivery retry outbox event after backoff, got %+v", retryEventsBody)
+	}
+	quietDeliveryBody := authPostJSON(t, server.URL+"/api/notifications/"+notificationID+"/deliveries", roleToken(RoleOpsAdmin, "ops_1"), `{"channel":"push","provider":"push","status":"queued","error_code":"notification_quiet_window","error_message":"notification quiet window suppressed push","idempotency_key":"delivery:notify:merchant.qualification_reviewed:obe_mq_1:push:quiet","attempted_at":"2026-05-25T12:00:15Z","retry_at":"2026-05-25T12:12:00Z"}`, http.StatusCreated)
+	quietDelivery := quietDeliveryBody["data"].(map[string]any)
+	if quietDelivery["status"] != platform.NotificationDeliveryQueued || quietDelivery["error_code"] != "notification_quiet_window" || quietDelivery["retry_at"] != "2026-05-25T12:12:00Z" {
+		t.Fatalf("expected queued quiet-window notification receipt, got %+v", quietDeliveryBody)
+	}
+	quietDeliveriesBody := authGetJSON(t, server.URL+"/api/admin/notification-deliveries?target_role=merchant&target_id=merchant_1&status=queued&error_code=notification_quiet_window&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	quietDeliveries := quietDeliveriesBody["data"].([]any)
+	if len(quietDeliveries) != 1 || quietDeliveries[0].(map[string]any)["id"] != quietDelivery["id"] {
+		t.Fatalf("expected queued quiet-window delivery filter, got %+v", quietDeliveriesBody)
+	}
+	quietRetryBody := authPostJSON(t, server.URL+"/api/admin/notification-deliveries/retries/schedule", roleToken(RoleOpsAdmin, "ops_1"), `{"target_role":"merchant","target_id":"merchant_1","channel":"push","provider":"push","status":"queued","error_code":"notification_quiet_window","limit":10,"retry_at":"2026-05-25T12:12:00Z","now":"2026-05-25T12:03:00Z"}`, http.StatusOK)
+	quietRetryData := quietRetryBody["data"].(map[string]any)
+	quietSchedule := quietRetryData["schedule"].(map[string]any)
+	if quietSchedule["status"] != "scheduled" || quietSchedule["delivery_status"] != platform.NotificationDeliveryQueued || quietSchedule["error_code"] != "notification_quiet_window" || quietSchedule["retry_at"] != "2026-05-25T12:12:00Z" {
+		t.Fatalf("expected quiet-window queued retry schedule, got %+v", quietRetryBody)
+	}
+	quietRetryEvent := quietRetryData["outbox_event"].(map[string]any)
+	if quietRetryEvent["topic"] != "notification.delivery_retries" || quietRetryEvent["aggregate_id"] != platform.NotificationDeliveryQueued {
+		t.Fatalf("expected quiet-window queued retry outbox event, got %+v", quietRetryBody)
+	}
+	quietRetryAudit := quietRetryData["audit_log"].(map[string]any)
+	if quietRetryAudit["target_id"] != platform.NotificationDeliveryQueued {
+		t.Fatalf("expected quiet-window retry audit target, got %+v", quietRetryBody)
+	}
+	quietRetryEventsBody := authGetJSON(t, server.URL+"/api/admin/outbox/events?topic=notification.delivery_retries&limit=10&now=2026-05-25T12:12:00Z", roleToken(RoleOpsAdmin, "ops_1"), http.StatusOK)
+	quietRetryEvents := quietRetryEventsBody["data"].([]any)
+	quietRetryEventFound := false
+	for _, item := range quietRetryEvents {
+		if item.(map[string]any)["id"] == quietRetryEvent["id"] {
+			quietRetryEventFound = true
+			break
+		}
+	}
+	if !quietRetryEventFound {
+		t.Fatalf("expected quiet-window retry outbox event after retry_at, got %+v", quietRetryEventsBody)
+	}
+	autoQuietDeliveryBody := authPostJSON(t, server.URL+"/api/notifications/"+notificationID+"/deliveries", roleToken(RoleOpsAdmin, "ops_1"), `{"channel":"sms","provider":"sms","status":"queued","error_code":"notification_quiet_window","error_message":"notification quiet window suppressed sms","idempotency_key":"delivery:notify:merchant.qualification_reviewed:obe_mq_1:sms:quiet","attempted_at":"2026-05-25T12:00:20Z","retry_at":"2026-05-25T12:10:00Z"}`, http.StatusCreated)
+	autoQuietDelivery := autoQuietDeliveryBody["data"].(map[string]any)
+	if autoQuietDelivery["status"] != platform.NotificationDeliveryQueued || autoQuietDelivery["retry_at"] != "2026-05-25T12:10:00Z" {
+		t.Fatalf("expected auto quiet-window queued receipt, got %+v", autoQuietDeliveryBody)
+	}
+	notDueQuietDeliveriesBody := authGetJSON(t, server.URL+"/api/admin/notification-deliveries?channel=sms&provider=sms&status=queued&error_code=notification_quiet_window&retry_at_before=2026-05-25T12:09:59Z&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	if len(notDueQuietDeliveriesBody["data"].([]any)) != 0 {
+		t.Fatalf("expected retry_at_before to hide future quiet-window delivery, got %+v", notDueQuietDeliveriesBody)
+	}
+	authPostJSON(t, server.URL+"/api/admin/notification-deliveries/quiet-window-retries/schedule", roleToken(RoleSupportAdmin, "support_1"), `{"channel":"sms","provider":"sms","limit":10,"now":"2026-05-25T12:10:00Z"}`, http.StatusForbidden)
+	autoQuietRetryBody := authPostJSON(t, server.URL+"/api/admin/notification-deliveries/quiet-window-retries/schedule", roleToken(RoleOpsAdmin, "ops_1"), `{"channel":"sms","provider":"sms","limit":10,"now":"2026-05-25T12:10:00Z"}`, http.StatusOK)
+	autoQuietRetryData := autoQuietRetryBody["data"].(map[string]any)
+	autoQuietSchedule := autoQuietRetryData["schedule"].(map[string]any)
+	if autoQuietSchedule["status"] != "scheduled" || autoQuietSchedule["delivery_status"] != platform.NotificationDeliveryQueued || autoQuietSchedule["scheduled_count"].(float64) != 1 || autoQuietSchedule["retry_at"] != "2026-05-25T12:10:00Z" {
+		t.Fatalf("expected auto quiet-window retry schedule, got %+v", autoQuietRetryBody)
+	}
+	autoQuietRetryEvent := autoQuietRetryData["outbox_event"].(map[string]any)
+	if autoQuietRetryEvent["topic"] != "notification.delivery_retries" || autoQuietRetryEvent["aggregate_id"] != platform.NotificationDeliveryQueued {
+		t.Fatalf("expected auto quiet-window retry outbox event, got %+v", autoQuietRetryBody)
+	}
+	authPutJSON(t, server.URL+"/api/admin/notification-preferences", roleToken(RoleSupportAdmin, "support_1"), `{"target_role":"merchant","target_id":"merchant_1","notification_type":"merchant.qualification_reviewed","disabled_channels":["sms"]}`, http.StatusForbidden)
+	adminPreferenceBody := authPutJSON(t, server.URL+"/api/admin/notification-preferences", roleToken(RoleOpsAdmin, "ops_1"), `{"target_role":"merchant","target_id":"merchant_1","notification_type":"merchant.qualification_reviewed","enabled_channels":["wechat_subscribe","push"],"disabled_channels":["sms"],"quiet_hours":{"enabled":true,"start":"22:00","end":"08:00","timezone_offset":"+08:00","channels":["wechat_subscribe","push"]},"updated_at":"2026-05-25T12:03:00Z"}`, http.StatusOK)
+	adminPreferenceData := adminPreferenceBody["data"].(map[string]any)
+	adminPreference := adminPreferenceData["preference"].(map[string]any)
+	if adminPreference["preference_key"] != "merchant:merchant_1:merchant.qualification_reviewed" || adminPreference["notification_type"] != "merchant.qualification_reviewed" {
+		t.Fatalf("expected admin notification preference save, got %+v", adminPreferenceBody)
+	}
+	adminPreferenceAudit := adminPreferenceData["audit_log"].(map[string]any)
+	if adminPreferenceAudit["action"] != "admin.notification_preferences.saved" || adminPreferenceAudit["target_id"] != adminPreference["id"] {
+		t.Fatalf("expected notification preference audit log, got %+v", adminPreferenceBody)
+	}
+	adminPreferencesBody := authGetJSON(t, server.URL+"/api/admin/notification-preferences?target_role=merchant&target_id=merchant_1&notification_type=merchant.qualification_reviewed&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	adminPreferences := adminPreferencesBody["data"].([]any)
+	if len(adminPreferences) != 1 || adminPreferences[0].(map[string]any)["preference_key"] != "merchant:merchant_1:merchant.qualification_reviewed" {
+		t.Fatalf("expected support admin to read notification preferences, got %+v", adminPreferencesBody)
+	}
+	adminPreferenceByKeyBody := authGetJSON(t, server.URL+"/api/admin/notification-preferences?preference_key=merchant:merchant_1:merchant.qualification_reviewed&limit=1", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	if len(adminPreferenceByKeyBody["data"].([]any)) != 1 {
+		t.Fatalf("expected notification preference key lookup, got %+v", adminPreferenceByKeyBody)
+	}
+	authPostJSON(t, server.URL+"/api/admin/notification-preferences/batch", roleToken(RoleSupportAdmin, "support_1"), `{"reason":"support cannot batch save","preferences":[{"target_role":"merchant","target_id":"merchant_1","notification_type":"order.status_changed"}]}`, http.StatusForbidden)
+	adminPreferenceBatchBody := authPostJSON(t, server.URL+"/api/admin/notification-preferences/batch", roleToken(RoleOpsAdmin, "ops_1"), `{"reason":"批量更新关键通知触达策略","updated_at":"2026-05-25T12:03:30Z","preferences":[{"target_role":"merchant","target_id":"merchant_1","notification_type":"order.status_changed","enabled_channels":["wechat_subscribe","push"],"disabled_channels":["sms"]},{"target_role":"user","target_id":"user_1","notification_type":"after_sales.updated","disabled_channels":["sms"]}]}`, http.StatusOK)
+	adminPreferenceBatchData := adminPreferenceBatchBody["data"].(map[string]any)
+	adminPreferenceBatch := adminPreferenceBatchData["batch"].(map[string]any)
+	if adminPreferenceBatch["saved"].(float64) != 2 || len(adminPreferenceBatch["preferences"].([]any)) != 2 || adminPreferenceBatch["batch_id"] == "" {
+		t.Fatalf("expected notification preference batch save, got %+v", adminPreferenceBatchBody)
+	}
+	adminPreferenceBatchAudit := adminPreferenceBatchData["audit_log"].(map[string]any)
+	if adminPreferenceBatchAudit["action"] != "admin.notification_preferences.batch_saved" || adminPreferenceBatchAudit["target_id"] != adminPreferenceBatch["batch_id"] {
+		t.Fatalf("expected notification preference batch audit, got %+v", adminPreferenceBatchBody)
+	}
+	adminBatchPreferencesBody := authGetJSON(t, server.URL+"/api/admin/notification-preferences?target_role=user&target_id=user_1&notification_type=after_sales.updated&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	adminBatchPreferences := adminBatchPreferencesBody["data"].([]any)
+	if len(adminBatchPreferences) != 1 || adminBatchPreferences[0].(map[string]any)["preference_key"] != "user:user_1:after_sales.updated" {
+		t.Fatalf("expected batch-saved user preference to be queryable, got %+v", adminBatchPreferencesBody)
+	}
+	authPostJSON(t, server.URL+"/api/admin/notification-preferences/change-requests", roleToken(RoleSupportAdmin, "support_1"), `{"reason":"support cannot request","preferences":[{"target_role":"merchant","target_id":"merchant_1","notification_type":"order.status_changed"}]}`, http.StatusForbidden)
+	authPostJSON(t, server.URL+"/api/admin/notification-preferences/change-requests", roleToken(RoleOpsAdmin, "ops_1"), `{"reason":"无效灰度范围","rollout":{"mode":"target_ids"},"preferences":[{"target_role":"merchant","target_id":"merchant_1","notification_type":"order.status_changed"}]}`, http.StatusBadRequest)
+	preferenceChangeRequestBody := authPostJSON(t, server.URL+"/api/admin/notification-preferences/change-requests", roleToken(RoleOpsAdmin, "ops_1"), `{"reason":"申请批量调整关键通知触达策略","updated_at":"2026-05-25T12:03:40Z","rollout":{"mode":"target_ids","target_ids":["merchant_1"],"max_targets":10},"preferences":[{"target_role":"merchant","target_id":"merchant_1","notification_type":"merchant.qualification_reviewed","disabled_channels":["enterprise_wechat"]},{"target_role":"user","target_id":"user_1","notification_type":"after_sales.updated","disabled_channels":["push"]}]}`, http.StatusCreated)
+	preferenceChangeRequest := preferenceChangeRequestBody["data"].(map[string]any)
+	changeRequestID := preferenceChangeRequest["id"].(string)
+	if preferenceChangeRequest["status"] != "pending_approval" || len(preferenceChangeRequest["preference_keys"].([]any)) != 2 {
+		t.Fatalf("expected pending notification preference change request, got %+v", preferenceChangeRequestBody)
+	}
+	preferenceChangeRollout := preferenceChangeRequest["rollout"].(map[string]any)
+	if preferenceChangeRollout["mode"] != "target_ids" || len(preferenceChangeRollout["target_ids"].([]any)) != 1 {
+		t.Fatalf("expected target rollout on notification preference change request, got %+v", preferenceChangeRequestBody)
+	}
+	authPostJSON(t, server.URL+"/api/admin/notification-preferences/change-requests/"+changeRequestID+"/review", roleToken(RoleOpsAdmin, "ops_1"), `{"decision":"approve","reason":"self review must fail"}`, http.StatusConflict)
+	reviewedPreferenceChangeBody := authPostJSON(t, server.URL+"/api/admin/notification-preferences/change-requests/"+changeRequestID+"/review", roleToken(RoleOpsAdmin, "ops_2"), `{"decision":"approve","reason":"策略范围和静默窗口已复核"}`, http.StatusOK)
+	reviewedPreferenceChange := reviewedPreferenceChangeBody["data"].(map[string]any)["change_request"].(map[string]any)
+	if reviewedPreferenceChange["status"] != "approved" || reviewedPreferenceChange["review_decision"] != "approve" {
+		t.Fatalf("expected approved notification preference change request, got %+v", reviewedPreferenceChangeBody)
+	}
+	authPostJSON(t, server.URL+"/api/admin/notification-preferences/change-requests/"+changeRequestID+"/apply", roleToken(RoleOpsAdmin, "ops_1"), `{"reason":"requester cannot apply","updated_at":"2026-05-25T12:03:45Z"}`, http.StatusConflict)
+	appliedPreferenceChangeBody := authPostJSON(t, server.URL+"/api/admin/notification-preferences/change-requests/"+changeRequestID+"/apply", roleToken(RoleOpsAdmin, "ops_2"), `{"reason":"按已审批策略应用到生产偏好账本","updated_at":"2026-05-25T12:03:45Z"}`, http.StatusOK)
+	appliedPreferenceChangeData := appliedPreferenceChangeBody["data"].(map[string]any)
+	appliedPreferenceChange := appliedPreferenceChangeData["change_request"].(map[string]any)
+	appliedPreferenceBatch := appliedPreferenceChangeData["batch"].(map[string]any)
+	appliedPreferenceAudit := appliedPreferenceChangeData["audit_log"].(map[string]any)
+	if appliedPreferenceChange["status"] != "applied" || appliedPreferenceBatch["saved"].(float64) != 1 || appliedPreferenceAudit["action"] != "admin.notification_preferences.change_applied" {
+		t.Fatalf("expected applied notification preference change request, got %+v", appliedPreferenceChangeBody)
+	}
+	if appliedPreferenceChange["skipped_count"].(float64) != 1 || len(appliedPreferenceChange["skipped_preference_keys"].([]any)) != 1 {
+		t.Fatalf("expected rollout to skip one notification preference, got %+v", appliedPreferenceChangeBody)
+	}
+	appliedPreferencePayload := appliedPreferenceAudit["payload"].(map[string]any)
+	if appliedPreferencePayload["rollout_mode"] != "target_ids" || appliedPreferencePayload["applied_count"].(float64) != 1 || appliedPreferencePayload["skipped_count"].(float64) != 1 {
+		t.Fatalf("expected rollout scope in notification preference apply audit, got %+v", appliedPreferenceAudit)
+	}
+	skippedPreferenceBody := authGetJSON(t, server.URL+"/api/admin/notification-preferences?target_role=user&target_id=user_1&notification_type=after_sales.updated&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	skippedPreferences := skippedPreferenceBody["data"].([]any)
+	if len(skippedPreferences) != 1 || len(skippedPreferences[0].(map[string]any)["disabled_channels"].([]any)) != 1 || skippedPreferences[0].(map[string]any)["disabled_channels"].([]any)[0] != "sms" {
+		t.Fatalf("expected skipped rollout preference to keep previous channels, got %+v", skippedPreferenceBody)
+	}
+	appliedPreferenceChangesBody := authGetJSON(t, server.URL+"/api/admin/notification-preferences/change-requests?status=applied&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	appliedPreferenceChanges := appliedPreferenceChangesBody["data"].(map[string]any)["items"].([]any)
+	if len(appliedPreferenceChanges) == 0 || appliedPreferenceChanges[0].(map[string]any)["id"] != changeRequestID {
+		t.Fatalf("expected applied notification preference change request to be queryable, got %+v", appliedPreferenceChangesBody)
+	}
+	if appliedPreferenceChanges[0].(map[string]any)["skipped_count"].(float64) != 1 {
+		t.Fatalf("expected applied notification preference ledger to keep rollout skip count, got %+v", appliedPreferenceChangesBody)
+	}
+	rejectedPreferenceChangeRequestBody := authPostJSON(t, server.URL+"/api/admin/notification-preferences/change-requests", roleToken(RoleOpsAdmin, "ops_1"), `{"reason":"申请关闭非关键优惠短信触达","updated_at":"2026-05-25T12:03:50Z","preferences":[{"target_role":"user","target_id":"user_1","notification_type":"coupon.campaign","disabled_channels":["sms"]}]}`, http.StatusCreated)
+	rejectedPreferenceChangeRequest := rejectedPreferenceChangeRequestBody["data"].(map[string]any)
+	rejectedChangeRequestID := rejectedPreferenceChangeRequest["id"].(string)
+	rejectedPreferenceChangeBody := authPostJSON(t, server.URL+"/api/admin/notification-preferences/change-requests/"+rejectedChangeRequestID+"/review", roleToken(RoleOpsAdmin, "ops_2"), `{"decision":"reject","reason":"优惠短信关闭范围需要灰度验证后再提交"}`, http.StatusOK)
+	rejectedPreferenceChange := rejectedPreferenceChangeBody["data"].(map[string]any)["change_request"].(map[string]any)
+	if rejectedPreferenceChange["status"] != "rejected" || rejectedPreferenceChange["review_decision"] != "reject" {
+		t.Fatalf("expected rejected notification preference change request, got %+v", rejectedPreferenceChangeBody)
+	}
+	authPostJSON(t, server.URL+"/api/admin/notification-preferences/change-requests/"+rejectedChangeRequestID+"/apply", roleToken(RoleOpsAdmin, "ops_2"), `{"reason":"rejected request must not apply","updated_at":"2026-05-25T12:03:55Z"}`, http.StatusConflict)
+	rejectedPreferenceChangesBody := authGetJSON(t, server.URL+"/api/admin/notification-preferences/change-requests?status=rejected&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	rejectedPreferenceChanges := rejectedPreferenceChangesBody["data"].(map[string]any)["items"].([]any)
+	if len(rejectedPreferenceChanges) == 0 || rejectedPreferenceChanges[0].(map[string]any)["id"] != rejectedChangeRequestID {
+		t.Fatalf("expected rejected notification preference change request to be queryable, got %+v", rejectedPreferenceChangesBody)
+	}
+	authGetJSON(t, server.URL+"/api/admin/notification-preferences?target_id=merchant_1", roleToken(RoleOpsAdmin, "ops_1"), http.StatusBadRequest)
+	merchantPreferenceBody := authPutJSON(t, server.URL+"/api/merchant/notification-preferences", merchantToken("merchant_1"), `{"notification_type":"order.status_changed","disabled_channels":["push"],"quiet_hours":{"enabled":true,"start":"21:30","end":"07:30","timezone_offset":"+08:00","channels":["push"]},"updated_at":"2026-05-25T12:04:00Z"}`, http.StatusOK)
+	merchantPreference := merchantPreferenceBody["data"].(map[string]any)
+	if merchantPreference["target_role"] != "merchant" || merchantPreference["target_id"] != "merchant_1" || merchantPreference["preference_key"] != "merchant:merchant_1:order.status_changed" {
+		t.Fatalf("expected merchant notification preference save to be scoped, got %+v", merchantPreferenceBody)
+	}
+	merchantPreferencesBody := authGetJSON(t, server.URL+"/api/merchant/notification-preferences?notification_type=order.status_changed&limit=10", merchantToken("merchant_1"), http.StatusOK)
+	merchantPreferences := merchantPreferencesBody["data"].([]any)
+	if len(merchantPreferences) != 1 || merchantPreferences[0].(map[string]any)["preference_key"] != "merchant:merchant_1:order.status_changed" {
+		t.Fatalf("expected merchant notification preferences to be queryable, got %+v", merchantPreferencesBody)
+	}
+	otherMerchantPreferencesBody := authGetJSON(t, server.URL+"/api/merchant/notification-preferences?notification_type=order.status_changed&limit=10", merchantToken("merchant_2"), http.StatusOK)
+	if len(otherMerchantPreferencesBody["data"].([]any)) != 0 {
+		t.Fatalf("expected merchant preference isolation, got %+v", otherMerchantPreferencesBody)
+	}
+	authPutJSON(t, server.URL+"/api/user/notification-preferences", merchantToken("merchant_1"), `{"notification_type":"after_sales.updated","disabled_channels":["sms"]}`, http.StatusForbidden)
+	userPreferenceBody := authPutJSON(t, server.URL+"/api/user/notification-preferences", userToken("user_1"), `{"target_role":"merchant","target_id":"merchant_1","notification_type":"after_sales.updated","enabled_channels":["wechat_subscribe","push"],"disabled_channels":["sms"],"quiet_hours":{"enabled":true,"start":"22:30","end":"07:30","timezone_offset":"+08:00","channels":["wechat_subscribe","push"]},"updated_at":"2026-05-25T12:05:00Z"}`, http.StatusOK)
+	userPreference := userPreferenceBody["data"].(map[string]any)
+	if userPreference["target_role"] != "user" || userPreference["target_id"] != "user_1" || userPreference["preference_key"] != "user:user_1:after_sales.updated" {
+		t.Fatalf("expected user notification preference save to be scoped, got %+v", userPreferenceBody)
+	}
+	userPreferencesBody := authGetJSON(t, server.URL+"/api/user/notification-preferences?notification_type=after_sales.updated&limit=10", userToken("user_1"), http.StatusOK)
+	userPreferences := userPreferencesBody["data"].([]any)
+	if len(userPreferences) != 1 || userPreferences[0].(map[string]any)["preference_key"] != "user:user_1:after_sales.updated" {
+		t.Fatalf("expected user notification preferences to be queryable, got %+v", userPreferencesBody)
+	}
+	otherUserPreferencesBody := authGetJSON(t, server.URL+"/api/user/notification-preferences?notification_type=after_sales.updated&limit=10", userToken("user_2"), http.StatusOK)
+	if len(otherUserPreferencesBody["data"].([]any)) != 0 {
+		t.Fatalf("expected user preference isolation, got %+v", otherUserPreferencesBody)
+	}
+	preferenceChangeEventsBody := authGetJSON(t, server.URL+"/api/admin/outbox/events?topic=notification.preferences_changed&limit=10&now=2026-05-25T12:06:00Z", roleToken(RoleOpsAdmin, "ops_1"), http.StatusOK)
+	preferenceChangeEvents := preferenceChangeEventsBody["data"].([]any)
+	preferenceChangeKeys := map[string]bool{}
+	for _, item := range preferenceChangeEvents {
+		event := item.(map[string]any)
+		payload := event["payload"].(map[string]any)
+		preferenceChangeKeys[payload["preference_key"].(string)] = true
+		if event["topic"] != "notification.preferences_changed" || event["aggregate_type"] != "notification_preference" || event["event_type"] != "notification.preferences.changed" {
+			t.Fatalf("expected notification preference change outbox event, got %+v", event)
+		}
+	}
+	for _, key := range []string{
+		"merchant:merchant_1:merchant.qualification_reviewed",
+		"merchant:merchant_1:order.status_changed",
+		"user:user_1:after_sales.updated",
+	} {
+		if !preferenceChangeKeys[key] {
+			t.Fatalf("expected preference change event for %s, got %+v", key, preferenceChangeEventsBody)
+		}
+	}
+
+	listBody := authGetJSON(t, server.URL+"/api/merchant/notifications?status=unread&limit=10", merchantToken("merchant_1"), http.StatusOK)
+	notifications := listBody["data"].([]any)
+	if len(notifications) != 1 || notifications[0].(map[string]any)["id"] != notificationID || notifications[0].(map[string]any)["source_event_id"] != "obe_mq_1" {
+		t.Fatalf("expected merchant unread notification list, got %+v", listBody)
+	}
+	otherMerchantBody := authGetJSON(t, server.URL+"/api/merchant/notifications?status=unread", merchantToken("merchant_2"), http.StatusOK)
+	if len(otherMerchantBody["data"].([]any)) != 0 {
+		t.Fatalf("expected merchant isolation for notifications, got %+v", otherMerchantBody)
+	}
+	readBody := authPostJSON(t, server.URL+"/api/merchant/notifications/"+notificationID+"/read", merchantToken("merchant_1"), `{"read_at":"2026-05-25T12:01:00Z"}`, http.StatusOK)
+	if readBody["data"].(map[string]any)["status"] != platform.NotificationStatusRead {
+		t.Fatalf("expected notification to be marked read, got %+v", readBody)
+	}
+	emptyBody := authGetJSON(t, server.URL+"/api/merchant/notifications?status=unread&limit=10", merchantToken("merchant_1"), http.StatusOK)
+	if len(emptyBody["data"].([]any)) != 0 {
+		t.Fatalf("expected no unread notifications after read, got %+v", emptyBody)
+	}
+}
+
+func TestNotificationProviderCallbackHTTPFlow(t *testing.T) {
+	store := platform.NewStore(platform.DefaultHomeModules())
+	server := httptest.NewServer(NewRouter(store, WithNotificationProviderCallbackSecret("callback-secret")))
+	defer server.Close()
+
+	createBody := authPostJSON(t, server.URL+"/api/notifications", roleToken(RoleOpsAdmin, "ops_1"), `{"target_role":"merchant","target_id":"merchant_1","type":"merchant.qualification_reviewed","title":"商户资质审核结果","body":"资质审核已通过，系统已更新商户接单资格。","source_topic":"merchant.qualification_reviewed","source_event_id":"obe_mq_callback_1","idempotency_key":"notify:merchant.qualification_reviewed:obe_mq_callback_1","created_at":"2026-05-25T12:08:00Z"}`, http.StatusCreated)
+	notificationID := createBody["data"].(map[string]any)["id"].(string)
+
+	authPostJSON(t, server.URL+"/api/notifications/provider-callback", "", `{"notification_id":"`+notificationID+`","channel":"wechat_subscribe","provider":"wechat_subscribe","status":"delivered","provider_message_id":"wx_msg_1","callback_at":"2026-05-25T12:09:00Z"}`, http.StatusUnauthorized)
+	deliveredPayload := notificationProviderCallbackPayload{
+		NotificationID:    notificationID,
+		Channel:           "wechat_subscribe",
+		Provider:          "wechat_subscribe",
+		Status:            platform.NotificationDeliveryDelivered,
+		ProviderMessageID: "wx_msg_1",
+		AttemptedAt:       time.Date(2026, 5, 25, 12, 8, 59, 0, time.UTC),
+		DeliveredAt:       time.Date(2026, 5, 25, 12, 9, 0, 0, time.UTC),
+		CallbackAt:        time.Date(2026, 5, 25, 12, 9, 1, 0, time.UTC),
+	}
+	deliveredBody := signedNotificationProviderCallbackJSON(t, server.URL+"/api/notifications/provider-callback", deliveredPayload, "callback-secret", http.StatusCreated)
+	deliveredData := deliveredBody["data"].(map[string]any)
+	delivered := deliveredData["delivery"].(map[string]any)
+	if deliveredData["signature_verified"] != true || delivered["notification_id"] != notificationID || delivered["status"] != platform.NotificationDeliveryDelivered || delivered["provider_message_id"] != "wx_msg_1" {
+		t.Fatalf("expected signed provider callback to record delivered receipt, got %+v", deliveredBody)
+	}
+	duplicateBody := signedNotificationProviderCallbackJSON(t, server.URL+"/api/notifications/provider-callback", deliveredPayload, "callback-secret", http.StatusCreated)
+	if duplicateBody["data"].(map[string]any)["delivery"].(map[string]any)["id"] != delivered["id"] {
+		t.Fatalf("expected duplicate provider callback to return original delivery, got %+v", duplicateBody)
+	}
+
+	failedPayload := notificationProviderCallbackPayload{
+		NotificationID:    notificationID,
+		Channel:           "sms",
+		Provider:          "aliyun_sms",
+		Status:            platform.NotificationDeliveryFailed,
+		ProviderMessageID: "sms_msg_1",
+		ErrorCode:         "recipient_unreachable",
+		ErrorMessage:      "phone unreachable",
+		CallbackAt:        time.Date(2026, 5, 25, 12, 10, 0, 0, time.UTC),
+	}
+	failedBody := signedNotificationProviderCallbackJSON(t, server.URL+"/api/notifications/provider-callback", failedPayload, "callback-secret", http.StatusCreated)
+	failed := failedBody["data"].(map[string]any)["delivery"].(map[string]any)
+	if failed["status"] != platform.NotificationDeliveryFailed || failed["error_code"] != "recipient_unreachable" || failed["provider"] != "aliyun_sms" {
+		t.Fatalf("expected signed provider callback to record failed receipt, got %+v", failedBody)
+	}
+	deliveriesBody := authGetJSON(t, server.URL+"/api/admin/notification-deliveries?notification_id="+notificationID+"&status=failed&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	deliveries := deliveriesBody["data"].([]any)
+	if len(deliveries) != 1 || deliveries[0].(map[string]any)["provider_message_id"] != "sms_msg_1" {
+		t.Fatalf("expected provider callback failure receipt to be queryable, got %+v", deliveriesBody)
+	}
+}
+
 func TestReviewAfterSalesHTTPUsesAtomicAuditRepositoryPath(t *testing.T) {
 	store := &reviewAfterSalesAtomicAuditStore{Store: platform.NewStore(platform.DefaultHomeModules())}
 	server := httptest.NewServer(NewRouter(store))
@@ -679,6 +1243,17 @@ func TestAfterSalesHTTPFlow(t *testing.T) {
 	if _, paidOrder, _, err := store.PayOrderWithBalance(platform.BalancePayRequest{UserID: "user_1", OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_http_after_sales"}); err != nil || paidOrder.Status != platform.StatusMerchantPending {
 		t.Fatalf("expected paid merchant order, order=%+v err=%v", paidOrder, err)
 	}
+	if _, err := store.CreateServiceTicket(platform.CreateServiceTicketRequest{
+		UserID:             "user_1",
+		Category:           "配送问题",
+		Title:              "配送问题 · 预计送达未更新",
+		Content:            "骑手到店很久了",
+		RelatedOrderID:     order.ID,
+		RelatedOrderTitle:  "蓝海餐厅 · 招牌牛肉饭等 1 件",
+		RelatedOrderStatus: platform.StatusMerchantPending,
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	server := httptest.NewServer(NewRouter(store))
 	defer server.Close()
@@ -692,12 +1267,25 @@ func TestAfterSalesHTTPFlow(t *testing.T) {
 	if request["order_amount_fen"] != float64(order.AmountFen) || request["refundable_fen"] != float64(order.AmountFen) {
 		t.Fatalf("expected after-sales response to expose refund window, got %+v", createBody)
 	}
+	if request["shop_name"] != "蓝海餐厅" || request["order_item_summary"] != "招牌牛肉饭 x 1" || request["latest_event_message"] != "用户已提交售后申请" {
+		t.Fatalf("expected after-sales response to expose order context, got %+v", createBody)
+	}
 
 	userListBody := authGetJSON(t, server.URL+"/api/after-sales", userToken("user_1"), http.StatusOK)
+	filteredUserListBody := authGetJSON(t, server.URL+"/api/after-sales?order_id="+order.ID, userToken("user_1"), http.StatusOK)
 	merchantListBody := authGetJSON(t, server.URL+"/api/merchant/after-sales", merchantToken("merchant_1"), http.StatusOK)
 	adminListBody := authGetJSON(t, server.URL+"/api/admin/after-sales", adminToken("admin_1"), http.StatusOK)
-	if len(userListBody["data"].([]any)) != 1 || len(merchantListBody["data"].([]any)) != 1 || len(adminListBody["data"].([]any)) != 1 {
-		t.Fatalf("expected after-sales lists to expose request, user=%+v merchant=%+v admin=%+v", userListBody, merchantListBody, adminListBody)
+	filteredAdminListBody := authGetJSON(t, server.URL+"/api/admin/after-sales?order_id="+order.ID+"&request_id="+requestID+"&status="+platform.AfterSalesPendingMerchant, adminToken("admin_1"), http.StatusOK)
+	if len(userListBody["data"].([]any)) != 1 || len(filteredUserListBody["data"].([]any)) != 1 || len(merchantListBody["data"].([]any)) != 1 || len(adminListBody["data"].([]any)) != 1 || len(filteredAdminListBody["data"].([]any)) != 1 {
+		t.Fatalf("expected after-sales lists to expose request, user=%+v filtered=%+v merchant=%+v admin=%+v filteredAdmin=%+v", userListBody, filteredUserListBody, merchantListBody, adminListBody, filteredAdminListBody)
+	}
+	filteredRequest := filteredUserListBody["data"].([]any)[0].(map[string]any)
+	if filteredRequest["id"] != requestID || filteredRequest["shop_name"] != "蓝海餐厅" || filteredRequest["order_status"] != platform.StatusMerchantPending {
+		t.Fatalf("expected filtered after-sales list item to keep order context, got %+v", filteredUserListBody)
+	}
+	filteredAdminRequest := filteredAdminListBody["data"].([]any)[0].(map[string]any)
+	if filteredAdminRequest["id"] != requestID || filteredAdminRequest["status"] != platform.AfterSalesPendingMerchant {
+		t.Fatalf("expected filtered admin after-sales list item to match request filters, got %+v", filteredAdminListBody)
 	}
 	uploadBody := authPostJSON(t, server.URL+"/api/after-sales/"+requestID+"/evidence/upload-ticket", userToken("user_1"), `{"file_name":"evidence.jpg","content_type":"image/jpeg","size_bytes":1024}`, http.StatusCreated)
 	uploadTicket := uploadBody["data"].(map[string]any)
@@ -724,11 +1312,29 @@ func TestAfterSalesHTTPFlow(t *testing.T) {
 	if merchantEventBody["data"].(map[string]any)["event"].(map[string]any)["action"] != platform.AfterSalesActionMerchantReply {
 		t.Fatalf("expected merchant after-sales event, got %+v", merchantEventBody)
 	}
+	filteredUserListBody = authGetJSON(t, server.URL+"/api/after-sales?order_id="+order.ID, userToken("user_1"), http.StatusOK)
+	filteredRequest = filteredUserListBody["data"].([]any)[0].(map[string]any)
+	if filteredRequest["latest_event_message"] != "已核实后厨打包记录" {
+		t.Fatalf("expected filtered after-sales list item to expose latest user event, got %+v", filteredUserListBody)
+	}
 	authPostJSON(t, server.URL+"/api/after-sales/"+requestID+"/events", adminToken("admin_1"), `{"action":"internal_note","message":"客服内部备注","visible_to_user":false}`, http.StatusCreated)
 	userEventsBody := authGetJSON(t, server.URL+"/api/after-sales/"+requestID+"/events", userToken("user_1"), http.StatusOK)
 	adminEventsBody := authGetJSON(t, server.URL+"/api/after-sales/"+requestID+"/events", adminToken("admin_1"), http.StatusOK)
 	if len(userEventsBody["data"].([]any)) != 3 || len(adminEventsBody["data"].([]any)) != 4 {
 		t.Fatalf("expected user-visible timeline and admin full audit log, user=%+v admin=%+v", userEventsBody, adminEventsBody)
+	}
+	adminDetailBody := authGetJSON(t, server.URL+"/api/admin/after-sales/"+requestID, adminToken("admin_1"), http.StatusOK)
+	adminDetail := adminDetailBody["data"].(map[string]any)
+	if adminDetail["request"].(map[string]any)["id"] != requestID ||
+		adminDetail["request"].(map[string]any)["shop_name"] != "蓝海餐厅" ||
+		adminDetail["event_summary"].(map[string]any)["total"] != float64(4) ||
+		adminDetail["event_summary"].(map[string]any)["internal_only"] != float64(1) ||
+		adminDetail["evidence_summary"].(map[string]any)["total"] != float64(1) ||
+		adminDetail["dispatch_summary"].(map[string]any)["total"] != float64(0) ||
+		adminDetail["service_ticket_summary"].(map[string]any)["total"] != float64(1) ||
+		adminDetail["refund_summary"].(map[string]any)["total"] != float64(0) ||
+		adminDetail["audit_summary"].(map[string]any)["total"] != float64(0) {
+		t.Fatalf("expected admin after-sales detail aggregate, got %+v", adminDetailBody)
 	}
 
 	authPostJSON(t, server.URL+"/api/after-sales/"+requestID+"/review", userToken("user_1"), `{"decision":"approve","reason":"越权"}`, http.StatusForbidden)
@@ -740,6 +1346,187 @@ func TestAfterSalesHTTPFlow(t *testing.T) {
 		reviewData["order"].(map[string]any)["status"] != platform.StatusRefunded ||
 		reviewData["wallet_account"].(map[string]any)["balance_fen"] != float64(order.AmountFen) {
 		t.Fatalf("expected review to approve and refund to balance, got %+v", reviewBody)
+	}
+	if _, err := store.RecordAuditLog(platform.RecordAuditLogRequest{
+		ActorType:  RoleAdmin,
+		ActorID:    "admin_1",
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   order.ID,
+		RequestID:  "req_http_after_sales_refund_audit",
+		Payload:    map[string]any{"amount_fen": order.AmountFen},
+		CreatedAt:  time.Date(2026, 6, 3, 10, 30, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	adminDetailAfterReview := authGetJSON(t, server.URL+"/api/admin/after-sales/"+requestID, adminToken("admin_1"), http.StatusOK)
+	adminDetailAfterReviewData := adminDetailAfterReview["data"].(map[string]any)
+	refundSummary := adminDetailAfterReviewData["refund_summary"].(map[string]any)
+	if refundSummary["total"] != float64(1) || refundSummary["success_count"] != float64(1) || refundSummary["total_amount_fen"] != float64(order.AmountFen) {
+		t.Fatalf("expected admin after-sales detail to expose refund summary after review, got %+v", adminDetailAfterReview)
+	}
+	auditSummary := adminDetailAfterReviewData["audit_summary"].(map[string]any)
+	if auditSummary["total"] != float64(2) || auditSummary["order_count"] != float64(1) || auditSummary["after_sales_count"] != float64(1) || auditSummary["verified_count"] != float64(2) {
+		t.Fatalf("expected admin after-sales detail to expose aggregated audits, got %+v", adminDetailAfterReview)
+	}
+	authGetJSON(t, server.URL+"/api/admin/refunds?order_id="+order.ID+"&limit=10", userToken("user_1"), http.StatusForbidden)
+	refundsBody := authGetJSON(t, server.URL+"/api/admin/refunds?order_id="+order.ID+"&status=success&limit=10", adminToken("admin_1"), http.StatusOK)
+	refunds := refundsBody["data"].([]any)
+	if len(refunds) != 1 || refunds[0].(map[string]any)["order_id"] != order.ID || refunds[0].(map[string]any)["destination"] != platform.RefundDestinationBalance {
+		t.Fatalf("expected admin refund list for order, got %+v", refundsBody)
+	}
+}
+
+func TestAdminOrderDetailHTTPFlow(t *testing.T) {
+	store := platform.NewStore(platform.DefaultHomeModules())
+	lat := 39.99
+	lng := 116.48
+	address, err := store.SaveAddress(platform.UserAddress{
+		UserID:       "user_1",
+		ContactName:  "张三",
+		ContactPhone: "13800000000",
+		City:         "北京",
+		Detail:       "望京SOHO",
+		Latitude:     &lat,
+		Longitude:    &lng,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertCartItem(platform.UpsertCartItemRequest{UserID: "user_1", ShopID: "shop_1", ProductID: "prod_beef_rice", Quantity: 1}); err != nil {
+		t.Fatal(err)
+	}
+	order, _, err := store.CheckoutCart(platform.CheckoutCartRequest{UserID: "user_1", ShopID: "shop_1", AddressID: address.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreditWallet(platform.CreditWalletRequest{UserID: "user_1", AmountFen: order.AmountFen, IdempotencyKey: "credit_http_admin_order_detail"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(platform.SetWalletPaymentPasswordRequest{UserID: "user_1", Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, paidOrder, _, err := store.PayOrderWithBalance(platform.BalancePayRequest{UserID: "user_1", OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_http_admin_order_detail"}); err != nil || paidOrder.Status != platform.StatusMerchantPending {
+		t.Fatalf("expected paid merchant order, order=%+v err=%v", paidOrder, err)
+	}
+	request, err := store.CreateAfterSales(platform.CreateAfterSalesRequest{
+		UserID:             "user_1",
+		OrderID:            order.ID,
+		Reason:             "餐品漏送",
+		RequestedAmountFen: 800,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceTicketDetail, err := store.CreateServiceTicket(platform.CreateServiceTicketRequest{
+		UserID:             "user_1",
+		Category:           "配送问题",
+		Title:              "配送问题 · 预计送达未更新",
+		Content:            "骑手到店很久了",
+		RelatedOrderID:     order.ID,
+		RelatedOrderTitle:  "蓝海餐厅 · 招牌牛肉饭等 1 件",
+		RelatedOrderStatus: platform.StatusMerchantPending,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceTicketID := serviceTicketDetail.Ticket.ID
+	if _, err := store.MerchantAcceptOrder(order.ID, "merchant_1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MerchantMarkOrderReady(order.ID, "merchant_1"); err != nil {
+		t.Fatal(err)
+	}
+	assignedOrder, _, err := store.ManualAssignOrder(platform.ManualAssignOrderRequest{
+		OrderID:          order.ID,
+		RiderID:          "rider_2",
+		StationManagerID: "station_manager_1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeoutAt := assignedOrder.UpdatedAt.Add(2 * time.Minute)
+	if _, _, err := store.TimeoutReassignOrder(platform.TimeoutReassignOrderRequest{
+		OrderID:          order.ID,
+		RiderID:          "rider_2",
+		StationManagerID: "station_manager_1",
+		TimeoutSeconds:   60,
+		Now:              timeoutAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, err := store.ReviewAfterSales(platform.ReviewAfterSalesRequest{
+		RequestID: request.ID,
+		Decision:  platform.AfterSalesDecisionApprove,
+		Reason:    "平台仲裁通过部分退款",
+		ActorID:   "admin_1",
+		ActorRole: "admin",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(platform.RecordAuditLogRequest{
+		ActorType:  RoleAdmin,
+		ActorID:    "support_1",
+		Action:     "admin.service_ticket.assigned",
+		TargetType: "service_ticket",
+		TargetID:   serviceTicketID,
+		RequestID:  "req_http_admin_order_detail_ticket",
+		Payload:    map[string]any{"support_id": "support_1"},
+		CreatedAt:  timeoutAt.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(platform.RecordAuditLogRequest{
+		ActorType:  RoleAdmin,
+		ActorID:    "admin_1",
+		Action:     "after_sales.reviewed",
+		TargetType: "after_sales",
+		TargetID:   request.ID,
+		RequestID:  "req_http_admin_order_detail_review",
+		Payload:    map[string]any{"decision": "approve"},
+		CreatedAt:  timeoutAt.Add(2 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordAuditLog(platform.RecordAuditLogRequest{
+		ActorType:  RoleAdmin,
+		ActorID:    "admin_1",
+		Action:     "admin.order.refunded",
+		TargetType: "order",
+		TargetID:   order.ID,
+		RequestID:  "req_http_admin_order_detail_refund",
+		Payload:    map[string]any{"amount_fen": int64(800)},
+		CreatedAt:  timeoutAt.Add(3 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	authGetJSON(t, server.URL+"/api/admin/orders/"+order.ID, userToken("user_1"), http.StatusForbidden)
+	detailBody := authGetJSON(t, server.URL+"/api/admin/orders/"+order.ID, adminToken("admin_1"), http.StatusOK)
+	detail := detailBody["data"].(map[string]any)
+	if detail["order"].(map[string]any)["id"] != order.ID || detail["order"].(map[string]any)["shop_name"] != "蓝海餐厅" {
+		t.Fatalf("expected admin order detail context, got %+v", detailBody)
+	}
+	if detail["order"].(map[string]any)["address_snapshot"].(map[string]any)["contact_phone"] != "13800000000" {
+		t.Fatalf("expected admin order detail address snapshot, got %+v", detailBody)
+	}
+	if detail["after_sales_summary"].(map[string]any)["total"] != float64(1) || detail["after_sales_summary"].(map[string]any)["refunded_count"] != float64(1) {
+		t.Fatalf("expected admin order detail after-sales summary, got %+v", detailBody)
+	}
+	if detail["refund_summary"].(map[string]any)["total"] != float64(1) || detail["refund_summary"].(map[string]any)["success_count"] != float64(1) {
+		t.Fatalf("expected admin order detail refund summary, got %+v", detailBody)
+	}
+	if detail["service_ticket_summary"].(map[string]any)["total"] != float64(1) || detail["service_ticket_summary"].(map[string]any)["open_count"] != float64(1) {
+		t.Fatalf("expected admin order detail support summary, got %+v", detailBody)
+	}
+	if detail["dispatch_summary"].(map[string]any)["total"] != float64(3) || detail["dispatch_summary"].(map[string]any)["manual_assign_count"] != float64(1) || detail["dispatch_summary"].(map[string]any)["timeout_count"] != float64(1) || detail["dispatch_summary"].(map[string]any)["auto_assign_count"] != float64(2) {
+		t.Fatalf("expected admin order detail dispatch summary, got %+v", detailBody)
+	}
+	if detail["audit_summary"].(map[string]any)["total"] != float64(3) || detail["audit_summary"].(map[string]any)["order_count"] != float64(1) || detail["audit_summary"].(map[string]any)["after_sales_count"] != float64(1) || detail["audit_summary"].(map[string]any)["service_ticket_count"] != float64(1) {
+		t.Fatalf("expected admin order detail audit summary, got %+v", detailBody)
 	}
 }
 
@@ -897,6 +1684,416 @@ func TestWechatMiniLoginIssuesSignedToken(t *testing.T) {
 	authGetJSON(t, server.URL+"/api/user/addresses", token+".tampered", http.StatusUnauthorized)
 }
 
+func TestPhoneRegisterAndLoginIssuesSignedToken(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	codeBody := postJSON(t, server.URL+"/api/auth/phone/code", `{"phone":"13900002222","purpose":"register"}`, http.StatusOK)
+	code := codeBody["data"].(map[string]any)["dev_code"].(string)
+	registerBody := postJSON(t, server.URL+"/api/auth/phone/register", `{"phone":"13900002222","code":"`+code+`","password":"Pass123","nickname":"小蓝","accepted_agreement":true}`, http.StatusOK)
+	registerData := registerBody["data"].(map[string]any)
+	token := registerData["access_token"].(string)
+	user := registerData["user"].(map[string]any)
+	if !strings.Contains(token, ".") || user["phone"] != "13900002222" {
+		t.Fatalf("expected signed phone token and user phone, got %+v", registerData)
+	}
+	profile := authGetJSON(t, server.URL+"/api/user/profile", token, http.StatusOK)
+	if profile["data"].(map[string]any)["phone"] != "13900002222" {
+		t.Fatalf("expected profile to expose registered phone, got %+v", profile)
+	}
+	loginBody := postJSON(t, server.URL+"/api/auth/phone/login", `{"phone":"13900002222","mode":"password","password":"Pass123"}`, http.StatusOK)
+	if loginBody["data"].(map[string]any)["is_new_user"] != false {
+		t.Fatalf("expected password login to reuse account, got %+v", loginBody)
+	}
+	postJSON(t, server.URL+"/api/auth/phone/login", `{"phone":"13900002222","mode":"password","password":"wrong"}`, http.StatusUnauthorized)
+}
+
+type routerPhoneDispatcher struct {
+	last platform.PhoneVerificationDispatchRequest
+}
+
+func (dispatcher *routerPhoneDispatcher) DispatchPhoneVerificationCode(req platform.PhoneVerificationDispatchRequest) (*platform.PhoneVerificationDispatchResult, error) {
+	dispatcher.last = req
+	return &platform.PhoneVerificationDispatchResult{Provider: "mock-sms", RequestID: req.RequestID + "_ok", Status: "delivered", SentAt: time.Now().UTC()}, nil
+}
+
+func TestPhoneCodeProviderModeHTTPFlow(t *testing.T) {
+	store := platform.NewStore(platform.DefaultHomeModules())
+	dispatcher := &routerPhoneDispatcher{}
+	if err := store.ConfigurePhoneVerification(platform.PhoneVerificationConfig{
+		Mode:            "provider",
+		Provider:        "mock-sms",
+		Cooldown:        time.Minute,
+		ExpiresIn:       10 * time.Minute,
+		MaxPerPhoneHour: 5,
+		MaxPerPhoneDay:  20,
+		Dispatcher:      dispatcher,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	codeBody := postJSON(t, server.URL+"/api/auth/phone/code", `{"phone":"13900004444","purpose":"register"}`, http.StatusOK)
+	ticket := codeBody["data"].(map[string]any)
+	if _, ok := ticket["dev_code"]; ok {
+		t.Fatalf("expected provider mode to hide dev code, got %+v", ticket)
+	}
+	if ticket["delivery_provider"] != "mock-sms" || ticket["delivery_status"] != "delivered" || dispatcher.last.Code == "" {
+		t.Fatalf("expected provider dispatch metadata and hidden code, ticket=%+v dispatch=%+v", ticket, dispatcher.last)
+	}
+	registerBody := postJSON(t, server.URL+"/api/auth/phone/register", `{"phone":"13900004444","code":"`+dispatcher.last.Code+`","password":"Pass123","nickname":"短信用户","accepted_agreement":true}`, http.StatusOK)
+	if registerBody["data"].(map[string]any)["user"].(map[string]any)["phone"] != "13900004444" {
+		t.Fatalf("expected provider code register to succeed, got %+v", registerBody)
+	}
+	limited := postJSON(t, server.URL+"/api/auth/phone/code", `{"phone":"13900004444","purpose":"register"}`, http.StatusTooManyRequests)
+	if limited["code"] != "RATE_LIMITED" {
+		t.Fatalf("expected phone code cooldown to return RATE_LIMITED, got %+v", limited)
+	}
+}
+
+func TestMealMatchCandidatesReportAndBlockHTTPFlow(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	saveBody := authPutJSON(t, server.URL+"/api/meal-match/profile", userToken("user_1"), `{"gender":"female","school_id":"infinitech_university","school_name":"无限科技大学","campus_name":"东区","building_id":"east_canteen","building_name":"东区食堂","privacy_scope":"same_building","location_precision":"building_only","device_id":"device_http_user_1","identity_truth_signed":true,"platform_liability_release_signed":true,"questionnaire_completed":true,"personality_traits":["细心","守时"],"dietary_habits":["清淡","不浪费"]}`, http.StatusOK)
+	savedProfile := saveBody["data"].(map[string]any)["profile"].(map[string]any)
+	if saveBody["data"].(map[string]any)["can_use"] != false || savedProfile["moderation_status"] != platform.MealMatchModerationPending {
+		t.Fatalf("expected profile to wait for moderation, got %+v", saveBody)
+	}
+	if savedProfile["device_risk_state"] != platform.MealMatchDeviceRiskPassed || savedProfile["privacy_scope"] != platform.MealMatchPrivacySameBuilding {
+		t.Fatalf("expected saved profile device and privacy fields, got %+v", saveBody)
+	}
+	pendingCandidatesBody := authGetJSON(t, server.URL+"/api/meal-match/candidates", userToken("user_1"), http.StatusOK)
+	pendingCandidatesData := pendingCandidatesBody["data"].(map[string]any)
+	if pendingCandidatesData["can_use"] != false || pendingCandidatesData["review_required"] != true || len(pendingCandidatesData["candidates"].([]any)) != 0 {
+		t.Fatalf("expected pending moderation to hide candidates, got %+v", pendingCandidatesBody)
+	}
+	queueBody := authGetJSON(t, server.URL+"/api/admin/meal-match/moderation?status=pending_review&action=profile_review", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	queueData := queueBody["data"].(map[string]any)
+	profileReviews := queueData["records"].([]any)
+	if len(profileReviews) != 1 {
+		t.Fatalf("expected one meal match profile review, got %+v", queueBody)
+	}
+	reviewID := profileReviews[0].(map[string]any)["id"].(string)
+	reviewBody := authPostJSON(t, server.URL+"/api/admin/meal-match/moderation/"+reviewID+"/review", roleToken(RoleSupportAdmin, "support_1"), `{"decision":"approve","review_note":"资料清晰"}`, http.StatusOK)
+	if reviewBody["data"].(map[string]any)["status"] != platform.MealMatchModerationApproved {
+		t.Fatalf("expected approved profile review, got %+v", reviewBody)
+	}
+	candidatesBody := authGetJSON(t, server.URL+"/api/meal-match/candidates", userToken("user_1"), http.StatusOK)
+	candidatesData := candidatesBody["data"].(map[string]any)
+	if candidatesData["can_use"] != true {
+		t.Fatalf("expected meal match to be usable after review, got %+v", candidatesBody)
+	}
+	if candidatesData["privacy_scope"] != platform.MealMatchPrivacySameBuilding || candidatesData["device_risk_state"] != platform.MealMatchDeviceRiskPassed {
+		t.Fatalf("expected privacy and device risk summary, got %+v", candidatesBody)
+	}
+	candidates := candidatesData["candidates"].([]any)
+	if len(candidates) == 0 {
+		t.Fatalf("expected meal match candidates, got %+v", candidatesBody)
+	}
+	for _, item := range candidates {
+		candidate := item.(map[string]any)
+		if candidate["same_school"] != true || candidate["same_building"] != true || candidate["distance_text"] == "距离 800m" {
+			t.Fatalf("expected same-school privacy-filtered candidate, got %+v", candidate)
+		}
+	}
+	sharedDeviceBody := authPutJSON(t, server.URL+"/api/meal-match/profile", userToken("user_2"), `{"gender":"male","school_id":"infinitech_university","building_id":"east_canteen","device_id":"device_http_user_1","identity_truth_signed":true,"platform_liability_release_signed":true,"questionnaire_completed":true,"personality_traits":["守时"],"dietary_habits":["清淡"]}`, http.StatusOK)
+	sharedProfile := sharedDeviceBody["data"].(map[string]any)["profile"].(map[string]any)
+	if sharedProfile["device_risk_state"] != platform.MealMatchDeviceRiskReview || sharedProfile["device_risk_reason_code"] != platform.MealMatchDeviceRiskSharedDevice {
+		t.Fatalf("expected shared device to require review, got %+v", sharedDeviceBody)
+	}
+	blockedDeviceBody := authPutJSON(t, server.URL+"/api/meal-match/profile", userToken("user_3"), `{"gender":"female","school_id":"infinitech_university","device_id":"blocked_device_farm","identity_truth_signed":true,"platform_liability_release_signed":true,"questionnaire_completed":true,"personality_traits":["守时"],"dietary_habits":["清淡"]}`, http.StatusTooManyRequests)
+	if blockedDeviceBody["code"] != "RISK_CONTROL_REJECTED" {
+		t.Fatalf("expected blocked device risk rejection, got %+v", blockedDeviceBody)
+	}
+	targetID := candidates[0].(map[string]any)["user_id"].(string)
+	reportBody := authPostJSON(t, server.URL+"/api/meal-match/reports", userToken("user_1"), `{"target_user_id":"`+targetID+`","reason":"unsafe_or_fake_profile"}`, http.StatusCreated)
+	if reportBody["data"].(map[string]any)["action"] != platform.MealMatchModerationReported {
+		t.Fatalf("expected reported action, got %+v", reportBody)
+	}
+	reportQueueBody := authGetJSON(t, server.URL+"/api/admin/meal-match/moderation?status=pending_review&action=reported&target_user_id="+targetID, roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	reportRecords := reportQueueBody["data"].(map[string]any)["records"].([]any)
+	if len(reportRecords) != 1 {
+		t.Fatalf("expected reported record in moderation queue, got %+v", reportQueueBody)
+	}
+	reportID := reportRecords[0].(map[string]any)["id"].(string)
+	authPostJSON(t, server.URL+"/api/admin/meal-match/moderation/"+reportID+"/review", roleToken(RoleSupportAdmin, "support_1"), `{"decision":"approve","review_note":"举报成立"}`, http.StatusOK)
+	afterReport := authGetJSON(t, server.URL+"/api/meal-match/candidates", userToken("user_1"), http.StatusOK)
+	afterReportCandidates := afterReport["data"].(map[string]any)["candidates"].([]any)
+	for _, item := range afterReportCandidates {
+		if item.(map[string]any)["user_id"] == targetID {
+			t.Fatalf("expected approved report target to disappear, got %+v", afterReport)
+		}
+	}
+	if len(afterReportCandidates) == 0 {
+		t.Fatalf("expected another candidate to test blocking, got %+v", afterReport)
+	}
+	blockTargetID := afterReportCandidates[0].(map[string]any)["user_id"].(string)
+	blockBody := authPostJSON(t, server.URL+"/api/meal-match/blocks", userToken("user_1"), `{"target_user_id":"`+blockTargetID+`"}`, http.StatusCreated)
+	if blockBody["data"].(map[string]any)["action"] != platform.MealMatchModerationBlocked {
+		t.Fatalf("expected blocked action, got %+v", blockBody)
+	}
+	afterBlock := authGetJSON(t, server.URL+"/api/meal-match/candidates", userToken("user_1"), http.StatusOK)
+	for _, item := range afterBlock["data"].(map[string]any)["candidates"].([]any) {
+		if item.(map[string]any)["user_id"] == blockTargetID {
+			t.Fatalf("expected blocked target to disappear, got %+v", afterBlock)
+		}
+	}
+}
+
+func TestRedPacketWalletAndExpiryHTTPFlow(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	authPostJSON(t, server.URL+"/api/wallet/credit", userToken("user_1"), `{"amount_fen":5000,"idempotency_key":"credit_red_packet_http"}`, http.StatusOK)
+	expiresAt := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	createBody := authPostJSON(t, server.URL+"/api/red-packets", userToken("user_1"), `{"scene":"group_chat","target_id":"merchant_blue_sea","type":"fixed","total_amount_fen":3000,"quantity":3,"payment_method":"balance","expires_at":"`+expiresAt+`"}`, http.StatusCreated)
+	packet := createBody["data"].(map[string]any)["packet"].(map[string]any)
+	packetID := packet["id"].(string)
+	if packet["status"] != platform.RedPacketStatusCreated || packet["expires_at"] == "" {
+		t.Fatalf("expected created packet with expiry, got %+v", createBody)
+	}
+
+	claimBody := authPostJSON(t, server.URL+"/api/red-packets/"+packetID+"/claim", userToken("user_2"), `{}`, http.StatusOK)
+	if claimBody["data"].(map[string]any)["share"].(map[string]any)["amount_fen"] != float64(1000) {
+		t.Fatalf("expected fixed red packet share, got %+v", claimBody)
+	}
+	expireAt := time.Now().UTC().Add(25 * time.Hour).Format(time.RFC3339)
+	authPostJSON(t, server.URL+"/api/admin/red-packets/expire", userToken("user_1"), `{"now":"`+expireAt+`"}`, http.StatusForbidden)
+	expireBody := authPostJSON(t, server.URL+"/api/admin/red-packets/expire", adminToken("admin_1"), `{"now":"`+expireAt+`"}`, http.StatusOK)
+	data := expireBody["data"].(map[string]any)
+	if data["count"] != float64(1) {
+		t.Fatalf("expected one expired red packet refund, got %+v", expireBody)
+	}
+	detailBody := authGetJSON(t, server.URL+"/api/red-packets/"+packetID, userToken("user_1"), http.StatusOK)
+	detailPacket := detailBody["data"].(map[string]any)["packet"].(map[string]any)
+	if detailPacket["status"] != platform.RedPacketStatusExpired || detailPacket["refunded_amount_fen"] != float64(2000) {
+		t.Fatalf("expected expired refunded red packet detail, got %+v", detailBody)
+	}
+	authPostJSON(t, server.URL+"/api/red-packets/"+packetID+"/claim", userToken("user_3"), `{}`, http.StatusConflict)
+}
+
+func TestRedPacketClaimRiskHTTPFlow(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	authPostJSON(t, server.URL+"/api/wallet/credit", userToken("user_1"), `{"amount_fen":2000,"idempotency_key":"credit_red_packet_risk_http"}`, http.StatusOK)
+	var firstPacketID string
+	for index := 0; index < 3; index++ {
+		createBody := authPostJSON(t, server.URL+"/api/red-packets", userToken("user_1"), `{"scene":"group_chat","target_id":"merchant_blue_sea","type":"fixed","total_amount_fen":100,"quantity":1,"payment_method":"balance"}`, http.StatusCreated)
+		packetID := createBody["data"].(map[string]any)["packet"].(map[string]any)["id"].(string)
+		if firstPacketID == "" {
+			firstPacketID = packetID
+		}
+		claimBody := authPostJSON(t, server.URL+"/api/red-packets/"+packetID+"/claim", userToken("user_2"), `{}`, http.StatusOK)
+		risk := claimBody["data"].(map[string]any)["risk"].(map[string]any)
+		if risk["state"] != platform.RedPacketRiskPassed {
+			t.Fatalf("expected passed risk check, got %+v", claimBody)
+		}
+	}
+	authPostJSON(t, server.URL+"/api/red-packets/"+firstPacketID+"/claim", userToken("user_2"), `{}`, http.StatusOK)
+	createBody := authPostJSON(t, server.URL+"/api/red-packets", userToken("user_1"), `{"scene":"group_chat","target_id":"merchant_blue_sea","type":"fixed","total_amount_fen":100,"quantity":1,"payment_method":"balance"}`, http.StatusCreated)
+	packetID := createBody["data"].(map[string]any)["packet"].(map[string]any)["id"].(string)
+	blockedBody := authPostJSON(t, server.URL+"/api/red-packets/"+packetID+"/claim", userToken("user_2"), `{}`, http.StatusTooManyRequests)
+	if blockedBody["code"] != "RISK_CONTROL_REJECTED" {
+		t.Fatalf("expected risk rejection body, got %+v", blockedBody)
+	}
+	detailBody := authGetJSON(t, server.URL+"/api/red-packets/"+packetID, userToken("user_2"), http.StatusOK)
+	risk := detailBody["data"].(map[string]any)["risk"].(map[string]any)
+	if risk["state"] != platform.RedPacketRiskBlocked || risk["reason_code"] != platform.RedPacketRiskFrequencyLimit {
+		t.Fatalf("expected blocked risk detail, got %+v", detailBody)
+	}
+}
+
+func TestChatSyncReadAndRealtimeOutboxHTTPFlow(t *testing.T) {
+	store := platform.NewStore(platform.DefaultHomeModules())
+	server := httptest.NewServer(NewRouter(store, WithRealtimeInternalToken("rt-secret")))
+	defer server.Close()
+
+	threadsBody := authGetJSON(t, server.URL+"/api/messages/threads", userToken("user_1"), http.StatusOK)
+	if unread := chatHTTPThreadUnread(threadsBody["data"].([]any), "merchant_blue_sea"); unread != 1 {
+		t.Fatalf("expected seeded unread merchant group thread, got %+v", threadsBody)
+	}
+	otherThreadsBody := authGetJSON(t, server.URL+"/api/messages/threads", userToken("user_2"), http.StatusOK)
+	if unread := chatHTTPThreadUnread(otherThreadsBody["data"].([]any), "merchant_blue_sea"); unread != -1 {
+		t.Fatalf("expected non-member user to be hidden from merchant thread, got %+v", otherThreadsBody)
+	}
+	overviewBody := authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/overview", userToken("user_1"), http.StatusOK)
+	overviewData := overviewBody["data"].(map[string]any)
+	if overviewData["member_count"] != float64(326) || overviewData["settings_text"] != "群设置" {
+		t.Fatalf("expected merchant group overview, got %+v", overviewBody)
+	}
+	membersBody := authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/members", userToken("user_1"), http.StatusOK)
+	membersData := membersBody["data"].(map[string]any)
+	if membersData["count"] == float64(0) || !chatHTTPMemberExists(membersData["members"].([]any), "user_group_xiaolin", "小林") {
+		t.Fatalf("expected merchant group members endpoint to expose active members, got %+v", membersBody)
+	}
+	preferenceBody := authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/preference", userToken("user_1"), http.StatusOK)
+	if preferenceBody["data"].(map[string]any)["muted"] != false {
+		t.Fatalf("expected merchant group preference to default unmuted, got %+v", preferenceBody)
+	}
+	updatedPreferenceBody := authPutJSON(t, server.URL+"/api/messages/merchant_blue_sea/preference", userToken("user_1"), `{"muted":true}`, http.StatusOK)
+	if updatedPreferenceBody["data"].(map[string]any)["muted"] != true {
+		t.Fatalf("expected mute update response, got %+v", updatedPreferenceBody)
+	}
+	threadsBody = authGetJSON(t, server.URL+"/api/messages/threads", userToken("user_1"), http.StatusOK)
+	if !chatHTTPThreadMuted(threadsBody["data"].([]any), "merchant_blue_sea") {
+		t.Fatalf("expected thread list to expose mute state, got %+v", threadsBody)
+	}
+	authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/overview", userToken("user_2"), http.StatusNotFound)
+	authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/members", userToken("user_2"), http.StatusNotFound)
+	authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/preference", userToken("user_2"), http.StatusNotFound)
+	authPostJSON(t, server.URL+"/internal/realtime/authorize", "wrong-secret", `{"thread_id":"merchant_blue_sea","subject_type":"user","subject_id":"user_1"}`, http.StatusUnauthorized)
+	allowedBody := authPostJSON(t, server.URL+"/internal/realtime/authorize", "rt-secret", `{"thread_id":"merchant_blue_sea","subject_type":"user","subject_id":"user_1"}`, http.StatusOK)
+	if allowed := allowedBody["data"].(map[string]any)["allowed"]; allowed != true {
+		t.Fatalf("expected realtime member authorization to allow user_1, got %+v", allowedBody)
+	}
+	if muted := allowedBody["data"].(map[string]any)["muted"]; muted != true {
+		t.Fatalf("expected realtime member authorization to carry mute state, got %+v", allowedBody)
+	}
+	deniedBody := authPostJSON(t, server.URL+"/internal/realtime/authorize", "rt-secret", `{"thread_id":"merchant_blue_sea","subject_type":"user","subject_id":"user_2"}`, http.StatusOK)
+	deniedData := deniedBody["data"].(map[string]any)
+	if deniedData["allowed"] != false || deniedData["reason"] != "not_member" {
+		t.Fatalf("expected realtime member authorization to deny user_2 without leaking thread, got %+v", deniedBody)
+	}
+	syncBody := authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/sync?mark_read=true", userToken("user_1"), http.StatusOK)
+	syncData := syncBody["data"].(map[string]any)
+	if len(syncData["messages"].([]any)) == 0 || syncData["unread_count"] != float64(0) || syncData["next_cursor"] == "" {
+		t.Fatalf("expected initial chat sync to clear unread, got %+v", syncBody)
+	}
+	authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/sync?mark_read=true", userToken("user_2"), http.StatusNotFound)
+	threadsBody = authGetJSON(t, server.URL+"/api/messages/threads", userToken("user_1"), http.StatusOK)
+	if unread := chatHTTPThreadUnread(threadsBody["data"].([]any), "merchant_blue_sea"); unread != 0 {
+		t.Fatalf("expected thread unread to clear, got %+v", threadsBody)
+	}
+
+	sent, err := store.SendChatMessage(platform.ChatMessage{ThreadID: "merchant_blue_sea", SenderID: "merchant_1", Sender: "蓝海餐厅", Content: "离线补偿消息", MessageType: "text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	offlineBody := authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/sync?since_id="+syncData["next_cursor"].(string)+"&mark_read=false", userToken("user_1"), http.StatusOK)
+	offlineData := offlineBody["data"].(map[string]any)
+	if len(offlineData["messages"].([]any)) != 1 || offlineData["messages"].([]any)[0].(map[string]any)["id"] != sent.ID || offlineData["unread_count"] != float64(1) {
+		t.Fatalf("expected offline sync to return new unread message, got %+v", offlineBody)
+	}
+	readBody := authPostJSON(t, server.URL+"/api/messages/merchant_blue_sea/read", userToken("user_1"), `{"last_message_id":"`+sent.ID+`"}`, http.StatusOK)
+	if readBody["data"].(map[string]any)["unread_count"] != float64(0) {
+		t.Fatalf("expected read receipt to clear unread, got %+v", readBody)
+	}
+	blockedBody := authPostJSON(t, server.URL+"/api/messages/merchant_blue_sea", userToken("user_1"), `{"content":"我的验证码是 123456"}`, http.StatusTooManyRequests)
+	if blockedBody["code"] != "RISK_CONTROL_REJECTED" {
+		t.Fatalf("expected sensitive chat message to be rejected, got %+v", blockedBody)
+	}
+	authPostJSON(t, server.URL+"/api/messages/merchant_blue_sea", userToken("user_2"), `{"content":"越权消息"}`, http.StatusNotFound)
+	events, err := store.OutboxEvents(platform.OutboxEventsRequest{Topic: "message.sent", Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].AggregateID != "merchant_blue_sea" {
+		t.Fatalf("expected message.sent outbox event for realtime gateway, got %+v", events)
+	}
+}
+
+func TestMerchantGroupMembershipAndCouponHTTPFlow(t *testing.T) {
+	store := platform.NewStore(platform.DefaultHomeModules())
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	membershipBody := authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/membership", userToken("user_2"), http.StatusOK)
+	membershipData := membershipBody["data"].(map[string]any)
+	if membershipData["joined"] != false || membershipData["can_join"] != true || membershipData["member_count"] != float64(326) {
+		t.Fatalf("expected non-member membership payload to expose join affordance, got %+v", membershipBody)
+	}
+	blockedClaimBody := authPostJSON(t, server.URL+"/api/user/coupons/claim", userToken("user_2"), `{"code":"GROUP8"}`, http.StatusBadRequest)
+	if blockedClaimBody["code"] != "INVALID_ARGUMENT" {
+		t.Fatalf("expected group coupon to require membership before join, got %+v", blockedClaimBody)
+	}
+	joinBody := authPostJSON(t, server.URL+"/api/messages/merchant_blue_sea/join", userToken("user_2"), `{}`, http.StatusOK)
+	joinData := joinBody["data"].(map[string]any)
+	if joinData["joined"] != true || joinData["muted"] != true || joinData["member_count"] != float64(327) {
+		t.Fatalf("expected join response to add muted member and increment count, got %+v", joinBody)
+	}
+	threadsBody := authGetJSON(t, server.URL+"/api/messages/threads", userToken("user_2"), http.StatusOK)
+	if unread := chatHTTPThreadUnread(threadsBody["data"].([]any), "merchant_blue_sea"); unread < 0 {
+		t.Fatalf("expected joined user thread list to include merchant group, got %+v", threadsBody)
+	}
+	claimBody := authPostJSON(t, server.URL+"/api/user/coupons/claim", userToken("user_2"), `{"code":"GROUP8"}`, http.StatusCreated)
+	claimData := claimBody["data"].(map[string]any)
+	if claimData["amount_fen"] != float64(800) || claimData["source"] != "商户群券" {
+		t.Fatalf("expected claimed merchant group coupon after join, got %+v", claimBody)
+	}
+	leaveBody := authPostJSON(t, server.URL+"/api/messages/merchant_blue_sea/leave", userToken("user_2"), `{}`, http.StatusOK)
+	leaveData := leaveBody["data"].(map[string]any)
+	if leaveData["joined"] != false || leaveData["can_join"] != true || leaveData["member_count"] != float64(326) {
+		t.Fatalf("expected leave response to revoke membership, got %+v", leaveBody)
+	}
+	authGetJSON(t, server.URL+"/api/messages/merchant_blue_sea/sync?mark_read=true", userToken("user_2"), http.StatusNotFound)
+}
+
+func TestServiceTicketAdminAndUserClosureHTTPFlow(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	createBody := authPostJSON(t, server.URL+"/api/service-tickets", userToken("user_1"), `{"category":"配送问题","title":"配送问题 · 预计送达未更新","content":"骑手到店很久了","related_order_id":"ord_support_http"}`, http.StatusCreated)
+	ticketID := createBody["data"].(map[string]any)["ticket"].(map[string]any)["id"].(string)
+	blockedEvent := authPostJSON(t, server.URL+"/api/service-tickets/"+ticketID+"/events", userToken("user_1"), `{"message":"我的银行卡号是 6222020202020202"}`, http.StatusTooManyRequests)
+	if blockedEvent["code"] != "RISK_CONTROL_REJECTED" {
+		t.Fatalf("expected sensitive service ticket event to be rejected, got %+v", blockedEvent)
+	}
+	authGetJSON(t, server.URL+"/api/admin/service-tickets?limit=10", userToken("user_1"), http.StatusForbidden)
+	adminList := authGetJSON(t, server.URL+"/api/admin/service-tickets?limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	if len(adminList["data"].([]any)) == 0 {
+		t.Fatalf("expected support workbench tickets, got %+v", adminList)
+	}
+	authGetJSON(t, server.URL+"/api/admin/service-tickets/"+ticketID, userToken("user_1"), http.StatusForbidden)
+	adminDetail := authGetJSON(t, server.URL+"/api/admin/service-tickets/"+ticketID, roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	if adminDetail["data"].(map[string]any)["ticket"].(map[string]any)["id"] != ticketID {
+		t.Fatalf("expected admin service ticket detail, got %+v", adminDetail)
+	}
+	filteredAdminList := authGetJSON(t, server.URL+"/api/admin/service-tickets?related_order_id=ord_support_http&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	if len(filteredAdminList["data"].([]any)) != 1 || filteredAdminList["data"].([]any)[0].(map[string]any)["related_order_id"] != "ord_support_http" {
+		t.Fatalf("expected support workbench to filter by related order, got %+v", filteredAdminList)
+	}
+	assignBody := authPostJSON(t, server.URL+"/api/admin/service-tickets/"+ticketID+"/assign", roleToken(RoleSupportAdmin, "support_1"), `{"support_name":"客服小悦"}`, http.StatusOK)
+	if assignBody["data"].(map[string]any)["ticket"].(map[string]any)["assigned_support_id"] != "support_1" {
+		t.Fatalf("expected assigned support id, got %+v", assignBody)
+	}
+	escalateBody := authPostJSON(t, server.URL+"/api/admin/service-tickets/"+ticketID+"/escalate", roleToken(RoleSupportAdmin, "support_1"), `{"reason":"超过 10 分钟未更新","escalation_level":"support_lead"}`, http.StatusOK)
+	if escalateBody["data"].(map[string]any)["ticket"].(map[string]any)["sla_status"] != platform.ServiceTicketSLAStatusEscalated {
+		t.Fatalf("expected escalated SLA status, got %+v", escalateBody)
+	}
+	escalatedList := authGetJSON(t, server.URL+"/api/admin/service-tickets?sla_status=escalated&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	if len(escalatedList["data"].([]any)) == 0 {
+		t.Fatalf("expected escalated support workbench tickets, got %+v", escalatedList)
+	}
+	resolveBody := authPostJSON(t, server.URL+"/api/admin/service-tickets/"+ticketID+"/resolve", roleToken(RoleSupportAdmin, "support_1"), `{"solution":"已发放 5 元延误券，请确认处理结果"}`, http.StatusOK)
+	if resolveBody["data"].(map[string]any)["ticket"].(map[string]any)["status"] != platform.ServiceTicketStatusWaitingConfirm {
+		t.Fatalf("expected waiting confirm status, got %+v", resolveBody)
+	}
+	closeBody := authPostJSON(t, server.URL+"/api/service-tickets/"+ticketID+"/close", userToken("user_1"), `{"reason":"接受方案"}`, http.StatusOK)
+	if closeBody["data"].(map[string]any)["ticket"].(map[string]any)["status"] != platform.ServiceTicketStatusClosed {
+		t.Fatalf("expected closed ticket, got %+v", closeBody)
+	}
+	followBody := authPostJSON(t, server.URL+"/api/service-tickets/"+ticketID+"/follow-up", userToken("user_1"), `{"rating":5,"comment":"处理及时"}`, http.StatusOK)
+	if followBody["data"].(map[string]any)["ticket"].(map[string]any)["follow_up_rating"] != float64(5) {
+		t.Fatalf("expected follow-up rating, got %+v", followBody)
+	}
+	reviewBody := authPostJSON(t, server.URL+"/api/admin/service-tickets/"+ticketID+"/quality-review", roleToken(RoleSupportAdmin, "support_1"), `{"score":74,"notes":"需补充主动同步话术","coaching_required":true}`, http.StatusOK)
+	if reviewBody["data"].(map[string]any)["result"] != platform.ServiceTicketQualityNeedsCoaching {
+		t.Fatalf("expected quality review result, got %+v", reviewBody)
+	}
+	qualityList := authGetJSON(t, server.URL+"/api/admin/service-ticket-quality-reviews?support_id=support_1&coaching_required=true&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	if len(qualityList["data"].([]any)) == 0 {
+		t.Fatalf("expected quality review list, got %+v", qualityList)
+	}
+	performanceBody := authGetJSON(t, server.URL+"/api/admin/service-ticket-performance?support_id=support_1&limit=10", roleToken(RoleSupportAdmin, "support_1"), http.StatusOK)
+	if len(performanceBody["data"].([]any)) != 1 {
+		t.Fatalf("expected support performance, got %+v", performanceBody)
+	}
+	authPostJSON(t, server.URL+"/api/service-tickets/"+ticketID+"/close", userToken("user_2"), `{"reason":"越权"}`, http.StatusNotFound)
+}
+
 func TestSessionAuthCanDisableDevBearerTokens(t *testing.T) {
 	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules()), WithDevBearerAuth(false)))
 	defer server.Close()
@@ -984,12 +2181,31 @@ func TestMerchantInviteRegisterAndQualificationHTTPFlow(t *testing.T) {
 	}
 
 	expiresAt := "2027-05-21T00:00:00Z"
-	authPostJSON(t, server.URL+"/api/merchant/qualifications", merchantToken, `{"type":"business_license","file_url":"https://example.test/license.jpg","expires_at":"`+expiresAt+`"}`, http.StatusOK)
+	licenseBody := authPostJSON(t, server.URL+"/api/merchant/qualifications", merchantToken, `{"type":"business_license","file_url":"https://example.test/license.jpg","expires_at":"`+expiresAt+`"}`, http.StatusOK)
+	licenseProfile := licenseBody["data"].(map[string]any)
+	licenseQualifications := licenseProfile["qualifications"].([]any)
+	licenseID := licenseQualifications[0].(map[string]any)["id"].(string)
+	if licenseQualifications[0].(map[string]any)["status"] != platform.QualificationStatusPendingReview {
+		t.Fatalf("expected merchant upload to enter review, got %+v", licenseBody)
+	}
+	authPostJSON(t, server.URL+"/api/admin/merchant-qualifications/"+licenseID+"/review", roleToken(RoleOpsAdmin, "ops_1"), `{"merchant_id":"`+merchantID+`","decision":"approve","reason":"营业执照核验通过","reviewed_at":"2026-05-21T12:00:00Z"}`, http.StatusOK)
 	qualificationBody := authPostJSON(t, server.URL+"/api/merchant/qualifications", merchantToken, `{"type":"health_certificate","file_url":"https://example.test/health.jpg","expires_at":"`+expiresAt+`"}`, http.StatusOK)
 	qualificationProfile := qualificationBody["data"].(map[string]any)
-	if len(qualificationProfile["missing_qualifications"].([]any)) != 0 {
-		t.Fatalf("expected no missing qualifications, got %+v", qualificationBody)
+	healthQualifications := qualificationProfile["qualifications"].([]any)
+	healthID := healthQualifications[1].(map[string]any)["id"].(string)
+	if len(qualificationProfile["missing_qualifications"].([]any)) != 1 {
+		t.Fatalf("expected health certificate to remain missing before admin review, got %+v", qualificationBody)
 	}
+	reviewBody := authPostJSON(t, server.URL+"/api/admin/merchant-qualifications/"+healthID+"/review", roleToken(RoleOpsAdmin, "ops_2"), `{"merchant_id":"`+merchantID+`","decision":"approve","reason":"健康证核验通过","reviewed_at":"2026-05-21T12:05:00Z"}`, http.StatusOK)
+	reviewData := reviewBody["data"].(map[string]any)
+	if reviewData["qualification"].(map[string]any)["status"] != platform.QualificationStatusApproved {
+		t.Fatalf("expected admin qualification review approval, got %+v", reviewBody)
+	}
+	reviewProfile := reviewData["profile"].(map[string]any)
+	if len(reviewProfile["missing_qualifications"].([]any)) != 0 {
+		t.Fatalf("expected no missing qualifications after review, got %+v", reviewBody)
+	}
+	authPostJSON(t, server.URL+"/api/admin/merchant-qualifications/"+healthID+"/review", roleToken(RoleSupportAdmin, "support_1"), `{"merchant_id":"`+merchantID+`","decision":"reject","reason":"客服无权审核"}`, http.StatusForbidden)
 	meBody := authGetJSON(t, server.URL+"/api/merchant/me", merchantToken, http.StatusOK)
 	if meBody["data"].(map[string]any)["account"].(map[string]any)["id"] != merchantID {
 		t.Fatalf("expected merchant me, got %+v", meBody)
@@ -1142,6 +2358,32 @@ func TestMerchantProductManagementHTTPFlow(t *testing.T) {
 	}
 }
 
+func TestShopDetailHTTPFlow(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	detailBody := getJSON(t, server.URL+"/api/shops/shop_1/detail", http.StatusOK)
+	detail := detailBody["data"].(map[string]any)
+	if detail["shop_id"] != "shop_1" || detail["name"] != "蓝海餐厅" {
+		t.Fatalf("expected seeded shop detail, got %+v", detailBody)
+	}
+	reviewSummary := detail["review_summary"].(map[string]any)
+	if reviewSummary["review_count"].(float64) < 3 || reviewSummary["average_rating"] == "" {
+		t.Fatalf("expected review summary data, got %+v", detailBody)
+	}
+	merchantInfo := detail["merchant_info"].(map[string]any)
+	if merchantInfo["contact_phone"] != "13800000001" || merchantInfo["business_hours"] == "" {
+		t.Fatalf("expected merchant info data, got %+v", detailBody)
+	}
+	reviews := detail["reviews"].([]any)
+	if len(reviews) < 3 {
+		t.Fatalf("expected seeded reviews, got %+v", detailBody)
+	}
+	if reviews[0].(map[string]any)["rider_stars_text"] == "" || len(reviews[0].(map[string]any)["item_highlights"].([]any)) == 0 {
+		t.Fatalf("expected review cards to expose rider and item highlights, got %+v", detailBody)
+	}
+}
+
 func TestGroupbuyVoucherRedeemHTTPFlow(t *testing.T) {
 	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
 	defer server.Close()
@@ -1202,13 +2444,18 @@ func TestAutoAssignAndRiderRejectHTTPFlow(t *testing.T) {
 	assignBody := authPostJSON(t, server.URL+"/api/dispatch/orders/"+orderID+"/auto-assign", adminToken("admin_1"), `{"now":"`+assignNow+`"}`, http.StatusOK)
 	assignedOrder := assignBody["data"].(map[string]any)["order"].(map[string]any)
 	decision := assignBody["data"].(map[string]any)["decision"].(map[string]any)
-	if assignedOrder["rider_id"] != "rider_1" || decision["mode"] != platform.DispatchModeAutoAssign {
-		t.Fatalf("expected rider_1 auto assignment, got %+v", assignBody)
+	if decision["mode"] != platform.DispatchModeAutoAssign {
+		t.Fatalf("expected auto assignment, got %+v", assignBody)
 	}
-	rejectBody := authPostJSON(t, server.URL+"/api/rider/orders/"+orderID+"/reject-assignment", riderToken("rider_1"), `{}`, http.StatusOK)
+	firstRiderID := assignedOrder["rider_id"].(string)
+	nextRiderID := "rider_1"
+	if firstRiderID == "rider_1" {
+		nextRiderID = "rider_2"
+	}
+	rejectBody := authPostJSON(t, server.URL+"/api/rider/orders/"+orderID+"/reject-assignment", riderToken(firstRiderID), `{}`, http.StatusOK)
 	reassignedOrder := rejectBody["data"].(map[string]any)["order"].(map[string]any)
 	nextDecision := rejectBody["data"].(map[string]any)["decision"].(map[string]any)
-	if reassignedOrder["rider_id"] != "rider_2" || nextDecision["candidate_rider_id"] != "rider_2" {
+	if reassignedOrder["rider_id"] != nextRiderID || nextDecision["candidate_rider_id"] != nextRiderID {
 		t.Fatalf("expected reject to assign next rider, got %+v", rejectBody)
 	}
 	eventsBody := authGetJSON(t, server.URL+"/api/dispatch/orders/"+orderID+"/events", adminToken("admin_1"), http.StatusOK)
@@ -1239,8 +2486,10 @@ func TestTimeoutReassignHTTPFlow(t *testing.T) {
 
 	assignAt := createdAt.Add(10 * time.Minute)
 	assignBody := authPostJSON(t, server.URL+"/api/dispatch/orders/"+orderID+"/auto-assign", adminToken("admin_1"), `{"now":"`+assignAt.Format(time.RFC3339Nano)+`"}`, http.StatusOK)
-	if assignBody["data"].(map[string]any)["order"].(map[string]any)["rider_id"] != "rider_1" {
-		t.Fatalf("expected rider_1 initial assignment, got %+v", assignBody)
+	firstRiderID := assignBody["data"].(map[string]any)["order"].(map[string]any)["rider_id"].(string)
+	nextRiderID := "rider_1"
+	if firstRiderID == "rider_1" {
+		nextRiderID = "rider_2"
 	}
 
 	tooEarly := assignAt.Add(59 * time.Second).Format(time.RFC3339Nano)
@@ -1250,8 +2499,8 @@ func TestTimeoutReassignHTTPFlow(t *testing.T) {
 	timeoutBody := authPostJSON(t, server.URL+"/api/dispatch/orders/"+orderID+"/timeout-reassign", stationManagerToken("station_manager_1"), `{"now":"`+timeoutAt+`","timeout_seconds":60}`, http.StatusOK)
 	reassignedOrder := timeoutBody["data"].(map[string]any)["order"].(map[string]any)
 	decision := timeoutBody["data"].(map[string]any)["decision"].(map[string]any)
-	if reassignedOrder["rider_id"] != "rider_2" || decision["candidate_rider_id"] != "rider_2" || decision["reason"] != "assignment_timeout" {
-		t.Fatalf("expected timeout to reassign rider_2, got %+v", timeoutBody)
+	if reassignedOrder["rider_id"] != nextRiderID || decision["candidate_rider_id"] != nextRiderID || decision["reason"] != "assignment_timeout" {
+		t.Fatalf("expected timeout to reassign next rider, got %+v", timeoutBody)
 	}
 
 	eventsBody := authGetJSON(t, server.URL+"/api/dispatch/orders/"+orderID+"/events", stationManagerToken("station_manager_1"), http.StatusOK)
@@ -1563,6 +2812,59 @@ func TestAdminReplayOutboxEventsHTTPFlow(t *testing.T) {
 	}
 }
 
+func TestAdminOutboxEventDetailHTTPFlow(t *testing.T) {
+	store := platform.NewStore(platform.DefaultHomeModules())
+	order, err := store.CreateOrder(platform.CreateOrderRequest{UserID: "user_outbox_detail_http", Type: platform.OrderTypeTakeout, AmountFen: 1200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreditWallet(platform.CreditWalletRequest{UserID: order.UserID, AmountFen: 1200, IdempotencyKey: "credit_outbox_detail_http"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(platform.SetWalletPaymentPasswordRequest{UserID: order.UserID, Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.PayOrderWithBalance(platform.BalancePayRequest{UserID: order.UserID, OrderID: order.ID, PaymentPassword: "123456", IdempotencyKey: "pay_outbox_detail_http"}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := store.OutboxEvents(platform.OutboxEventsRequest{Topic: "order.paid", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected one setup outbox event, got %+v", events)
+	}
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	if _, _, err := store.MarkOutboxEventFailedWithAudit(
+		platform.MarkOutboxEventFailedRequest{EventID: events[0].ID, Error: "relay down", RetryAfterSeconds: 120, Now: now},
+		platform.RecordAuditLogRequest{ActorType: RoleAdmin, ActorID: "ops_1", Action: "admin.outbox.failed", TargetType: "outbox_event", TargetID: events[0].ID, RequestID: "req_http_outbox_detail", IPHash: "ip_hash"},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	authGetJSON(t, server.URL+"/api/admin/outbox/events/"+events[0].ID+"?now=2026-05-22T12:00:30Z&audit_limit=5", userToken("user_1"), http.StatusForbidden)
+	body := authGetJSON(t, server.URL+"/api/admin/outbox/events/"+events[0].ID+"?now=2026-05-22T12:00:30Z&audit_limit=5", adminToken("admin_1"), http.StatusOK)
+	detail := body["data"].(map[string]any)
+	event := detail["event"].(map[string]any)
+	if event["id"] != events[0].ID || event["last_error"] != "relay down" {
+		t.Fatalf("expected outbox event detail, got %+v", body)
+	}
+	if detail["incident_code"] != "outbox.retry_backoff" || detail["blocked"] != true || detail["retry_available_in_seconds"] != float64(90) {
+		t.Fatalf("expected retry-backoff incident metadata, got %+v", detail)
+	}
+	recommendation := detail["recommended_operation"].(map[string]any)
+	if recommendation["key"] != "outbox-replay-event" {
+		t.Fatalf("expected replay recommendation, got %+v", recommendation)
+	}
+	recentAudits := detail["recent_audits"].([]any)
+	if len(recentAudits) != 1 || recentAudits[0].(map[string]any)["action"] != "admin.outbox.failed" {
+		t.Fatalf("expected recent failure audit, got %+v", recentAudits)
+	}
+}
+
 func TestStationManagerManualDispatchHTTPFlow(t *testing.T) {
 	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
 	defer server.Close()
@@ -1598,10 +2900,154 @@ func TestStationManagerManualDispatchHTTPFlow(t *testing.T) {
 	if savedConfig["daily_task_duration_minutes"] != float64(420) || savedConfig["daily_fixed_order_count"] != float64(28) {
 		t.Fatalf("expected saved task config, got %+v", savedTaskConfigBody)
 	}
+	authPostJSON(t, server.URL+"/api/reviews", userToken("user_1"), `{"order_id":"`+orderID+`","rating":5,"rider_rating":4,"content":"配送准时，餐品完好。","tags":["准时送达"]}`, http.StatusCreated)
 	performanceBody := authGetJSON(t, server.URL+"/api/station-manager/rider-performance", stationManagerToken("station_manager_1"), http.StatusOK)
 	performance := performanceBody["data"].([]any)
 	if len(performance) != 2 || performance[0].(map[string]any)["dispatch_priority"] == float64(0) {
 		t.Fatalf("expected station rider performance, got %+v", performanceBody)
+	}
+	if performance[0].(map[string]any)["rider_average_rating"] != float64(4) || performance[0].(map[string]any)["rider_review_count"] != float64(1) {
+		t.Fatalf("expected station rider performance to surface rider review aggregation, got %+v", performanceBody)
+	}
+	breakdown := performance[0].(map[string]any)["score_breakdown"].(map[string]any)
+	if breakdown["rating_score"] == float64(0) || breakdown["team_average_accept_seconds"] == float64(0) || breakdown["completion_score"] == float64(0) {
+		t.Fatalf("expected station rider performance to surface score breakdown, got %+v", performanceBody)
+	}
+	recentTrend := performance[0].(map[string]any)["recent_trend"].([]any)
+	if len(recentTrend) != 3 {
+		t.Fatalf("expected station rider performance to surface 3-day trend, got %+v", performanceBody)
+	}
+	recentReviews := performance[0].(map[string]any)["recent_reviews"].([]any)
+	if len(recentReviews) != 1 || recentReviews[0].(map[string]any)["content"] != "配送准时，餐品完好。" {
+		t.Fatalf("expected station rider performance to surface recent review excerpts, got %+v", performanceBody)
+	}
+	exceptionSummary := performance[0].(map[string]any)["exception_summary"].(map[string]any)
+	if exceptionSummary["dispatch_timeout_count"] != float64(0) || exceptionSummary["dispatch_reject_count"] != float64(0) || exceptionSummary["low_rating_count"] != float64(0) {
+		t.Fatalf("expected station rider performance to surface zeroed exception summary for happy-path order, got %+v", performanceBody)
+	}
+}
+
+func TestStationManagerRiderPerformanceExceptionDrilldownHTTPFlow(t *testing.T) {
+	store := platform.NewStore(platform.DefaultHomeModules())
+	dispatchOrder, err := store.CreateOrder(platform.CreateOrderRequest{UserID: "user_1", Type: platform.OrderTypeTakeout, AmountFen: 1800})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreditWallet(platform.CreditWalletRequest{UserID: "user_1", AmountFen: 1800, IdempotencyKey: "credit_exception_http_dispatch"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(platform.SetWalletPaymentPasswordRequest{UserID: "user_1", Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	_, paidDispatchOrder, _, err := store.PayOrderWithBalance(platform.BalancePayRequest{UserID: "user_1", OrderID: dispatchOrder.ID, PaymentPassword: "123456", IdempotencyKey: "pay_exception_http_dispatch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignAt := paidDispatchOrder.CreatedAt.Add(10 * time.Minute)
+	assignedOrder, _, err := store.AutoAssignOrder(platform.AutoAssignOrderRequest{OrderID: paidDispatchOrder.ID, Now: assignAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	riderID := assignedOrder.RiderID
+	if riderID == "" {
+		t.Fatalf("expected auto-assigned rider for exception drilldown, got %+v", assignedOrder)
+	}
+	if _, _, err := store.TimeoutReassignOrder(platform.TimeoutReassignOrderRequest{
+		OrderID:        assignedOrder.ID,
+		RiderID:        riderID,
+		TimeoutSeconds: 60,
+		Now:            assignAt.Add(60 * time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reviewOrder, err := store.CreateOrder(platform.CreateOrderRequest{UserID: "user_2", Type: platform.OrderTypeTakeout, AmountFen: 1999})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreditWallet(platform.CreditWalletRequest{UserID: "user_2", AmountFen: 1999, IdempotencyKey: "credit_exception_http_review"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetWalletPaymentPassword(platform.SetWalletPaymentPasswordRequest{UserID: "user_2", Password: "123456"}); err != nil {
+		t.Fatal(err)
+	}
+	_, paidReviewOrder, _, err := store.PayOrderWithBalance(platform.BalancePayRequest{UserID: "user_2", OrderID: reviewOrder.ID, PaymentPassword: "123456", IdempotencyKey: "pay_exception_http_review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignedReviewOrder, _, err := store.ManualAssignOrder(platform.ManualAssignOrderRequest{OrderID: paidReviewOrder.ID, RiderID: riderID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RiderMarkOrderPickedUp(assignedReviewOrder.ID, riderID); err != nil {
+		t.Fatal(err)
+	}
+	completedReviewOrder, err := store.RiderMarkOrderDelivered(assignedReviewOrder.ID, riderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateReview(platform.Review{
+		UserID:      "user_2",
+		OrderID:     completedReviewOrder.ID,
+		TargetType:  platform.ReviewTargetOrder,
+		TargetID:    completedReviewOrder.ID,
+		Rating:      3,
+		RiderRating: 2,
+		Content:     "高峰期晚到了十分钟",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	afterSalesRequest, err := store.CreateAfterSales(platform.CreateAfterSalesRequest{
+		UserID:             "user_2",
+		OrderID:            completedReviewOrder.ID,
+		Reason:             "餐品撒漏",
+		RequestedAmountFen: completedReviewOrder.AmountFen,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AddAfterSalesEvent(platform.AddAfterSalesEventRequest{
+		RequestID: afterSalesRequest.ID,
+		ActorID:   "admin_1",
+		ActorRole: "admin",
+		Action:    platform.AfterSalesActionCustomerCare,
+		Message:   "平台已介入核实",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(NewRouter(store))
+	defer server.Close()
+
+	performanceBody := authGetJSON(t, server.URL+"/api/station-manager/rider-performance", stationManagerToken("station_manager_1"), http.StatusOK)
+	performance := performanceBody["data"].([]any)
+	var riderPerformance map[string]any
+	for _, item := range performance {
+		entry := item.(map[string]any)
+		if entry["rider_id"] == riderID {
+			riderPerformance = entry
+			break
+		}
+	}
+	if riderPerformance == nil {
+		t.Fatalf("expected %s performance drilldown, got %+v", riderID, performanceBody)
+	}
+	exceptionSummary := riderPerformance["exception_summary"].(map[string]any)
+	if exceptionSummary["dispatch_timeout_count"] != float64(1) || exceptionSummary["after_sales_count"] != float64(1) || exceptionSummary["low_rating_count"] != float64(1) {
+		t.Fatalf("expected rider performance to aggregate exception drilldown summary, got %+v", performanceBody)
+	}
+	exceptionDetails := riderPerformance["exception_details"].([]any)
+	if len(exceptionDetails) != 3 {
+		t.Fatalf("expected rider performance to expose latest exception details, got %+v", performanceBody)
+	}
+	if exceptionDetails[0].(map[string]any)["kind"] != "dispatch_timeout" || exceptionDetails[0].(map[string]any)["dispatch_event_id"] == "" {
+		t.Fatalf("expected latest exception detail to be dispatch-timeout drilldown, got %+v", performanceBody)
+	}
+	if exceptionDetails[1].(map[string]any)["kind"] != "after_sales" || exceptionDetails[1].(map[string]any)["after_sales_request_id"] != afterSalesRequest.ID {
+		t.Fatalf("expected second exception detail to be after-sales drilldown, got %+v", performanceBody)
+	}
+	if exceptionDetails[2].(map[string]any)["kind"] != "low_rating" || exceptionDetails[2].(map[string]any)["order_id"] != completedReviewOrder.ID {
+		t.Fatalf("expected third exception detail to be low-rating review drilldown, got %+v", performanceBody)
 	}
 }
 
@@ -1650,11 +3096,24 @@ func TestShopAddressCartCheckoutHTTPFlow(t *testing.T) {
 		t.Fatalf("expected seeded products, got %+v", productsBody)
 	}
 
+	searchBody := getJSON(t, server.URL+"/api/search?keyword=%E7%89%9B%E8%82%89%E9%A5%AD&category=all", http.StatusOK)
+	searchData := searchBody["data"].(map[string]any)
+	searchResults := searchData["results"].([]any)
+	if searchData["total"] == float64(0) || len(searchResults) == 0 {
+		t.Fatalf("expected anonymous search to return real catalog results, got %+v", searchBody)
+	}
+	guessBody := getJSON(t, server.URL+"/api/search?keyword=&category=all", http.StatusOK)
+	guessData := guessBody["data"].(map[string]any)
+	guessSuggestions := guessData["suggestions"].([]any)
+	if len(guessSuggestions) == 0 || guessSuggestions[0] == "" {
+		t.Fatalf("expected anonymous empty search to return backend suggestions, got %+v", guessBody)
+	}
+
 	addressBody := authPostJSON(t, server.URL+"/api/user/addresses", userToken("user_1"), `{"contact_name":"张三","contact_phone":"13800000000","city":"北京","detail":"望京SOHO","latitude":39.99,"longitude":116.48,"tag":"home","is_default":true}`, http.StatusCreated)
 	addressID := addressBody["data"].(map[string]any)["id"].(string)
 
 	cartBody := authPostJSON(t, server.URL+"/api/cart/items", userToken("user_1"), `{"shop_id":"shop_1","product_id":"prod_beef_rice","quantity":2}`, http.StatusOK)
-	if cartBody["data"].(map[string]any)["payable_fen"] != float64(5598) {
+	if cartBody["data"].(map[string]any)["payable_fen"] != float64(5598) || cartBody["data"].(map[string]any)["shop_name"] != "蓝海餐厅" {
 		t.Fatalf("expected cart payable 5598, got %+v", cartBody)
 	}
 	cartGetBody := authGetJSON(t, server.URL+"/api/cart?shop_id=shop_1", userToken("user_1"), http.StatusOK)
@@ -1665,8 +3124,12 @@ func TestShopAddressCartCheckoutHTTPFlow(t *testing.T) {
 	checkoutBody := authPostJSON(t, server.URL+"/api/orders/checkout", userToken("user_1"), `{"shop_id":"shop_1","address_id":"`+addressID+`","options":{"remark":"少放辣","tableware_count":2}}`, http.StatusCreated)
 	order := checkoutBody["data"].(map[string]any)["order"].(map[string]any)
 	orderID := order["id"].(string)
-	if order["status"] != platform.StatusPendingPayment || order["amount_fen"] != float64(5598) {
+	if order["status"] != platform.StatusPendingPayment || order["amount_fen"] != float64(5598) || order["shop_name"] != "蓝海餐厅" {
 		t.Fatalf("expected pending payment checkout order, got %+v", checkoutBody)
+	}
+	addressSnapshot := order["address_snapshot"].(map[string]any)
+	if addressSnapshot["contact_name"] != "张三" || addressSnapshot["detail"] != "望京SOHO" {
+		t.Fatalf("expected order address snapshot, got %+v", checkoutBody)
 	}
 
 	authPostJSON(t, server.URL+"/api/wallet/credit", userToken("user_1"), `{"amount_fen":5598,"idempotency_key":"credit_checkout_http"}`, http.StatusOK)
@@ -1704,8 +3167,69 @@ func TestShopAddressCartCheckoutHTTPFlow(t *testing.T) {
 		t.Fatalf("expected order list to include checkout order, got %+v", ordersBody)
 	}
 	detailBody := authGetJSON(t, server.URL+"/api/orders/"+orderID, userToken("user_1"), http.StatusOK)
-	if detailBody["data"].(map[string]any)["id"] != orderID {
+	detail := detailBody["data"].(map[string]any)
+	if detail["id"] != orderID || detail["shop_name"] != "蓝海餐厅" {
 		t.Fatalf("expected order detail, got %+v", detailBody)
+	}
+	detailAddress := detail["address_snapshot"].(map[string]any)
+	if detailAddress["contact_phone"] != "13800000000" {
+		t.Fatalf("expected order detail address snapshot, got %+v", detailBody)
+	}
+}
+
+func TestReviewHTTPFlowSupportsOrderScopedLookupAndUpdate(t *testing.T) {
+	server := httptest.NewServer(NewRouter(platform.NewStore(platform.DefaultHomeModules())))
+	defer server.Close()
+
+	orderBody := authPostJSON(t, server.URL+"/api/orders", userToken("user_1"), `{"type":"takeout","amount_fen":1990}`, http.StatusCreated)
+	orderID := orderBody["data"].(map[string]any)["id"].(string)
+	uploadBody := authPostJSON(t, server.URL+"/api/reviews/upload-ticket", userToken("user_1"), `{"order_id":"`+orderID+`","file_name":"review.jpg","content_type":"image/jpeg","size_bytes":1024}`, http.StatusCreated)
+	uploadTicket := uploadBody["data"].(map[string]any)
+	if uploadTicket["ticket_id"] == "" || uploadTicket["public_url"] == "" || !strings.HasPrefix(uploadTicket["object_key"].(string), "reviews/") {
+		t.Fatalf("expected review image upload ticket, got %+v", uploadBody)
+	}
+	confirmBody := authPostJSON(t, server.URL+"/api/reviews/upload-confirm", userToken("user_1"), `{"ticket_id":"`+uploadTicket["ticket_id"].(string)+`","object_key":"`+uploadTicket["object_key"].(string)+`","content_type":"image/jpeg","size_bytes":1024,"content_sha":"sha256:review-http"}`, http.StatusCreated)
+	confirmed := confirmBody["data"].(map[string]any)
+	if confirmed["status"] != platform.AfterSalesUploadTicketConfirmed || confirmed["public_url"] != uploadTicket["public_url"] {
+		t.Fatalf("expected confirmed review image ticket, got %+v", confirmBody)
+	}
+
+	createdBody := authPostJSON(t, server.URL+"/api/reviews", userToken("user_1"), `{"order_id":"`+orderID+`","rating":4,"rider_rating":5,"content":"整体体验不错","tags":["出餐快","包装完整"],"anonymous":true,"image_urls":["`+confirmed["public_url"].(string)+`"],"item_ratings":[{"product_id":"prod_beef_rice","product_name":"招牌牛肉饭","rating":5,"tags":["分量在线","值得回购"]}]}`, http.StatusCreated)
+	created := createdBody["data"].(map[string]any)
+	if created["target_type"] != platform.ReviewTargetOrder || created["target_id"] != orderID || created["anonymous"] != true {
+		t.Fatalf("expected order review to bind order and keep anonymous flag, got %+v", createdBody)
+	}
+	if len(created["image_urls"].([]any)) != 1 || len(created["item_ratings"].([]any)) != 1 || created["rider_rating"] != float64(5) {
+		t.Fatalf("expected review to keep image urls and item ratings, got %+v", createdBody)
+	}
+
+	filteredBody := authGetJSON(t, server.URL+"/api/reviews?order_id="+orderID, userToken("user_1"), http.StatusOK)
+	filtered := filteredBody["data"].([]any)
+	if len(filtered) != 1 || filtered[0].(map[string]any)["id"] != created["id"] || filtered[0].(map[string]any)["anonymous"] != true {
+		t.Fatalf("expected one order-scoped anonymous review, got %+v", filteredBody)
+	}
+	if len(filtered[0].(map[string]any)["image_urls"].([]any)) != 1 || len(filtered[0].(map[string]any)["item_ratings"].([]any)) != 1 {
+		t.Fatalf("expected filtered review to retain images and item ratings, got %+v", filteredBody)
+	}
+
+	reviewedOrderBody := authGetJSON(t, server.URL+"/api/orders/"+orderID, userToken("user_1"), http.StatusOK)
+	if reviewedOrderBody["data"].(map[string]any)["reviewed"] != true {
+		t.Fatalf("expected order detail to surface reviewed state, got %+v", reviewedOrderBody)
+	}
+
+	updatedBody := authPostJSON(t, server.URL+"/api/reviews", userToken("user_1"), `{"order_id":"`+orderID+`","rating":5,"rider_rating":3,"content":"更新成五星好评","tags":["味道不错"],"anonymous":false,"image_urls":["`+confirmed["public_url"].(string)+`"],"item_ratings":[{"product_id":"prod_beef_rice","product_name":"招牌牛肉饭","rating":4,"tags":["口味稳定"]}]}`, http.StatusCreated)
+	updated := updatedBody["data"].(map[string]any)
+	if updated["id"] != created["id"] || updated["content"] != "更新成五星好评" || updated["anonymous"] != false {
+		t.Fatalf("expected review update in place, got created=%+v updated=%+v", createdBody, updatedBody)
+	}
+
+	filteredBody = authGetJSON(t, server.URL+"/api/reviews?order_id="+orderID, userToken("user_1"), http.StatusOK)
+	filtered = filteredBody["data"].([]any)
+	if len(filtered) != 1 || filtered[0].(map[string]any)["content"] != "更新成五星好评" || filtered[0].(map[string]any)["anonymous"] != false {
+		t.Fatalf("expected updated order-scoped review, got %+v", filteredBody)
+	}
+	if len(filtered[0].(map[string]any)["image_urls"].([]any)) != 1 || filtered[0].(map[string]any)["item_ratings"].([]any)[0].(map[string]any)["rating"] != float64(4) || filtered[0].(map[string]any)["rider_rating"] != float64(3) {
+		t.Fatalf("expected updated review image urls and item ratings, got %+v", filteredBody)
 	}
 }
 
@@ -1932,6 +3456,47 @@ func (store *riderInviteAtomicAuditStore) RecordAuditLog(req platform.RecordAudi
 	return nil, platform.ErrInvalidArgument
 }
 
+type merchantQualificationReviewAtomicAuditStore struct {
+	*platform.Store
+	atomicAuditCalled         bool
+	reviewQualificationCalled bool
+	recordAuditCalled         bool
+	atomicReq                 platform.ReviewMerchantQualificationRequest
+	atomicAudit               platform.RecordAuditLogRequest
+}
+
+func (store *merchantQualificationReviewAtomicAuditStore) ReviewMerchantQualificationWithAudit(req platform.ReviewMerchantQualificationRequest, audit platform.RecordAuditLogRequest) (*platform.MerchantProfile, *platform.MerchantQualification, *platform.AuditLog, *platform.OutboxEvent, error) {
+	store.atomicAuditCalled = true
+	store.atomicReq = req
+	store.atomicAudit = audit
+	profile := &platform.MerchantProfile{
+		Account:               platform.MerchantAccount{ID: req.MerchantID, Type: platform.MerchantAccountStandard, Status: platform.ShopStatusActive, DepositStatus: platform.DepositStatusPaid},
+		MissingQualifications: []string{},
+		CanAcceptOrders:       true,
+	}
+	qualification := &platform.MerchantQualification{
+		ID:        req.QualificationID,
+		Type:      platform.QualificationBusinessLicense,
+		FileURL:   "https://example.test/license.jpg",
+		ExpiresAt: time.Date(2027, 5, 23, 12, 0, 0, 0, time.UTC),
+		Status:    platform.QualificationStatusApproved,
+	}
+	profile.Qualifications = []platform.MerchantQualification{*qualification}
+	auditLog := &platform.AuditLog{ID: "aud_qualification_review_atomic_http", Action: audit.Action, TargetType: audit.TargetType, TargetID: audit.TargetID}
+	outboxEvent := &platform.OutboxEvent{ID: "obe_qualification_review_atomic_http", Topic: "merchant.qualification_reviewed", AggregateType: "merchant_qualification", AggregateID: req.QualificationID, EventType: "merchant.qualification.reviewed", Status: platform.OutboxStatusPending}
+	return profile, qualification, auditLog, outboxEvent, nil
+}
+
+func (store *merchantQualificationReviewAtomicAuditStore) ReviewMerchantQualification(req platform.ReviewMerchantQualificationRequest) (*platform.MerchantProfile, *platform.MerchantQualification, error) {
+	store.reviewQualificationCalled = true
+	return nil, nil, platform.ErrInvalidArgument
+}
+
+func (store *merchantQualificationReviewAtomicAuditStore) RecordAuditLog(req platform.RecordAuditLogRequest) (*platform.AuditLog, error) {
+	store.recordAuditCalled = true
+	return nil, platform.ErrInvalidArgument
+}
+
 func (store *refundSettingsAtomicAuditStore) SaveRefundSettingsWithAudit(req platform.SaveRefundSettingsRequest, audit platform.RecordAuditLogRequest) (*platform.RefundSettings, *platform.AuditLog, error) {
 	store.atomicAuditCalled = true
 	store.atomicAudit = audit
@@ -2127,6 +3692,16 @@ func signedWechatCallbackJSON(t *testing.T, url string, body string, expectedSta
 		t.Fatal(err)
 	}
 	return payload
+}
+
+func signedNotificationProviderCallbackJSON(t *testing.T, url string, payload notificationProviderCallbackPayload, secret string, expectedStatus int) map[string]any {
+	t.Helper()
+	payload.Signature = signNotificationProviderCallback(payload, secret)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return authPostJSON(t, url, "", string(body), expectedStatus)
 }
 
 type staticWechatMiniResolver struct {

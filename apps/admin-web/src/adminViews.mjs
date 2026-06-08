@@ -9,7 +9,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "调度阻塞", value: "0", tone: "green" },
       { label: "队列积压", value: "0", tone: "blue" }
     ],
-    actions: ["operations-snapshot", "audit-logs", "after-sales-list", "refund-settings-read", "outbox-stats", "object-cleanup-stats"],
+    actions: ["operations-snapshot", "audit-logs", "after-sales-list", "merchant-qualifications", "merchant-qualification-detail", "refund-settings-read", "outbox-stats", "outbox-events", "outbox-event-detail", "outbox-dead-letter-triage", "outbox-claim-events", "outbox-renew-lease", "outbox-release-dead-letter", "outbox-replay-event", "outbox-mark-failed", "outbox-mark-published", "object-cleanup-stats"],
     columns: ["队列", "归属", "SLA", "处理入口"],
     rows: [
       ["售后审核", "客服", "30 分钟首响", "售后列表"],
@@ -29,7 +29,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "配送中", value: "312", tone: "blue" },
       { label: "异常单", value: "6", tone: "red" }
     ],
-    actions: ["operations-snapshot", "order-compensate", "audit-logs", "outbox-events", "outbox-stats"],
+    actions: ["operations-snapshot", "order-detail", "order-refund", "refund-transactions", "order-compensate", "audit-logs", "outbox-events", "outbox-stats"],
     columns: ["订单", "类型", "状态", "商户", "骑手", "风险"],
     rows: [
       ["ord_10031", "外卖", "待派单", "蓝湾轻食", "未分配", "超 8 分钟"],
@@ -49,7 +49,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "仲裁中", value: "9", tone: "blue" },
       { label: "超时风险", value: "3", tone: "red" }
     ],
-    actions: ["operations-snapshot", "after-sales-list", "audit-logs", "object-cleanup-candidates", "object-cleanup-stats"],
+    actions: ["operations-snapshot", "after-sales-list", "after-sales-detail", "after-sales-review", "refund-transactions", "audit-logs", "object-cleanup-candidates", "object-cleanup-stats"],
     columns: ["工单", "订单", "申请人", "状态", "可退金额", "证据"],
     rows: [
       ["asr_231", "ord_10031", "user_18", "商户待处理", "3200 分", "2 个附件"],
@@ -69,7 +69,7 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       { label: "资质过期", value: "7", tone: "red" },
       { label: "未缴保证金", value: "4", tone: "red" }
     ],
-    actions: ["operations-snapshot", "merchant-invite", "audit-logs"],
+    actions: ["operations-snapshot", "merchant-qualifications", "merchant-qualification-detail", "merchant-invite", "merchant-qualification-review", "audit-logs"],
     columns: ["商户", "店铺", "能力", "保证金", "资质", "到期"],
     rows: [
       ["merchant_12", "蓝湾轻食", "外卖/团购", "已缴", "营业执照/健康证", "2026-11-30"],
@@ -102,20 +102,20 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
   "rider-performance": {
     key: "rider-performance",
     title: "骑手绩效",
-    subtitle: "接单耗时、团队均值、完成率和派单优先级。",
+    subtitle: "接单耗时、完成率、配送评分、派单分拆解和优先级。",
     metrics: [
       { label: "团队均值", value: "42s", tone: "blue" },
       { label: "S 级骑手", value: "38", tone: "green" },
-      { label: "超时高风险", value: "11", tone: "red" },
+      { label: "有评分样本", value: "96", tone: "green" },
       { label: "固定单量达成", value: "72%", tone: "amber" }
     ],
     actions: ["operations-snapshot", "station-performance", "station-riders"],
-    columns: ["骑手", "平均接单", "完成率", "取消率", "等级", "派单优先级"],
+    columns: ["骑手", "平均接单", "完成率", "配送评分", "派单分", "评分拆解", "等级", "派单优先级"],
     rows: [
-      ["rider_71", "19s", "98%", "0.4%", "S", "最高"],
-      ["rider_88", "36s", "94%", "1.2%", "A", "高"],
-      ["rider_93", "75s", "81%", "4.8%", "C", "低"],
-      ["rider_102", "44s", "91%", "2.1%", "B", "中"]
+      ["rider_71", "19s", "98%", "4.9 / 82", "118", "接单 45 / 单量 34 / 履约 15 / 评分 12", "S", "400"],
+      ["rider_88", "36s", "94%", "4.8 / 45", "103", "接单 30 / 单量 33 / 履约 14 / 评分 11", "A", "300"],
+      ["rider_93", "75s", "81%", "4.2 / 18", "72", "接单 18 / 单量 28 / 履约 12 / 评分 8", "C", "100"],
+      ["rider_102", "44s", "91%", "4.6 / 26", "89", "接单 26 / 单量 32 / 履约 14 / 评分 10", "B", "200"]
     ],
     safeguards: ["等级按站点团队水平相对评估", "固定单量后可免责拒派", "异常取消进入审计"]
   },
@@ -178,6 +178,46 @@ export const ADMIN_WEB_VIEWS = Object.freeze({
       ["red_packet_return", "平台余额", "红包未领取退回", "红包流水", "资金冻结"]
     ],
     safeguards: ["钱包余额只经流水变化", "退款幂等键必填", "原路退款先入 outbox"]
+  },
+  notifications: {
+    key: "notifications",
+    title: "通知运营",
+    subtitle: "站内信、外部触达回执和失败原因统一追踪。",
+    metrics: [
+      { label: "未读站内信", value: "18", tone: "amber" },
+      { label: "失败回执", value: "3", tone: "red" },
+      { label: "已接渠道", value: "1", tone: "blue" },
+      { label: "待接 Provider", value: "4", tone: "slate" }
+    ],
+    actions: ["notifications", "notification-deliveries", "notification-preferences", "notification-preference-save", "notification-preference-batch-save", "notification-preference-change-requests", "notification-preference-change-request", "notification-preference-change-review", "notification-preference-change-apply", "notification-delivery-record", "notification-failure-alert-emit", "notification-delivery-retry-schedule", "notification-quiet-window-retry-schedule", "audit-logs", "outbox-events"],
+    columns: ["通知", "对象", "状态", "渠道", "来源", "回执"],
+    rows: [
+      ["ntf_1", "merchant:merchant_1", "unread", "in_app", "merchant.qualification_reviewed", "delivered"],
+      ["ntf_2", "merchant:merchant_19", "unread", "wechat_subscribe", "merchant.qualification_reviewed", "failed invalid_openid"],
+      ["ntf_3", "merchant:merchant_25", "read", "in_app", "merchant.qualification_reviewed", "delivered"],
+      ["ntf_4", "merchant:merchant_31", "unread", "sms", "audit.retention_alerts", "queued"]
+    ],
+    safeguards: ["通知写入必须有幂等键", "失败回执保留 provider 错误码", "失败告警和重试计划必须写 outbox 与审计", "真实短信/企业微信/Push 仍需 provider 接入"]
+  },
+  support: {
+    key: "support",
+    title: "客服工作台",
+    subtitle: "用户反馈、客服工单、消息风控、SLA 升级、分派、处理方案、回访、质检和绩效闭环。",
+    metrics: [
+      { label: "处理中", value: "18", tone: "red" },
+      { label: "SLA 超时", value: "3", tone: "red" },
+      { label: "待质检", value: "6", tone: "amber" },
+      { label: "绩效风险", value: "2", tone: "red" }
+    ],
+    actions: ["support-tickets", "support-ticket-detail", "support-ticket-assign", "support-ticket-escalate", "support-ticket-resolve", "support-quality-review", "support-quality-reviews", "support-performance", "after-sales-list", "notifications", "audit-logs"],
+    columns: ["工单", "用户", "类型", "状态", "客服", "SLA"],
+    rows: [
+      ["st_1", "user_1", "配送问题", "processing", "未分派", "SLA 超时"],
+      ["st_2", "user_1", "商品质量", "waiting_confirm", "客服小悦", "待用户确认"],
+      ["st_3", "user_2", "红包钱包", "resolved", "客服阿宁", "已解决"],
+      ["st_4", "user_3", "功能建议", "closed", "客服小悦", "已回访"]
+    ],
+    safeguards: ["客服方案会展示给用户确认", "SLA 超时先升级再给出处理方案", "支付密码、验证码和银行卡消息由服务端风控拦截或标记", "分派、升级、方案提交和质检结果需要二次确认", "关闭和回访由用户侧完成，质检只影响内部绩效和辅导"]
   },
   permissions: {
     key: "permissions",

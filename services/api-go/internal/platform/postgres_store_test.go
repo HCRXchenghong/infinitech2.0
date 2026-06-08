@@ -491,15 +491,21 @@ func TestDispatchEventTableRestoreRebuildsAuditAndCompensationIndexes(t *testing
 		t.Fatal(err)
 	}
 	assignNow := paidOrder.CreatedAt.Add(10 * time.Minute)
-	if _, _, err := store.AutoAssignOrder(AutoAssignOrderRequest{OrderID: paidOrder.ID, Now: assignNow}); err != nil {
-		t.Fatal(err)
-	}
-	reassignedOrder, _, err := store.RejectRiderAssignment(RejectRiderAssignmentRequest{OrderID: paidOrder.ID, RiderID: "rider_1", Now: assignNow.Add(time.Minute)})
+	assignedOrder, _, err := store.AutoAssignOrder(AutoAssignOrderRequest{OrderID: paidOrder.ID, Now: assignNow})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reassignedOrder.Status != StatusRiderAssigned || reassignedOrder.RiderID != "rider_2" {
-		t.Fatalf("expected rejection to reassign rider_2 before restore, got %+v", reassignedOrder)
+	firstRiderID := assignedOrder.RiderID
+	nextRiderID := "rider_1"
+	if firstRiderID == "rider_1" {
+		nextRiderID = "rider_2"
+	}
+	reassignedOrder, _, err := store.RejectRiderAssignment(RejectRiderAssignmentRequest{OrderID: paidOrder.ID, RiderID: firstRiderID, Now: assignNow.Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reassignedOrder.Status != StatusRiderAssigned || reassignedOrder.RiderID != nextRiderID {
+		t.Fatalf("expected rejection to reassign next rider before restore, got %+v", reassignedOrder)
 	}
 
 	domain := store.paymentDomainSnapshot()
@@ -517,7 +523,7 @@ func TestDispatchEventTableRestoreRebuildsAuditAndCompensationIndexes(t *testing
 		}}
 	}
 	events := store.dispatchEventSnapshot()
-	if len(events) != 3 || events[0].Type != "dispatch.auto_assign" || events[1].Type != "dispatch.rejected" || events[2].RiderID != "rider_2" {
+	if len(events) != 3 || events[0].Type != "dispatch.auto_assign" || events[1].Type != "dispatch.rejected" || events[2].RiderID != nextRiderID {
 		t.Fatalf("expected auto/reject/auto dispatch snapshot, got %+v", events)
 	}
 
@@ -529,10 +535,10 @@ func TestDispatchEventTableRestoreRebuildsAuditAndCompensationIndexes(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(auditEvents) != 3 || auditEvents[1].RiderID != "rider_1" || auditEvents[2].RiderID != "rider_2" {
+	if len(auditEvents) != 3 || auditEvents[1].RiderID != firstRiderID || auditEvents[2].RiderID != nextRiderID {
 		t.Fatalf("expected restored station audit events, got %+v", auditEvents)
 	}
-	if len(auditEvents[2].RejectedRiderIDs) != 1 || auditEvents[2].RejectedRiderIDs[0] != "rider_1" {
+	if len(auditEvents[2].RejectedRiderIDs) != 1 || auditEvents[2].RejectedRiderIDs[0] != firstRiderID {
 		t.Fatalf("expected restored rejected-rider ledger on latest dispatch event, got %+v", auditEvents[2])
 	}
 
@@ -540,7 +546,7 @@ func TestDispatchEventTableRestoreRebuildsAuditAndCompensationIndexes(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !repaired.Changed || repaired.ExpectedStatus != StatusRiderAssigned || repaired.ExpectedRiderID != "rider_2" || repaired.Order.RiderID != "rider_2" {
+	if !repaired.Changed || repaired.ExpectedStatus != StatusRiderAssigned || repaired.ExpectedRiderID != nextRiderID || repaired.Order.RiderID != nextRiderID {
 		t.Fatalf("expected dispatch table restore to drive order-state compensation, got %+v", repaired)
 	}
 
@@ -969,7 +975,7 @@ func TestAfterSalesDomainSnapshotAndRestore(t *testing.T) {
 	restored.replaceAfterSalesDomainFromTables(snapshot.AfterSalesRequests, snapshot.AfterSalesEvents)
 	restored.replaceAfterSalesUploadTicketsFromTables(snapshot.AfterSalesUploadTickets)
 	restored.replaceAfterSalesEvidenceFromTables(snapshot.AfterSalesEvidence)
-	requests, err := restored.AdminAfterSalesRequests()
+	requests, err := restored.AdminAfterSalesRequests(AfterSalesListRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}

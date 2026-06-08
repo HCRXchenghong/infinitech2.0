@@ -16,6 +16,40 @@ spec:
       containers:
         - name: api-go
           image: infinitech/api-go:0.1.0
+          env:
+            - name: PHONE_VERIFICATION_MODE
+              value: provider
+            - name: SMS_PROVIDER_NAME
+              value: sms_provider
+            - name: SMS_PROVIDER_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: sms-provider-endpoint
+            - name: SMS_PROVIDER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: sms-provider-token
+                  optional: true
+            - name: SMS_TEMPLATE_PHONE_CODE
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: sms-template-phone-code
+                  optional: true
+            - name: NOTIFICATION_PROVIDER_CALLBACK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: notification-provider-callback-secret
+                  optional: true
+            - name: REALTIME_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: realtime-internal-token
+                  optional: true
           ports:
             - containerPort: 1029
           readinessProbe:
@@ -100,6 +134,31 @@ spec:
           image: infinitech/realtime-gateway:0.1.0
           ports:
             - containerPort: 9898
+          env:
+            - name: REALTIME_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: realtime-internal-token
+                  optional: true
+            - name: REALTIME_WS_AUTH_REQUIRED
+              value: "true"
+            - name: AUTH_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: auth-token-secret
+                  optional: true
+            - name: REALTIME_MEMBERSHIP_AUTH_URL
+              value: http://api-go:1029/internal/realtime/authorize
+            - name: REALTIME_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: realtime-redis-url
+                  optional: true
+            - name: REALTIME_REDIS_CHANNEL
+              value: infinitech:realtime:events
           readinessProbe:
             httpGet:
               path: /readyz
@@ -145,7 +204,15 @@ spec:
             - name: KAFKA_REST_URL
               value: http://kafka-rest:8082
             - name: OUTBOX_RELAY_TOPICS
-              value: order.paid,order.status_changed,order.completed,dispatch.assigned,dispatch.timeout,dispatch.status_changed,audit.retention_alerts
+              value: order.paid,order.status_changed,order.completed,dispatch.assigned,dispatch.timeout,dispatch.status_changed,merchant.qualification_reviewed,audit.retention_alerts,notification.delivery_failed_alerts,notification.delivery_retries,notification.preferences_changed,message.sent
+            - name: REALTIME_GATEWAY_URL
+              value: http://realtime-gateway:9898
+            - name: REALTIME_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: realtime-internal-token
+                  optional: true
             - name: OUTBOX_RELAY_INTERVAL_MS
               value: "5000"
             - name: OUTBOX_RELAY_BATCH_LIMIT
@@ -167,6 +234,66 @@ spec:
                 secretKeyRef:
                   name: infinitech-secrets
                   key: outbox-relay-token
+                  optional: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-worker
+  namespace: infinitech
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notification-worker
+  template:
+    metadata:
+      labels:
+        app: notification-worker
+    spec:
+      containers:
+        - name: notification-worker
+          image: infinitech/notification-worker:0.1.0
+          env:
+            - name: API_BASE_URL
+              value: http://api-go:1029
+            - name: NOTIFICATION_PROVIDER_CHANNELS
+              value: ""
+            - name: NOTIFICATION_PROVIDER_ENDPOINTS
+              value: "{}"
+            - name: NOTIFICATION_PROVIDER_TEMPLATES
+              value: "{}"
+            - name: NOTIFICATION_DELIVERY_PREFERENCES
+              value: "{}"
+            - name: NOTIFICATION_PREFERENCE_CACHE_TTL_MS
+              value: "30000"
+            - name: NOTIFICATION_PREFERENCE_CACHE_STALE_MS
+              value: "300000"
+            - name: NOTIFICATION_PREFERENCE_CACHE_MAX_KEYS
+              value: "500"
+            - name: NOTIFICATION_QUIET_RETRY_AUTO_SCHEDULE
+              value: "false"
+            - name: NOTIFICATION_QUIET_RETRY_INTERVAL_MS
+              value: "60000"
+            - name: NOTIFICATION_QUIET_RETRY_LIMIT
+              value: "50"
+            - name: NOTIFICATION_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: notification-worker-token
+                  optional: true
+            - name: NOTIFICATION_PROVIDER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: notification-provider-token
+                  optional: true
+            - name: NOTIFICATION_PROVIDER_CALLBACK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: infinitech-secrets
+                  key: notification-provider-callback-secret
                   optional: true
 ---
 apiVersion: apps/v1

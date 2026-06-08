@@ -1,23 +1,141 @@
 <view class="page">
-  <view class="hero">
-    <image class="logo" src="/assets/brand/logo.jpg" mode="aspectFit"></image>
-    <text class="title">Infinitech</text>
-    <text class="subtitle">外卖 · 团购 · 买药 · 快递跑腿 · 圈子</text>
-  </view>
-  <view class="module-grid">
-    <view wx:for="{{modules}}" wx:key="key" class="module {{item.primary ? 'primary' : ''}}" data-route="{{item.route}}" bindtap="handleModuleTap">
-      <text>{{item.title}}</text>
+  <view class="home-sticky">
+    <view class="location-row">
+      <view class="location-wrap" bindtap="handleLocationTap">
+        <view class="location-pin">
+          <view class="location-pin-core"></view>
+        </view>
+        <text class="location">{{locationName}}</text>
+        <text class="location-arrow">▾</text>
+      </view>
+      <view class="system-capsule-gap"></view>
+    </view>
+
+    <view class="search-bar" bindtap="handleSearchTap">
+      <text class="search-icon">⌕</text>
+      <text class="search-placeholder">搜索商家、菜品、团购券</text>
     </view>
   </view>
-  <view class="section">
-    <text class="section-title">推荐卡片</text>
-    <view wx:for="{{homeCards}}" wx:key="id" class="home-card">
-      <text class="card-title">{{item.title}}</text>
-      <text class="card-subtitle">{{item.subtitle}}</text>
+
+  <view class="hero-carousel">
+    <swiper
+      class="hero-swiper"
+      autoplay
+      circular
+      interval="3600"
+      duration="450"
+      bindchange="handleHeroChange"
+    >
+      <swiper-item wx:for="{{heroSlides}}" wx:key="id">
+        <view class="hero-slide" bindtap="handleHeroTap">
+          <view class="hero-copy">
+            <view class="hero-brand">
+              <image class="hero-logo" src="/assets/brand/logo.jpg" mode="aspectFit"></image>
+              <text class="hero-title">{{item.title}}</text>
+            </view>
+            <text class="hero-subtitle">{{item.subtitle}}</text>
+            <text class="hero-note">{{item.note}}</text>
+          </view>
+          <image class="hero-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+        </view>
+      </swiper-item>
+    </swiper>
+    <view class="hero-indicator">
+      <view
+        wx:for="{{heroSlides}}"
+        wx:for-index="index"
+        wx:key="id"
+        class="hero-dot {{index == currentHeroIndex ? 'active' : ''}}"
+      ></view>
     </view>
   </view>
-  <view class="meal-match">
-    <text class="section-title">找饭搭</text>
-    <text class="card-subtitle">完善性别、签署真实性和平台免责承诺，并完成性格与饮食问卷后开启。</text>
+
+  <view class="module-board">
+    <view
+      wx:for="{{modules}}"
+      wx:key="key"
+      class="module-item"
+      data-route="{{item.route}}"
+      bindtap="handleModuleTap"
+    >
+      <view class="module-icon-wrap {{item.iconTone}}">
+        <image wx:if="{{item.iconImageUrl}}" class="module-icon-image" src="{{item.iconImageUrl}}" mode="aspectFill"></image>
+        <text wx:else class="module-glyph">{{item.iconGlyph}}</text>
+      </view>
+      <text class="module-label">{{item.title}}</text>
+    </view>
+  </view>
+
+  <view class="deal-section">
+    <view class="section-head">
+      <text class="section-title">今日团购</text>
+      <view class="section-more" data-route="/pages/shop/list/index?tab=groupbuy" bindtap="handleRecommendTap">
+        <text>查看更多</text>
+        <text class="section-arrow">›</text>
+      </view>
+    </view>
+    <scroll-view class="deal-scroll" scroll-x enable-flex>
+      <view class="deal-strip">
+        <view
+          wx:for="{{groupDeals}}"
+          wx:key="id"
+          class="deal-mini-card"
+          data-route="{{item.route}}"
+          bindtap="handleRecommendTap"
+        >
+          <image class="deal-mini-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+          <view class="deal-mini-copy">
+            <text class="deal-mini-title">{{item.title}}</text>
+            <text class="deal-mini-discount">{{item.discountText}}</text>
+            <view class="deal-mini-price-row">
+              <text class="deal-mini-price">¥{{item.price}}</text>
+              <text class="deal-mini-origin">¥{{item.originPrice}}</text>
+            </view>
+            <text class="deal-mini-sold">{{item.soldText}}</text>
+          </view>
+        </view>
+        <view class="deal-more-card" data-route="/pages/shop/list/index?tab=groupbuy" bindtap="handleRecommendTap">
+          <view class="deal-more-icon">→</view>
+          <text class="deal-more-title">查看更多</text>
+          <text class="deal-more-subtitle">团购好价</text>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <view class="takeout-section">
+    <view class="section-head">
+      <text class="section-title">外卖优选</text>
+      <view class="section-more" data-route="/pages/shop/list/index" bindtap="handleRecommendTap">
+        <text>查看更多</text>
+        <text class="section-arrow">›</text>
+      </view>
+    </view>
+    <view class="takeout-list">
+      <view
+        wx:for="{{takeoutPicks}}"
+        wx:key="id"
+        class="takeout-card"
+        data-route="{{item.route}}"
+        bindtap="handleRecommendTap"
+      >
+        <image class="takeout-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+        <view class="takeout-main">
+          <view class="takeout-title-row">
+            <text class="takeout-title">{{item.title}}</text>
+            <text class="takeout-tag">{{item.tagText}}</text>
+          </view>
+          <text class="takeout-subtitle">{{item.subtitle}}</text>
+          <view class="takeout-meta">
+            <text class="takeout-rating">{{item.ratingText}}</text>
+            <text class="takeout-sales">{{item.salesText}}</text>
+          </view>
+          <view class="takeout-bottom">
+            <text class="takeout-delivery">{{item.deliveryTime}}｜{{item.deliveryFee}}</text>
+            <view class="takeout-price">¥{{item.price}}</view>
+          </view>
+        </view>
+      </view>
+    </view>
   </view>
 </view>

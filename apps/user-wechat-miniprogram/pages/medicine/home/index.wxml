@@ -1,0 +1,79 @@
+<view class="medicine-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">校医务室</text>
+    <text class="nav-action">{{statusText}}</text>
+  </view>
+
+  <view class="clinic-card">
+    <view class="clinic-icon">十</view>
+    <view class="clinic-main">
+      <text class="clinic-title">{{clinic.name}}</text>
+      <text class="clinic-subtitle">{{clinic.location}} · {{clinic.businessTime}}</text>
+      <view class="clinic-tags">
+        <text>校内服务</text>
+        <text>骑手配送</text>
+      </view>
+      <text class="delivery-text">🛵 {{clinic.deliveryText}}</text>
+    </view>
+    <image wx:if="{{clinic.coverUrl}}" class="clinic-cover" src="{{clinic.coverUrl}}" mode="aspectFill"></image>
+    <view wx:else class="medicine-box">药</view>
+    <view class="clinic-actions">
+      <view bindtap="handleConsultTap">AI问诊</view>
+      <view bindtap="handleConsultTap">在线联系</view>
+      <view bindtap="handleConsultTap">电话</view>
+    </view>
+  </view>
+
+  <view class="advice-row" bindtap="handlePrescriptionTap">药品购买与用药请遵循校医建议 ›</view>
+
+  <view class="search-bar" bindtap="handleSearchTap">
+    <text>⌕</text>
+    <text>搜索药品、症状</text>
+  </view>
+
+  <view class="category-row">
+    <text class="category {{item.active}}" wx:for="{{categories}}" wx:key="title" data-title="{{item.title}}" bindtap="handleCategoryTap">{{item.title}}</text>
+  </view>
+
+  <view class="ai-row" bindtap="handleConsultTap">
+    <text>AI</text>
+    <text>不确定买什么？先用 AI 问诊</text>
+    <text>去问诊 ›</text>
+  </view>
+
+  <view class="product-card">
+    <text class="card-title">药品列表</text>
+    <view class="medicine-item" wx:for="{{products}}" wx:key="id">
+      <view class="product-thumb">
+        <image wx:if="{{item.imageUrl}}" class="product-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+        <text wx:else>{{item.category}}</text>
+      </view>
+      <view class="product-main">
+        <text class="product-title">{{item.name}}</text>
+        <text class="product-subtitle">{{item.subtitle}}</text>
+        <view class="product-tags">
+          <text>{{item.category}}</text>
+          <text wx:if="{{item.requiresPrescription}}">需处方</text>
+        </view>
+        <text class="price">{{item.priceText}}</text>
+      </view>
+      <view class="product-action">
+        <text wx:if="{{item.requiresPrescription}}" class="prescription-text">{{item.prescriptionText}}</text>
+        <text wx:else class="stock">{{item.stockText}}</text>
+        <button wx:if="{{item.requiresPrescription}}" class="prescription-button" data-id="{{item.id}}" bindtap="handleAddProduct">上传处方</button>
+        <button wx:else class="add-button" data-id="{{item.id}}" bindtap="handleAddProduct">+</button>
+      </view>
+    </view>
+  </view>
+
+  <view class="cart-bar">
+    <view class="cart-icon">购<text wx:if="{{cartCount}}">{{cartCount}}</text></view>
+    <view class="cart-main">
+      <text>已选 {{cartCount}} 件</text>
+      <text>骑手配送至校内地址</text>
+    </view>
+    <text class="cart-amount">¥{{cartAmount}}</text>
+    <button class="checkout-button" bindtap="handleCheckout">去结算</button>
+  </view>
+</view>

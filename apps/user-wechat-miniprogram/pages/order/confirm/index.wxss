@@ -1,8 +1,32 @@
 .page {
   min-height: 100vh;
-  padding: 28rpx 28rpx 148rpx;
+  padding: 28rpx 28rpx 168rpx;
   box-sizing: border-box;
   background: #f3f4f6;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(env(safe-area-inset-top) + 6rpx) 0 22rpx;
+}
+
+.back,
+.nav-action {
+  width: 76rpx;
+}
+
+.back {
+  color: #111827;
+  font-size: 48rpx;
+  line-height: 1;
+}
+
+.nav-title {
+  color: #111827;
+  font-size: 34rpx;
+  font-weight: 900;
 }
 
 .address-card,
@@ -16,11 +40,18 @@
 }
 
 .section-label,
+.address-status,
 .address-contact,
 .bottom-note {
   display: block;
   color: #6b7280;
   font-size: 24rpx;
+}
+
+.address-status {
+  margin-top: 8rpx;
+  color: #009bf5;
+  font-weight: 700;
 }
 
 .address-detail,
@@ -40,6 +71,17 @@
   margin-top: 8rpx;
 }
 
+.arrival {
+  display: inline-block;
+  margin-top: 16rpx;
+  padding: 8rpx 14rpx;
+  border-radius: 10rpx;
+  color: #007ccc;
+  background: #eaf7ff;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
 .section-title {
   margin-bottom: 12rpx;
   font-size: 30rpx;
@@ -54,38 +96,104 @@
   font-size: 26rpx;
 }
 
+.product-row {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #eef2f7;
+}
+
+.product-row:last-child {
+  border-bottom: none;
+}
+
+.product-image {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 18rpx;
+  flex: 0 0 112rpx;
+  overflow: hidden;
+}
+
+.product-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.product-name {
+  display: block;
+  color: #111827;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.product-meta {
+  display: block;
+  margin-top: 8rpx;
+  color: #6b7280;
+  font-size: 24rpx;
+}
+
+.product-price {
+  color: #111827;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.empty-copy {
+  display: block;
+  margin-bottom: 8rpx;
+  color: #6b7280;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+
 .order-row navigator {
   color: #009bf5;
 }
 
+.order-row.discount,
+.discount {
+  color: #f97316;
+}
+
+.order-row.fee:last-child {
+  margin-top: 8rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx solid #eef2f7;
+  color: #111827;
+  font-weight: 800;
+}
+
 .bottom-bar {
   position: fixed;
-  right: 28rpx;
-  bottom: 32rpx;
-  left: 28rpx;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16rpx;
-  padding: 20rpx 24rpx;
-  border-radius: 16rpx;
-  background: #111827;
+  padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  box-shadow: 0 -8rpx 24rpx rgba(15, 23, 42, 0.08);
   box-sizing: border-box;
 }
 
 .payable {
-  color: #ffffff;
+  color: #111827;
   font-size: 34rpx;
 }
 
 .bottom-note {
   margin-top: 4rpx;
-  color: #d1d5db;
+  color: #6b7280;
 }
 
 .pay-button {
   min-width: 196rpx;
-  border-radius: 10rpx;
+  border-radius: 999rpx;
   color: #ffffff;
   background: #009bf5;
   font-size: 26rpx;

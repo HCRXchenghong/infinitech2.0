@@ -1,0 +1,357 @@
+.red-detail-page {
+  min-height: 100vh;
+  padding: 28rpx 32rpx 150rpx;
+  background: #fffaf7;
+  box-sizing: border-box;
+}
+
+.plain-nav {
+  display: grid;
+  grid-template-columns: 72rpx 1fr 140rpx;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top) + 20rpx) 0 30rpx;
+}
+
+.nav-back {
+  color: #111827;
+  font-size: 56rpx;
+  line-height: 50rpx;
+}
+
+.nav-title {
+  color: #111827;
+  font-size: 38rpx;
+  font-weight: 900;
+  text-align: center;
+}
+
+.nav-action {
+  color: #111827;
+  font-size: 27rpx;
+  text-align: right;
+}
+
+.packet-card {
+  position: relative;
+  min-height: 520rpx;
+  border-radius: 28rpx;
+  padding: 46rpx 42rpx 34rpx;
+  color: #ffffff;
+  background: linear-gradient(135deg, #ff6b4a, #f22b21);
+  box-shadow: 0 18rpx 38rpx rgba(255, 59, 48, 0.18);
+  box-sizing: border-box;
+}
+
+.envelope {
+  position: absolute;
+  left: 42rpx;
+  top: 54rpx;
+  width: 128rpx;
+  height: 146rpx;
+  border-radius: 22rpx;
+  color: #b45309;
+  background: linear-gradient(180deg, #ff8a80, #ff3b30);
+  text-align: center;
+  line-height: 146rpx;
+  font-size: 42rpx;
+  font-weight: 900;
+  box-shadow: 0 12rpx 28rpx rgba(127, 29, 29, 0.28);
+}
+
+.packet-head {
+  margin-left: 178rpx;
+}
+
+.packet-title,
+.packet-subtitle,
+.packet-message {
+  display: block;
+}
+
+.packet-title {
+  font-size: 38rpx;
+  font-weight: 900;
+}
+
+.packet-subtitle,
+.packet-message {
+  margin-top: 14rpx;
+  font-size: 28rpx;
+}
+
+.status-pill {
+  position: absolute;
+  right: 38rpx;
+  top: 62rpx;
+  min-width: 112rpx;
+  height: 54rpx;
+  border-radius: 27rpx;
+  border: 2rpx solid rgba(255, 255, 255, 0.9);
+  text-align: center;
+  line-height: 52rpx;
+  font-size: 26rpx;
+  font-weight: 900;
+}
+
+.amount-line {
+  margin-top: 60rpx;
+  text-align: center;
+  font-weight: 900;
+}
+
+.amount-line text:first-child {
+  font-size: 46rpx;
+}
+
+.amount-line text:last-child {
+  font-size: 80rpx;
+}
+
+.count-line,
+.timer-line {
+  display: block;
+  margin-top: 18rpx;
+  text-align: center;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.timer-line {
+  color: #ffe082;
+}
+
+.progress-track {
+  height: 20rpx;
+  margin-top: 34rpx;
+  border-radius: 10rpx;
+  background: rgba(255, 255, 255, 0.45);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 10rpx;
+  background: #ffffff;
+}
+
+.split-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 28rpx;
+  font-size: 27rpx;
+}
+
+.risk-card {
+  display: grid;
+  grid-template-columns: 150rpx 1fr;
+  gap: 18rpx;
+  align-items: center;
+  margin-top: 24rpx;
+  padding: 22rpx 26rpx;
+  border: 1rpx solid #fde7d7;
+  border-radius: 18rpx;
+  background: #fff7ed;
+}
+
+.risk-card text:first-child {
+  color: #9a3412;
+  font-size: 27rpx;
+  font-weight: 900;
+}
+
+.risk-card text:last-child {
+  color: #7c2d12;
+  font-size: 26rpx;
+  line-height: 1.45;
+}
+
+.risk-card.blocked {
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+
+.risk-card.blocked text:first-child,
+.risk-card.blocked text:last-child {
+  color: #be123c;
+}
+
+.records-card,
+.wallet-card {
+  border-radius: 22rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 30rpx rgba(15, 23, 42, 0.06);
+}
+
+.records-card {
+  margin-top: 30rpx;
+  padding: 28rpx 30rpx;
+}
+
+.section-title-row {
+  display: flex;
+  gap: 24rpx;
+  align-items: baseline;
+  margin-bottom: 18rpx;
+}
+
+.section-title-row text:first-child {
+  color: #111827;
+  font-size: 34rpx;
+  font-weight: 900;
+}
+
+.section-title-row text:last-child {
+  color: #8a8f98;
+  font-size: 25rpx;
+}
+
+.record-row {
+  display: grid;
+  grid-template-columns: 66rpx 1fr 180rpx 80rpx;
+  gap: 18rpx;
+  align-items: center;
+  min-height: 102rpx;
+  border-bottom: 1rpx solid #f0e7e1;
+}
+
+.record-row:last-child {
+  border-bottom: none;
+}
+
+.record-avatar {
+  width: 58rpx;
+  height: 58rpx;
+  border-radius: 29rpx;
+  color: #ffffff;
+  background: #ff3b30;
+  text-align: center;
+  line-height: 58rpx;
+  font-weight: 900;
+}
+
+.record-row:nth-child(3n) .record-avatar {
+  background: #10b981;
+}
+
+.record-row:nth-child(4n) .record-avatar {
+  background: #7c3aed;
+}
+
+.record-row:nth-child(5n) .record-avatar {
+  background: #f59e0b;
+}
+
+.record-name {
+  color: #111827;
+  font-size: 30rpx;
+}
+
+.record-amount {
+  text-align: right;
+}
+
+.record-amount text:first-child {
+  display: block;
+  color: #ef2b20;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.record-amount text:last-child {
+  display: inline-block;
+  margin-top: 8rpx;
+  padding: 2rpx 10rpx;
+  border: 1rpx solid #ff5a1f;
+  border-radius: 8rpx;
+  color: #ff5a1f;
+  font-size: 20rpx;
+}
+
+.record-time {
+  color: #8a8f98;
+  font-size: 24rpx;
+  text-align: right;
+}
+
+.wallet-card {
+  display: grid;
+  grid-template-columns: 68rpx 1fr 160rpx;
+  gap: 20rpx;
+  align-items: center;
+  margin-top: 26rpx;
+  padding: 26rpx;
+}
+
+.wallet-icon {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 28rpx;
+  color: #ff2d1f;
+  background: #fff1eb;
+  text-align: center;
+  line-height: 56rpx;
+  font-weight: 900;
+}
+
+.wallet-card text {
+  display: block;
+}
+
+.wallet-card view:nth-child(2) text:first-child {
+  color: #111827;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.wallet-card view:nth-child(2) text:last-child {
+  margin-top: 8rpx;
+  color: #8a8f98;
+  font-size: 25rpx;
+}
+
+.wallet-card > text {
+  color: #ef2b20;
+  font-size: 26rpx;
+  text-align: right;
+}
+
+.safe-tip {
+  margin-top: 28rpx;
+  color: #8a8f98;
+  font-size: 26rpx;
+  text-align: center;
+}
+
+.bottom-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24rpx;
+  padding: 20rpx 32rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 -10rpx 30rpx rgba(15, 23, 42, 0.08);
+}
+
+.bottom-actions button {
+  height: 82rpx;
+  border-radius: 14rpx;
+  color: #ffffff;
+  background: #ff2d1f;
+  line-height: 82rpx;
+  font-size: 32rpx;
+  font-weight: 900;
+  padding: 0;
+}
+
+.bottom-actions button.ghost {
+  color: #ff2d1f;
+  background: #ffffff;
+  border: 2rpx solid #ff2d1f;
+}
+
+.bottom-actions button::after {
+  border: none;
+}

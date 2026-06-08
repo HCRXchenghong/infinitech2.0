@@ -2,12 +2,14 @@ package platform
 
 import (
 	"crypto/hmac"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -21,125 +23,262 @@ var (
 	ErrInvalidArgument      = errors.New("invalid argument")
 	ErrNotFound             = errors.New("not found")
 	ErrInsufficientBalance  = errors.New("insufficient balance")
+	ErrInsufficientStock    = errors.New("insufficient stock")
 	ErrOrderAlreadyAssigned = errors.New("order already assigned")
 	ErrInvalidOrderState    = errors.New("invalid order state")
 	ErrPaymentPassword      = errors.New("payment password required or invalid")
 	ErrInvalidCredentials   = errors.New("invalid credentials")
+	ErrRiskControlRejected  = errors.New("risk control rejected")
+	ErrRateLimited          = errors.New("rate limited")
 )
 
 type Store struct {
-	mu                      sync.Mutex
-	nextOrderID             uint64
-	nextTransactionID       uint64
-	nextAddressID           uint64
-	nextMerchantID          uint64
-	nextMerchantStaffID     uint64
-	nextMerchantMaterialID  uint64
-	nextDispatchEventID     uint64
-	nextOutboxEventID       uint64
-	nextAuditLogID          uint64
-	nextAfterSalesID        uint64
-	nextAfterSalesEventID   uint64
-	nextRiderID             uint64
-	nextProductID           uint64
-	nextVoucherID           uint64
-	homeModules             []HomeModule
-	homeCards               []HomeCard
-	users                   map[string]*AppUser
-	wechatBindings          map[string]string
-	merchantInvites         map[string]*MerchantOnboardingInvite
-	merchants               map[string]*MerchantAccount
-	merchantQualifications  map[string][]*MerchantQualification
-	merchantStaff           map[string][]*MerchantStaff
-	merchantMaterials       map[string][]*MerchantSupplementalMaterial
-	riders                  map[string]*RiderAccount
-	deposits                map[string]*DepositAccount
-	stationTaskConfigs      map[string]*StationTaskConfig
-	stationServiceAreas     map[string]*StationServiceArea
-	shops                   map[string]*Shop
-	products                map[string]*MerchantProduct
-	groupbuyDeals           map[string]*MerchantProduct
-	addresses               map[string][]*UserAddress
-	cartItems               map[string][]*CartItem
-	orders                  map[string]*Order
-	wallets                 map[string]*WalletAccount
-	paymentPasswordHash     map[string]string
-	merchantPasswordHash    map[string]string
-	riderPasswordHash       map[string]string
-	paymentTransactions     map[string]*PaymentTransaction
-	paymentByTradeNo        map[string]*PaymentTransaction
-	paymentByProviderID     map[string]*PaymentTransaction
-	walletIdempotency       map[string]*WalletTransaction
-	refundSettings          RefundSettings
-	refundTransactions      map[string]*RefundTransaction
-	refundByIdempotency     map[string]string
-	afterSalesRequests      map[string]*AfterSalesRequest
-	afterSalesEvents        map[string]*AfterSalesEvent
-	afterSalesUploadTickets map[string]*AfterSalesEvidenceUploadTicket
-	afterSalesEvidence      map[string]*AfterSalesEvidence
-	groupbuyVouchers        map[string]*GroupbuyVoucher
-	vouchersByOrderID       map[string][]string
-	vouchersByCode          map[string]*GroupbuyVoucher
-	dispatchEvents          map[string]*DispatchEvent
-	dispatchRejectedRiders  map[string]map[string]bool
-	freeCancelUsedByDate    map[string]string
-	outboxEvents            map[string]*OutboxEvent
-	outboxByIdempotency     map[string]string
-	auditLogs               map[string]*AuditLog
-	auditLogSigningSecret   string
-	objectStorage           ObjectStorageConfig
+	mu                          sync.Mutex
+	nextOrderID                 uint64
+	nextTransactionID           uint64
+	nextAddressID               uint64
+	nextMerchantID              uint64
+	nextMerchantStaffID         uint64
+	nextMerchantMaterialID      uint64
+	nextDispatchEventID         uint64
+	nextOutboxEventID           uint64
+	nextAuditLogID              uint64
+	nextNotificationID          uint64
+	nextAfterSalesID            uint64
+	nextAfterSalesEventID       uint64
+	nextRiderID                 uint64
+	nextProductID               uint64
+	nextVoucherID               uint64
+	nextReviewID                uint64
+	nextFeedbackID              uint64
+	nextCirclePostID            uint64
+	nextRedPacketID             uint64
+	nextChatMessageID           uint64
+	nextWithdrawID              uint64
+	nextCouponID                uint64
+	nextServiceTicketID         uint64
+	nextServiceTicketEventID    uint64
+	nextServiceTicketQualityID  uint64
+	nextPrescriptionID          uint64
+	nextMealMatchModerationID   uint64
+	homeModules                 []HomeModule
+	homeCards                   []HomeCard
+	users                       map[string]*AppUser
+	wechatBindings              map[string]string
+	phoneBindings               map[string]string
+	phoneVerificationCodes      map[string]*PhoneVerificationCodeTicket
+	phoneVerificationRequests   map[string][]time.Time
+	phoneVerificationConfig     PhoneVerificationConfig
+	userPasswordHash            map[string]string
+	merchantInvites             map[string]*MerchantOnboardingInvite
+	merchants                   map[string]*MerchantAccount
+	merchantQualifications      map[string][]*MerchantQualification
+	merchantStaff               map[string][]*MerchantStaff
+	merchantMaterials           map[string][]*MerchantSupplementalMaterial
+	riders                      map[string]*RiderAccount
+	deposits                    map[string]*DepositAccount
+	stationTaskConfigs          map[string]*StationTaskConfig
+	stationServiceAreas         map[string]*StationServiceArea
+	shops                       map[string]*Shop
+	products                    map[string]*MerchantProduct
+	groupbuyDeals               map[string]*MerchantProduct
+	addresses                   map[string][]*UserAddress
+	cartItems                   map[string][]*CartItem
+	orders                      map[string]*Order
+	reviews                     map[string]*Review
+	wallets                     map[string]*WalletAccount
+	paymentPasswordHash         map[string]string
+	merchantPasswordHash        map[string]string
+	riderPasswordHash           map[string]string
+	paymentTransactions         map[string]*PaymentTransaction
+	paymentByTradeNo            map[string]*PaymentTransaction
+	paymentByProviderID         map[string]*PaymentTransaction
+	walletIdempotency           map[string]*WalletTransaction
+	refundSettings              RefundSettings
+	refundTransactions          map[string]*RefundTransaction
+	refundByIdempotency         map[string]string
+	afterSalesRequests          map[string]*AfterSalesRequest
+	afterSalesEvents            map[string]*AfterSalesEvent
+	afterSalesUploadTickets     map[string]*AfterSalesEvidenceUploadTicket
+	afterSalesEvidence          map[string]*AfterSalesEvidence
+	groupbuyVouchers            map[string]*GroupbuyVoucher
+	vouchersByOrderID           map[string][]string
+	vouchersByCode              map[string]*GroupbuyVoucher
+	dispatchEvents              map[string]*DispatchEvent
+	dispatchRejectedRiders      map[string]map[string]bool
+	freeCancelUsedByDate        map[string]string
+	outboxEvents                map[string]*OutboxEvent
+	outboxByIdempotency         map[string]string
+	notifications               map[string]*PlatformNotification
+	notificationByIdem          map[string]string
+	notificationDeliveries      map[string]*PlatformNotificationDelivery
+	notificationDeliveryByIdem  map[string]string
+	notificationPreferences     map[string]*NotificationPreference
+	notificationPreferenceByKey map[string]string
+	feedbackTickets             map[string]*FeedbackTicket
+	serviceTickets              map[string]*ServiceTicket
+	serviceTicketEvents         map[string]*ServiceTicketEvent
+	serviceTicketQualityReviews map[string]*ServiceTicketQualityReview
+	circlePosts                 map[string]*CirclePost
+	mealMatchProfiles           map[string]*MealMatchProfile
+	mealMatchModeration         map[string]*MealMatchModerationRecord
+	redPackets                  map[string]*RedPacketDetail
+	chatThreadMembers           map[string]*ChatThreadMember
+	chatMessages                map[string]*ChatMessage
+	chatReadStates              map[string]*ChatReadState
+	reviewImageTickets          map[string]*ReviewImageUploadTicket
+	prescriptionImageTickets    map[string]*PrescriptionImageUploadTicket
+	prescriptionReviews         map[string]*PrescriptionReview
+	medicineDetails             map[string]*MedicineOrderDetail
+	medicineStock               map[string]int
+	withdrawRequests            map[string]*WalletWithdrawRequest
+	userCoupons                 map[string]*UserCoupon
+	pointsTransactions          map[string][]*PointsTransaction
+	errandDetails               map[string]*ErrandOrderDetail
+	auditLogs                   map[string]*AuditLog
+	auditLogSigningSecret       string
+	objectStorage               ObjectStorageConfig
 }
 
 func NewStore(homeModules []HomeModule) *Store {
 	return &Store{
-		nextMerchantID:          1,
-		nextRiderID:             2,
-		nextProductID:           2,
-		homeModules:             cloneHomeModules(homeModules),
-		homeCards:               DefaultHomeCards(),
-		users:                   map[string]*AppUser{},
-		wechatBindings:          map[string]string{},
-		merchantInvites:         map[string]*MerchantOnboardingInvite{},
-		merchants:               seedMerchants(),
-		merchantQualifications:  seedMerchantQualifications(),
-		merchantStaff:           seedMerchantStaff(),
-		merchantMaterials:       seedMerchantMaterials(),
-		riders:                  seedRiders(),
-		deposits:                seedDeposits(),
-		stationTaskConfigs:      seedStationTaskConfigs(),
-		stationServiceAreas:     seedStationServiceAreas(),
-		shops:                   seedShops(),
-		products:                seedProducts(),
-		groupbuyDeals:           seedGroupbuyDeals(),
-		addresses:               map[string][]*UserAddress{},
-		cartItems:               map[string][]*CartItem{},
-		orders:                  map[string]*Order{},
-		wallets:                 map[string]*WalletAccount{},
-		paymentPasswordHash:     map[string]string{},
-		merchantPasswordHash:    map[string]string{},
-		riderPasswordHash:       map[string]string{},
-		paymentTransactions:     map[string]*PaymentTransaction{},
-		paymentByTradeNo:        map[string]*PaymentTransaction{},
-		paymentByProviderID:     map[string]*PaymentTransaction{},
-		walletIdempotency:       map[string]*WalletTransaction{},
-		refundSettings:          RefundSettings{DefaultStrategy: RefundStrategyBalanceFirst},
-		refundTransactions:      map[string]*RefundTransaction{},
-		refundByIdempotency:     map[string]string{},
-		afterSalesRequests:      map[string]*AfterSalesRequest{},
-		afterSalesEvents:        map[string]*AfterSalesEvent{},
-		afterSalesUploadTickets: map[string]*AfterSalesEvidenceUploadTicket{},
-		afterSalesEvidence:      map[string]*AfterSalesEvidence{},
-		groupbuyVouchers:        map[string]*GroupbuyVoucher{},
-		vouchersByOrderID:       map[string][]string{},
-		vouchersByCode:          map[string]*GroupbuyVoucher{},
-		dispatchEvents:          map[string]*DispatchEvent{},
-		dispatchRejectedRiders:  map[string]map[string]bool{},
-		freeCancelUsedByDate:    map[string]string{},
-		outboxEvents:            map[string]*OutboxEvent{},
-		outboxByIdempotency:     map[string]string{},
-		auditLogs:               map[string]*AuditLog{},
-		objectStorage:           DefaultObjectStorageConfig(),
+		nextMerchantID:              1,
+		nextRiderID:                 2,
+		nextProductID:               2,
+		homeModules:                 cloneHomeModules(homeModules),
+		homeCards:                   DefaultHomeCards(),
+		users:                       map[string]*AppUser{},
+		wechatBindings:              map[string]string{},
+		phoneBindings:               map[string]string{},
+		phoneVerificationCodes:      map[string]*PhoneVerificationCodeTicket{},
+		phoneVerificationRequests:   map[string][]time.Time{},
+		phoneVerificationConfig:     DefaultPhoneVerificationConfig(),
+		userPasswordHash:            map[string]string{},
+		merchantInvites:             map[string]*MerchantOnboardingInvite{},
+		merchants:                   seedMerchants(),
+		merchantQualifications:      seedMerchantQualifications(),
+		merchantStaff:               seedMerchantStaff(),
+		merchantMaterials:           seedMerchantMaterials(),
+		riders:                      seedRiders(),
+		deposits:                    seedDeposits(),
+		stationTaskConfigs:          seedStationTaskConfigs(),
+		stationServiceAreas:         seedStationServiceAreas(),
+		shops:                       seedShops(),
+		products:                    seedProducts(),
+		groupbuyDeals:               seedGroupbuyDeals(),
+		addresses:                   map[string][]*UserAddress{},
+		cartItems:                   map[string][]*CartItem{},
+		orders:                      map[string]*Order{},
+		reviews:                     map[string]*Review{},
+		wallets:                     map[string]*WalletAccount{},
+		paymentPasswordHash:         map[string]string{},
+		merchantPasswordHash:        map[string]string{},
+		riderPasswordHash:           map[string]string{},
+		paymentTransactions:         map[string]*PaymentTransaction{},
+		paymentByTradeNo:            map[string]*PaymentTransaction{},
+		paymentByProviderID:         map[string]*PaymentTransaction{},
+		walletIdempotency:           map[string]*WalletTransaction{},
+		refundSettings:              RefundSettings{DefaultStrategy: RefundStrategyBalanceFirst},
+		refundTransactions:          map[string]*RefundTransaction{},
+		refundByIdempotency:         map[string]string{},
+		afterSalesRequests:          map[string]*AfterSalesRequest{},
+		afterSalesEvents:            map[string]*AfterSalesEvent{},
+		afterSalesUploadTickets:     map[string]*AfterSalesEvidenceUploadTicket{},
+		afterSalesEvidence:          map[string]*AfterSalesEvidence{},
+		groupbuyVouchers:            map[string]*GroupbuyVoucher{},
+		vouchersByOrderID:           map[string][]string{},
+		vouchersByCode:              map[string]*GroupbuyVoucher{},
+		dispatchEvents:              map[string]*DispatchEvent{},
+		dispatchRejectedRiders:      map[string]map[string]bool{},
+		freeCancelUsedByDate:        map[string]string{},
+		outboxEvents:                map[string]*OutboxEvent{},
+		outboxByIdempotency:         map[string]string{},
+		notifications:               map[string]*PlatformNotification{},
+		notificationByIdem:          map[string]string{},
+		notificationDeliveries:      map[string]*PlatformNotificationDelivery{},
+		notificationDeliveryByIdem:  map[string]string{},
+		notificationPreferences:     map[string]*NotificationPreference{},
+		notificationPreferenceByKey: map[string]string{},
+		feedbackTickets:             map[string]*FeedbackTicket{},
+		serviceTickets:              map[string]*ServiceTicket{},
+		serviceTicketEvents:         map[string]*ServiceTicketEvent{},
+		serviceTicketQualityReviews: map[string]*ServiceTicketQualityReview{},
+		circlePosts:                 seedCirclePosts(),
+		mealMatchProfiles:           seedMealMatchProfiles(),
+		mealMatchModeration:         map[string]*MealMatchModerationRecord{},
+		redPackets:                  map[string]*RedPacketDetail{},
+		chatThreadMembers:           seedChatThreadMembers(),
+		chatMessages:                seedChatMessages(),
+		chatReadStates:              seedChatReadStates(),
+		reviewImageTickets:          map[string]*ReviewImageUploadTicket{},
+		prescriptionImageTickets:    map[string]*PrescriptionImageUploadTicket{},
+		prescriptionReviews:         map[string]*PrescriptionReview{},
+		medicineDetails:             map[string]*MedicineOrderDetail{},
+		medicineStock:               defaultMedicineStock(),
+		withdrawRequests:            map[string]*WalletWithdrawRequest{},
+		userCoupons:                 seedUserCoupons(),
+		pointsTransactions:          seedPointsTransactions(),
+		errandDetails:               map[string]*ErrandOrderDetail{},
+		auditLogs:                   map[string]*AuditLog{},
+		objectStorage:               DefaultObjectStorageConfig(),
 	}
+}
+
+func DefaultPhoneVerificationConfig() PhoneVerificationConfig {
+	return PhoneVerificationConfig{
+		Mode:            "dev",
+		Provider:        "dev",
+		Cooldown:        60 * time.Second,
+		ExpiresIn:       10 * time.Minute,
+		MaxPerPhoneHour: 5,
+		MaxPerPhoneDay:  20,
+		ReturnDevCode:   true,
+	}
+}
+
+func normalizePhoneVerificationConfig(config PhoneVerificationConfig) PhoneVerificationConfig {
+	defaults := DefaultPhoneVerificationConfig()
+	config.Mode = strings.ToLower(strings.TrimSpace(config.Mode))
+	if config.Mode == "" {
+		config.Mode = defaults.Mode
+	}
+	if config.Mode != "provider" {
+		config.Mode = "dev"
+	}
+	config.Provider = strings.TrimSpace(config.Provider)
+	if config.Provider == "" {
+		if config.Mode == "provider" {
+			config.Provider = "sms_provider"
+		} else {
+			config.Provider = defaults.Provider
+		}
+	}
+	config.TemplateID = strings.TrimSpace(config.TemplateID)
+	if config.Cooldown <= 0 {
+		config.Cooldown = defaults.Cooldown
+	}
+	if config.ExpiresIn <= 0 {
+		config.ExpiresIn = defaults.ExpiresIn
+	}
+	if config.MaxPerPhoneHour <= 0 {
+		config.MaxPerPhoneHour = defaults.MaxPerPhoneHour
+	}
+	if config.MaxPerPhoneDay <= 0 {
+		config.MaxPerPhoneDay = defaults.MaxPerPhoneDay
+	}
+	if config.Mode == "provider" && !config.ReturnDevCode {
+		config.ReturnDevCode = false
+	} else if config.Mode != "provider" {
+		config.ReturnDevCode = true
+	}
+	return config
+}
+
+func (s *Store) ConfigurePhoneVerification(config PhoneVerificationConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.phoneVerificationConfig = normalizePhoneVerificationConfig(config)
+	return nil
 }
 
 func (s *Store) ConfigureAuditLogIntegrity(signingSecret string) {
@@ -203,6 +342,237 @@ func (s *Store) LoginWechatMini(req WechatMiniLoginRequest) (*WechatMiniLoginRes
 		ProviderUnionID: providerUnionID,
 		IsNewUser:       isNewUser,
 	}, nil
+}
+
+func (s *Store) SendPhoneVerificationCode(req SendPhoneVerificationCodeRequest) (*PhoneVerificationCodeTicket, error) {
+	phone := normalizeMainlandPhone(req.Phone)
+	if phone == "" {
+		return nil, ErrInvalidArgument
+	}
+	purpose := normalizePhoneAuthPurpose(req.Purpose)
+	now := time.Now().UTC()
+	code := phoneVerificationCode(phone, purpose, now)
+	requestID := "phone_code_" + shortHash(phone+":"+purpose+":"+now.Format(time.RFC3339Nano))
+
+	s.mu.Lock()
+	config := normalizePhoneVerificationConfig(s.phoneVerificationConfig)
+	if err := s.recordPhoneVerificationAttemptLocked(phone, now, config); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
+	ticket := &PhoneVerificationCodeTicket{
+		Phone:             phone,
+		Purpose:           purpose,
+		MaskedPhone:       maskMainlandPhone(phone),
+		CreatedAt:         now,
+		ExpiresAt:         now.Add(config.ExpiresIn),
+		CooldownSeconds:   int64(config.Cooldown / time.Second),
+		DeliveryProvider:  config.Provider,
+		DeliveryStatus:    "pending",
+		DeliveryRequestID: requestID,
+		DevCode:           code,
+	}
+	s.phoneVerificationCodes[phone+"::"+purpose] = clonePhoneVerificationCodeTicket(ticket)
+	s.mu.Unlock()
+
+	if config.Mode == "provider" && config.Dispatcher != nil {
+		result, err := config.Dispatcher.DispatchPhoneVerificationCode(PhoneVerificationDispatchRequest{
+			Phone:       phone,
+			MaskedPhone: ticket.MaskedPhone,
+			Purpose:     purpose,
+			Code:        code,
+			TemplateID:  config.TemplateID,
+			Provider:    config.Provider,
+			RequestID:   requestID,
+			ExpiresAt:   ticket.ExpiresAt,
+		})
+		if err != nil {
+			s.updatePhoneVerificationDeliveryLocked(phone, purpose, "failed", config.Provider, requestID)
+			return nil, err
+		}
+		if result != nil {
+			provider := defaultString(result.Provider, config.Provider)
+			nextRequestID := defaultString(result.RequestID, requestID)
+			status := defaultString(result.Status, "delivered")
+			s.updatePhoneVerificationDeliveryLocked(phone, purpose, status, provider, nextRequestID)
+			ticket.DeliveryProvider = provider
+			ticket.DeliveryRequestID = nextRequestID
+			ticket.DeliveryStatus = status
+		}
+	} else if config.Mode == "provider" {
+		s.updatePhoneVerificationDeliveryLocked(phone, purpose, "queued", config.Provider, requestID)
+		ticket.DeliveryStatus = "queued"
+	} else {
+		s.updatePhoneVerificationDeliveryLocked(phone, purpose, "dev_returned", config.Provider, requestID)
+		ticket.DeliveryStatus = "dev_returned"
+	}
+	return sanitizePhoneVerificationTicket(ticket, config), nil
+}
+
+func (s *Store) recordPhoneVerificationAttemptLocked(phone string, now time.Time, config PhoneVerificationConfig) error {
+	history := s.phoneVerificationRequests[phone]
+	fresh := make([]time.Time, 0, len(history)+1)
+	for _, at := range history {
+		if now.Sub(at) <= 24*time.Hour {
+			fresh = append(fresh, at)
+		}
+	}
+	if len(fresh) > 0 {
+		last := fresh[len(fresh)-1]
+		if now.Sub(last) < config.Cooldown {
+			s.phoneVerificationRequests[phone] = fresh
+			return ErrRateLimited
+		}
+	}
+	hourCount := 0
+	for _, at := range fresh {
+		if now.Sub(at) <= time.Hour {
+			hourCount++
+		}
+	}
+	if hourCount >= config.MaxPerPhoneHour || len(fresh) >= config.MaxPerPhoneDay {
+		s.phoneVerificationRequests[phone] = fresh
+		return ErrRateLimited
+	}
+	fresh = append(fresh, now)
+	s.phoneVerificationRequests[phone] = fresh
+	return nil
+}
+
+func (s *Store) updatePhoneVerificationDeliveryLocked(phone string, purpose string, status string, provider string, requestID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.phoneVerificationCodes[phone+"::"+normalizePhoneAuthPurpose(purpose)]
+	if ticket == nil {
+		return
+	}
+	ticket.DeliveryStatus = strings.TrimSpace(status)
+	ticket.DeliveryProvider = strings.TrimSpace(provider)
+	ticket.DeliveryRequestID = strings.TrimSpace(requestID)
+}
+
+func (s *Store) LoginWithPhone(req PhoneLoginRequest) (*PhoneAuthResult, error) {
+	phone := normalizeMainlandPhone(req.Phone)
+	if phone == "" {
+		return nil, ErrInvalidArgument
+	}
+	mode := strings.TrimSpace(req.Mode)
+	if mode == "" {
+		if strings.TrimSpace(req.Password) != "" {
+			mode = "password"
+		} else {
+			mode = "code"
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	userID := s.phoneBindings[phone]
+	switch mode {
+	case "password":
+		if userID == "" || !verifyUserPassword(s.userPasswordHash[userID], req.Password) {
+			return nil, ErrInvalidCredentials
+		}
+	case "code":
+		if !s.verifyPhoneCodeLocked(phone, "login", req.Code, now) && !s.verifyPhoneCodeLocked(phone, "register", req.Code, now) {
+			return nil, ErrInvalidCredentials
+		}
+	default:
+		return nil, ErrInvalidArgument
+	}
+
+	isNewUser := false
+	if userID == "" {
+		isNewUser = true
+		userID = "user_phone_" + shortHash(phone)
+		s.phoneBindings[phone] = userID
+		s.users[userID] = &AppUser{
+			ID:        userID,
+			Nickname:  "手机用户" + phone[len(phone)-4:],
+			Phone:     phone,
+			Status:    "active",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+	}
+	user := s.userForPhoneAuthLocked(userID, phone, now)
+	return &PhoneAuthResult{User: *cloneAppUser(user), Provider: "phone", IsNewUser: isNewUser}, nil
+}
+
+func (s *Store) RegisterWithPhone(req PhoneRegisterRequest) (*PhoneAuthResult, error) {
+	phone := normalizeMainlandPhone(req.Phone)
+	if phone == "" || !req.AcceptedAgreement {
+		return nil, ErrInvalidArgument
+	}
+	passwordHash, err := hashUserPassword(req.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	if !s.verifyPhoneCodeLocked(phone, "register", req.Code, now) && !s.verifyPhoneCodeLocked(phone, "login", req.Code, now) {
+		return nil, ErrInvalidCredentials
+	}
+	userID := s.phoneBindings[phone]
+	isNewUser := false
+	if userID == "" {
+		isNewUser = true
+		userID = "user_phone_" + shortHash(phone)
+		s.phoneBindings[phone] = userID
+		s.users[userID] = &AppUser{
+			ID:        userID,
+			Nickname:  defaultString(strings.TrimSpace(req.Nickname), "悦享用户"+phone[len(phone)-4:]),
+			Phone:     phone,
+			Status:    "active",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+	}
+	user := s.userForPhoneAuthLocked(userID, phone, now)
+	if nickname := strings.TrimSpace(req.Nickname); nickname != "" {
+		user.Nickname = nickname
+		user.UpdatedAt = now
+	}
+	s.userPasswordHash[userID] = passwordHash
+	return &PhoneAuthResult{User: *cloneAppUser(user), Provider: "phone", IsNewUser: isNewUser}, nil
+}
+
+func (s *Store) verifyPhoneCodeLocked(phone string, purpose string, code string, now time.Time) bool {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return false
+	}
+	ticket := s.phoneVerificationCodes[phone+"::"+normalizePhoneAuthPurpose(purpose)]
+	if ticket == nil || now.After(ticket.ExpiresAt) {
+		return false
+	}
+	return code == ticket.DevCode
+}
+
+func (s *Store) userForPhoneAuthLocked(userID string, phone string, now time.Time) *AppUser {
+	user := s.users[userID]
+	if user == nil {
+		user = &AppUser{ID: userID, Status: "active", CreatedAt: now}
+		s.users[userID] = user
+	}
+	if user.Status == "" {
+		user.Status = "active"
+	}
+	if user.Phone != phone {
+		user.Phone = phone
+		user.UpdatedAt = now
+	}
+	if user.Nickname == "" {
+		user.Nickname = "手机用户" + phone[len(phone)-4:]
+		user.UpdatedAt = now
+	}
+	if user.UpdatedAt.IsZero() {
+		user.UpdatedAt = now
+	}
+	return user
 }
 
 func normalizeCreateMerchantInviteRequest(req CreateMerchantInviteRequest) (CreateMerchantInviteRequest, error) {
@@ -541,7 +911,7 @@ func (s *Store) SaveMerchantQualification(req UploadMerchantQualificationRequest
 		Type:      qualificationType,
 		FileURL:   fileURL,
 		ExpiresAt: req.ExpiresAt.UTC(),
-		Status:    "approved",
+		Status:    QualificationStatusPendingReview,
 	}
 	existing := s.merchantQualifications[merchantID]
 	replaced := false
@@ -557,6 +927,535 @@ func (s *Store) SaveMerchantQualification(req UploadMerchantQualificationRequest
 	}
 	s.merchantQualifications[merchantID] = existing
 	return s.merchantProfileLocked(merchantID), nil
+}
+
+func (s *Store) AdminMerchantQualifications(req AdminMerchantQualificationListRequest) (*AdminMerchantQualificationList, error) {
+	req, err := normalizeAdminMerchantQualificationListRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	counts := AdminMerchantQualificationCounts{}
+	qualifications := make([]AdminMerchantQualificationCase, 0)
+	for merchantID, entries := range s.merchantQualifications {
+		merchantID = strings.TrimSpace(merchantID)
+		if req.MerchantID != "" && merchantID != req.MerchantID {
+			continue
+		}
+		for _, item := range entries {
+			if item == nil {
+				continue
+			}
+			if req.Type != "" && item.Type != req.Type {
+				continue
+			}
+			status := adminMerchantQualificationStatus(item, req.Now)
+			countAdminMerchantQualificationStatus(&counts, status)
+			if req.Status != "all" && status != req.Status {
+				continue
+			}
+			qualification, ok := s.adminMerchantQualificationCaseLocked(merchantID, item, req.Now)
+			if !ok {
+				continue
+			}
+			qualifications = append(qualifications, qualification)
+		}
+	}
+	sortAdminMerchantQualificationCases(qualifications)
+	if len(qualifications) > req.Limit {
+		qualifications = qualifications[:req.Limit]
+	}
+	return &AdminMerchantQualificationList{
+		GeneratedAt:    req.Now,
+		Status:         req.Status,
+		MerchantID:     req.MerchantID,
+		Type:           req.Type,
+		Counts:         counts,
+		Qualifications: qualifications,
+	}, nil
+}
+
+func (s *Store) AdminMerchantQualificationDetail(req AdminMerchantQualificationDetailRequest) (*AdminMerchantQualificationDetail, error) {
+	req, err := normalizeAdminMerchantQualificationDetailRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	qualification, ok := s.adminMerchantQualificationCaseByIDLocked(req.QualificationID, req.Now)
+	s.mu.Unlock()
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	audits, err := s.AuditLogs(AuditLogsRequest{
+		Action:     "admin.merchant_qualification.reviewed",
+		TargetType: "merchant_qualification",
+		TargetID:   qualification.Qualification.ID,
+		Limit:      req.AuditLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &AdminMerchantQualificationDetail{
+		GeneratedAt:                req.Now,
+		Qualification:              qualification.Qualification,
+		Merchant:                   qualification.Merchant,
+		Shops:                      qualification.Shops,
+		Deposit:                    qualification.Deposit,
+		MissingQualifications:      qualification.MissingQualifications,
+		CanAcceptOrders:            qualification.CanAcceptOrders,
+		QualificationPopupRequired: qualification.QualificationPopupRequired,
+		QualificationPopupCode:     qualification.QualificationPopupCode,
+		IncidentCode:               qualification.IncidentCode,
+		IncidentSeverity:           qualification.IncidentSeverity,
+		ExpiresInSeconds:           qualification.ExpiresInSeconds,
+		ReviewSLAHours:             qualification.ReviewSLAHours,
+		AuditFilters: []AdminAuditFilter{{
+			TargetType: "merchant_qualification",
+			TargetID:   qualification.Qualification.ID,
+			Action:     "admin.merchant_qualification.reviewed",
+			Limit:      req.AuditLimit,
+		}},
+		RecentAudits:         audits,
+		RecommendedOperation: qualification.RecommendedOperation,
+		Checklist:            adminMerchantQualificationChecklist(qualification),
+	}, nil
+}
+
+func (s *Store) ReviewMerchantQualification(req ReviewMerchantQualificationRequest) (*MerchantProfile, *MerchantQualification, error) {
+	normalized, status, err := normalizeReviewMerchantQualificationRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	profile, qualification, err := s.reviewMerchantQualificationLocked(normalized, status)
+	if err != nil {
+		return nil, nil, err
+	}
+	return profile, qualification, nil
+}
+
+func (s *Store) ReviewMerchantQualificationWithAudit(req ReviewMerchantQualificationRequest, audit RecordAuditLogRequest) (*MerchantProfile, *MerchantQualification, *AuditLog, *OutboxEvent, error) {
+	normalized, status, err := normalizeReviewMerchantQualificationRequest(req)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	if log.Action != "admin.merchant_qualification.reviewed" || log.TargetType != "merchant_qualification" || log.TargetID != normalized.QualificationID {
+		return nil, nil, nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	profile, qualification, err := s.reviewMerchantQualificationLocked(normalized, status)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	log.Payload = merchantQualificationReviewAuditPayload(normalized, qualification)
+	auditLog := s.appendAuditLogLocked(log)
+	outboxEvent := s.enqueueMerchantQualificationReviewOutboxLocked(normalized, qualification)
+	return profile, qualification, auditLog, cloneOutboxEvent(outboxEvent), nil
+}
+
+func normalizeReviewMerchantQualificationRequest(req ReviewMerchantQualificationRequest) (ReviewMerchantQualificationRequest, string, error) {
+	req.MerchantID = strings.TrimSpace(req.MerchantID)
+	req.QualificationID = strings.TrimSpace(req.QualificationID)
+	req.Decision = strings.TrimSpace(req.Decision)
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.ReviewedAt.IsZero() {
+		req.ReviewedAt = time.Now().UTC()
+	} else {
+		req.ReviewedAt = req.ReviewedAt.UTC()
+	}
+	status := ""
+	switch req.Decision {
+	case "approve", QualificationStatusApproved:
+		req.Decision = "approve"
+		status = QualificationStatusApproved
+	case "reject", QualificationStatusRejected:
+		req.Decision = "reject"
+		status = QualificationStatusRejected
+	default:
+		return req, "", ErrInvalidArgument
+	}
+	if req.MerchantID == "" || req.QualificationID == "" || req.Reason == "" {
+		return req, "", ErrInvalidArgument
+	}
+	return req, status, nil
+}
+
+func (s *Store) reviewMerchantQualificationLocked(req ReviewMerchantQualificationRequest, status string) (*MerchantProfile, *MerchantQualification, error) {
+	if s.merchants[req.MerchantID] == nil {
+		return nil, nil, ErrNotFound
+	}
+	entries := s.merchantQualifications[req.MerchantID]
+	for _, qualification := range entries {
+		if qualification == nil || qualification.ID != req.QualificationID {
+			continue
+		}
+		if status == QualificationStatusApproved && !qualification.ExpiresAt.After(req.ReviewedAt) {
+			return nil, nil, ErrInvalidArgument
+		}
+		qualification.Status = status
+		profile := s.merchantProfileLocked(req.MerchantID)
+		return profile, cloneMerchantQualification(qualification), nil
+	}
+	return nil, nil, ErrNotFound
+}
+
+func merchantQualificationReviewAuditPayload(req ReviewMerchantQualificationRequest, qualification *MerchantQualification) map[string]any {
+	if qualification == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"merchant_id":      req.MerchantID,
+		"qualification_id": qualification.ID,
+		"type":             qualification.Type,
+		"decision":         req.Decision,
+		"status":           qualification.Status,
+		"reason":           req.Reason,
+		"expires_at":       qualification.ExpiresAt.Format(time.RFC3339Nano),
+		"reviewed_at":      req.ReviewedAt.Format(time.RFC3339Nano),
+	}
+}
+
+func merchantQualificationReviewOutboxEvent(req ReviewMerchantQualificationRequest, qualification *MerchantQualification) *OutboxEvent {
+	idempotencyKey := merchantQualificationReviewOutboxIdempotencyKey(req, qualification)
+	if qualification == nil || idempotencyKey == "" {
+		return nil
+	}
+	now := req.ReviewedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	return &OutboxEvent{
+		ID:             "obe_mq_review_" + shortHash(idempotencyKey),
+		Topic:          "merchant.qualification_reviewed",
+		AggregateType:  "merchant_qualification",
+		AggregateID:    qualification.ID,
+		EventType:      "merchant.qualification.reviewed",
+		IdempotencyKey: idempotencyKey,
+		Payload:        merchantQualificationReviewOutboxPayload(req, qualification),
+		Status:         OutboxStatusPending,
+		AvailableAt:    now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+}
+
+func merchantQualificationReviewOutboxIdempotencyKey(req ReviewMerchantQualificationRequest, qualification *MerchantQualification) string {
+	if qualification == nil {
+		return ""
+	}
+	qualificationID := strings.TrimSpace(qualification.ID)
+	decision := strings.TrimSpace(req.Decision)
+	if qualificationID == "" || decision == "" || req.ReviewedAt.IsZero() {
+		return ""
+	}
+	return fmt.Sprintf("merchant_qualification_review:%s:%s:%s", qualificationID, decision, req.ReviewedAt.UTC().Format(time.RFC3339Nano))
+}
+
+func (s *Store) enqueueMerchantQualificationReviewOutboxLocked(req ReviewMerchantQualificationRequest, qualification *MerchantQualification) *OutboxEvent {
+	if qualification == nil {
+		return nil
+	}
+	return s.enqueueOutboxEventLocked(
+		"merchant.qualification_reviewed",
+		"merchant_qualification",
+		qualification.ID,
+		"merchant.qualification.reviewed",
+		merchantQualificationReviewOutboxIdempotencyKey(req, qualification),
+		merchantQualificationReviewOutboxPayload(req, qualification),
+		req.ReviewedAt,
+	)
+}
+
+func (s *Store) enqueueMerchantQualificationReviewOutbox(req ReviewMerchantQualificationRequest, qualification *MerchantQualification) *OutboxEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return cloneOutboxEvent(s.enqueueMerchantQualificationReviewOutboxLocked(req, qualification))
+}
+
+func merchantQualificationReviewOutboxPayload(req ReviewMerchantQualificationRequest, qualification *MerchantQualification) map[string]any {
+	if qualification == nil {
+		return map[string]any{}
+	}
+	title := "商户资质审核结果"
+	body := "资质审核未通过，请补充有效文件后重新提交。"
+	if qualification.Status == QualificationStatusApproved {
+		body = "资质审核已通过，系统已更新商户接单资格。"
+	}
+	return map[string]any{
+		"type":               "merchant.qualification_reviewed",
+		"merchant_id":        req.MerchantID,
+		"qualification_id":   qualification.ID,
+		"qualification_type": qualification.Type,
+		"decision":           req.Decision,
+		"status":             qualification.Status,
+		"reason":             req.Reason,
+		"expires_at":         qualification.ExpiresAt.Format(time.RFC3339Nano),
+		"reviewed_at":        req.ReviewedAt.Format(time.RFC3339Nano),
+		"target": map[string]any{
+			"role": "merchant",
+			"id":   req.MerchantID,
+		},
+		"title": title,
+		"body":  body,
+	}
+}
+
+func normalizeAdminMerchantQualificationListRequest(req AdminMerchantQualificationListRequest) (AdminMerchantQualificationListRequest, error) {
+	req.Status = strings.TrimSpace(req.Status)
+	if req.Status == "" {
+		req.Status = QualificationStatusPendingReview
+	}
+	switch req.Status {
+	case "all", QualificationStatusPendingReview, QualificationStatusApproved, QualificationStatusRejected, "expired":
+	default:
+		return req, ErrInvalidArgument
+	}
+	req.MerchantID = strings.TrimSpace(req.MerchantID)
+	req.Type = strings.TrimSpace(req.Type)
+	if req.Type != "" && !isMerchantQualificationType(req.Type) {
+		return req, ErrInvalidArgument
+	}
+	req.Now = req.Now.UTC()
+	if req.Now.IsZero() {
+		req.Now = time.Now().UTC()
+	}
+	req.Limit = normalizeAdminOperationsSnapshotLimit(req.Limit)
+	return req, nil
+}
+
+func normalizeAdminMerchantQualificationDetailRequest(req AdminMerchantQualificationDetailRequest) (AdminMerchantQualificationDetailRequest, error) {
+	req.QualificationID = strings.TrimSpace(req.QualificationID)
+	if req.QualificationID == "" {
+		return req, ErrInvalidArgument
+	}
+	req.Now = req.Now.UTC()
+	if req.Now.IsZero() {
+		req.Now = time.Now().UTC()
+	}
+	if req.AuditLimit <= 0 {
+		req.AuditLimit = 20
+	}
+	if req.AuditLimit > 50 {
+		req.AuditLimit = 50
+	}
+	return req, nil
+}
+
+func adminMerchantQualificationStatus(qualification *MerchantQualification, now time.Time) string {
+	if qualification == nil {
+		return ""
+	}
+	if !qualification.ExpiresAt.IsZero() && !qualification.ExpiresAt.After(now.UTC()) {
+		return "expired"
+	}
+	return strings.TrimSpace(qualification.Status)
+}
+
+func countAdminMerchantQualificationStatus(counts *AdminMerchantQualificationCounts, status string) {
+	if counts == nil {
+		return
+	}
+	counts.Total++
+	switch status {
+	case QualificationStatusPendingReview:
+		counts.PendingReview++
+	case QualificationStatusApproved:
+		counts.Approved++
+	case QualificationStatusRejected:
+		counts.Rejected++
+	case "expired":
+		counts.Expired++
+	}
+}
+
+func (s *Store) adminMerchantQualificationCaseByIDLocked(qualificationID string, now time.Time) (AdminMerchantQualificationCase, bool) {
+	for merchantID, entries := range s.merchantQualifications {
+		for _, item := range entries {
+			if item == nil || item.ID != qualificationID {
+				continue
+			}
+			return s.adminMerchantQualificationCaseLocked(merchantID, item, now)
+		}
+	}
+	return AdminMerchantQualificationCase{}, false
+}
+
+func (s *Store) adminMerchantQualificationCaseLocked(merchantID string, qualification *MerchantQualification, now time.Time) (AdminMerchantQualificationCase, bool) {
+	profile := s.merchantProfileLocked(merchantID)
+	if profile == nil || qualification == nil {
+		return AdminMerchantQualificationCase{}, false
+	}
+	cloned := cloneMerchantQualification(qualification)
+	status := adminMerchantQualificationStatus(cloned, now)
+	incidentCode, incidentSeverity := adminMerchantQualificationIncident(status)
+	return AdminMerchantQualificationCase{
+		Qualification:              *cloned,
+		Merchant:                   profile.Account,
+		Shops:                      s.adminMerchantShopsLocked(merchantID),
+		Deposit:                    cloneDepositAccount(s.deposits[depositKey("merchant", merchantID)]),
+		MissingQualifications:      append([]string{}, profile.MissingQualifications...),
+		CanAcceptOrders:            profile.CanAcceptOrders,
+		QualificationPopupRequired: profile.QualificationPopupRequired,
+		QualificationPopupCode:     profile.QualificationPopupCode,
+		IncidentCode:               incidentCode,
+		IncidentSeverity:           incidentSeverity,
+		ExpiresInSeconds:           adminMerchantQualificationExpiresInSeconds(cloned, now),
+		ReviewSLAHours:             24,
+		RecommendedOperation:       adminMerchantQualificationRecommendedOperation(merchantID, cloned, status),
+	}, true
+}
+
+func (s *Store) adminMerchantShopsLocked(merchantID string) []Shop {
+	shops := make([]Shop, 0)
+	for _, shop := range s.shops {
+		if shop == nil || shop.MerchantID != merchantID {
+			continue
+		}
+		cloned := cloneShop(shop)
+		if !s.shopCanAcceptOrdersLocked(cloned.ID) {
+			cloned.Status = ShopStatusQualificationExpired
+		}
+		shops = append(shops, *cloned)
+	}
+	sort.SliceStable(shops, func(i, j int) bool {
+		return shops[i].ID < shops[j].ID
+	})
+	return shops
+}
+
+func adminMerchantQualificationIncident(status string) (string, string) {
+	switch status {
+	case "expired":
+		return "merchant_qualification.expired", "critical"
+	case QualificationStatusPendingReview:
+		return "merchant_qualification.pending_review", "warning"
+	case QualificationStatusRejected:
+		return "merchant_qualification.rejected", "critical"
+	case QualificationStatusApproved:
+		return "merchant_qualification.approved", "info"
+	default:
+		return "merchant_qualification.unknown", "warning"
+	}
+}
+
+func adminMerchantQualificationExpiresInSeconds(qualification *MerchantQualification, now time.Time) int64 {
+	if qualification == nil || qualification.ExpiresAt.IsZero() {
+		return 0
+	}
+	return int64(qualification.ExpiresAt.Sub(now.UTC()).Seconds())
+}
+
+func adminMerchantQualificationRecommendedOperation(merchantID string, qualification *MerchantQualification, status string) AdminRecommendedOperation {
+	if qualification == nil {
+		return AdminRecommendedOperation{}
+	}
+	switch status {
+	case QualificationStatusPendingReview:
+		return AdminRecommendedOperation{
+			Key:    "merchant-qualification-review",
+			Title:  "审核商户资质",
+			Reason: "资质待复核，审核结果会直接影响商户接单资格。",
+			Values: map[string]any{
+				"merchant_id":      merchantID,
+				"qualification_id": qualification.ID,
+				"decision":         "approve",
+				"reason":           "资质原件核验通过",
+			},
+		}
+	case "expired":
+		return AdminRecommendedOperation{
+			Key:    "merchant-qualification-review",
+			Title:  "驳回过期资质",
+			Reason: "资质文件已过有效期，应驳回并要求商户补传有效文件。",
+			Values: map[string]any{
+				"merchant_id":      merchantID,
+				"qualification_id": qualification.ID,
+				"decision":         "reject",
+				"reason":           "资质已过期，需补传有效文件",
+			},
+		}
+	default:
+		return AdminRecommendedOperation{
+			Key:    "audit-logs",
+			Title:  "查看审核审计",
+			Reason: "当前资质不处于待审状态，下一步应核对历史审核记录。",
+			Values: map[string]any{
+				"target_type": "merchant_qualification",
+				"target_id":   qualification.ID,
+				"action":      "admin.merchant_qualification.reviewed",
+				"limit":       50,
+			},
+		}
+	}
+}
+
+func adminMerchantQualificationChecklist(qualification AdminMerchantQualificationCase) []string {
+	checklist := []string{
+		"核验文件主体、证照编号和商户账号主体一致",
+		"确认有效期覆盖当前接单周期且原件清晰可追溯",
+		"处理后回查商户接单资格、店铺状态和审核审计",
+	}
+	switch qualification.IncidentCode {
+	case "merchant_qualification.pending_review":
+		return append([]string{"待审资质应在 24 小时内完成复核"}, checklist...)
+	case "merchant_qualification.expired":
+		return append([]string{"过期资质不得通过，应要求商户重新上传"}, checklist...)
+	case "merchant_qualification.rejected":
+		return append([]string{"已驳回资质需等待商户补件后再复核"}, checklist...)
+	default:
+		return checklist
+	}
+}
+
+func sortAdminMerchantQualificationCases(qualifications []AdminMerchantQualificationCase) {
+	sort.SliceStable(qualifications, func(i, j int) bool {
+		leftRank := adminMerchantQualificationSortRank(qualifications[i].IncidentCode)
+		rightRank := adminMerchantQualificationSortRank(qualifications[j].IncidentCode)
+		if leftRank != rightRank {
+			return leftRank > rightRank
+		}
+		if !qualifications[i].Qualification.ExpiresAt.Equal(qualifications[j].Qualification.ExpiresAt) {
+			return qualifications[i].Qualification.ExpiresAt.Before(qualifications[j].Qualification.ExpiresAt)
+		}
+		if qualifications[i].Merchant.ID != qualifications[j].Merchant.ID {
+			return qualifications[i].Merchant.ID < qualifications[j].Merchant.ID
+		}
+		if qualifications[i].Qualification.Type != qualifications[j].Qualification.Type {
+			return qualifications[i].Qualification.Type < qualifications[j].Qualification.Type
+		}
+		return qualifications[i].Qualification.ID < qualifications[j].Qualification.ID
+	})
+}
+
+func adminMerchantQualificationSortRank(incidentCode string) int {
+	switch incidentCode {
+	case "merchant_qualification.expired":
+		return 40
+	case "merchant_qualification.pending_review":
+		return 30
+	case "merchant_qualification.rejected":
+		return 20
+	case "merchant_qualification.approved":
+		return 10
+	default:
+		return 0
+	}
 }
 
 func (s *Store) MerchantProfile(merchantID string) (*MerchantProfile, error) {
@@ -747,6 +1646,80 @@ func (s *Store) Shops() []Shop {
 	return shops
 }
 
+func (s *Store) ShopDetail(shopID string) (*ShopDetail, error) {
+	shopID = strings.TrimSpace(shopID)
+	if shopID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	shop := s.shops[shopID]
+	if shop == nil {
+		return nil, ErrNotFound
+	}
+	seed := shopDetailSeed(shopID)
+	profile := s.merchantProfileLocked(shop.MerchantID)
+	reviews := s.shopReviewEntriesLocked(shopID)
+	summary := buildShopReviewSummary(reviews)
+	qualificationText := seed.QualificationText
+	merchantName := shop.Name
+	contactPhone := ""
+	qualificationItems := append([]string{}, seed.QualificationItems...)
+	if profile != nil {
+		merchantName = defaultString(profile.Account.DisplayName, merchantName)
+		if qualificationText == "" {
+			if profile.CanAcceptOrders {
+				qualificationText = "资质齐全"
+			} else {
+				qualificationText = "资质审核中"
+			}
+		}
+		if len(qualificationItems) == 0 {
+			qualificationItems = merchantQualificationItemsForShop(profile)
+		}
+		if staff := s.merchantStaffLocked(shop.MerchantID); len(staff) > 0 {
+			contactPhone = staff[0].Phone
+		}
+	}
+	if qualificationText == "" {
+		qualificationText = "资质已审核"
+	}
+	if contactPhone == "" {
+		contactPhone = seed.ContactPhone
+	}
+	cloned := cloneShop(shop)
+	if !s.shopCanAcceptOrdersLocked(cloned.ID) {
+		cloned.Status = ShopStatusQualificationExpired
+	}
+	return &ShopDetail{
+		ShopID:            cloned.ID,
+		MerchantID:        cloned.MerchantID,
+		Name:              cloned.Name,
+		Category:          cloned.Category,
+		CoverURL:          cloned.CoverURL,
+		LogoURL:           cloned.LogoURL,
+		Announcement:      defaultString(cloned.Announcement, seed.Announcement),
+		RatingText:        defaultString(seed.RatingText, summary.AverageRating),
+		SalesText:         seed.SalesText,
+		DeliveryText:      seed.DeliveryText,
+		QualificationText: qualificationText,
+		ActivityTags:      append([]string{}, seed.ActivityTags...),
+		ReviewSummary:     summary,
+		Reviews:           reviews,
+		MerchantInfo: ShopMerchantInfo{
+			MerchantName:       merchantName,
+			QualificationText:  qualificationText,
+			BusinessHours:      seed.BusinessHours,
+			ContactPhone:       contactPhone,
+			Address:            seed.Address,
+			ServiceCommitments: append([]string{}, seed.ServiceCommitments...),
+			QualificationItems: qualificationItems,
+			SupportBulletins:   append([]string{}, seed.SupportBulletins...),
+		},
+	}, nil
+}
+
 func (s *Store) ShopProducts(shopID string) ([]MerchantProduct, error) {
 	shopID = strings.TrimSpace(shopID)
 	if shopID == "" {
@@ -924,6 +1897,7 @@ func (s *Store) CreateGroupbuyOrder(req CreateGroupbuyOrderRequest) (*Order, err
 		Items: []OrderItem{{
 			ProductID:    deal.ID,
 			ProductName:  deal.Name,
+			ImageURL:     deal.ImageURL,
 			UnitPriceFen: deal.PriceFen,
 			Quantity:     quantity,
 		}},
@@ -1097,6 +2071,7 @@ func (s *Store) UpsertCartItem(req UpsertCartItemRequest) (*CartSummary, error) 
 			ShopID:       shopID,
 			ProductID:    product.ID,
 			ProductName:  product.Name,
+			ImageURL:     product.ImageURL,
 			UnitPriceFen: product.PriceFen,
 			Quantity:     req.Quantity,
 			Selected:     selected,
@@ -1160,7 +2135,9 @@ func (s *Store) UserOrders(userID string) ([]Order, error) {
 	orders := make([]Order, 0)
 	for _, order := range s.orders {
 		if order.UserID == userID {
-			orders = append(orders, *cloneOrder(order))
+			orderCopy := cloneOrder(order)
+			orderCopy.Reviewed = s.userReviewedOrderLocked(userID, order.ID)
+			orders = append(orders, *orderCopy)
 		}
 	}
 	sort.SliceStable(orders, func(i, j int) bool {
@@ -1181,7 +2158,245 @@ func (s *Store) OrderByID(orderID string) (*Order, error) {
 	if order == nil {
 		return nil, ErrNotFound
 	}
-	return cloneOrder(order), nil
+	orderCopy := cloneOrder(order)
+	orderCopy.Reviewed = s.userReviewedOrderLocked(order.UserID, order.ID)
+	return orderCopy, nil
+}
+
+func (s *Store) CreateReview(review Review) (*Review, error) {
+	review.UserID = strings.TrimSpace(review.UserID)
+	review.OrderID = strings.TrimSpace(review.OrderID)
+	review.TargetType = strings.TrimSpace(review.TargetType)
+	review.TargetID = strings.TrimSpace(review.TargetID)
+	review.Content = strings.TrimSpace(review.Content)
+	if review.TargetType == "" {
+		review.TargetType = ReviewTargetOrder
+	}
+	if review.TargetType == ReviewTargetOrder && review.TargetID == "" {
+		review.TargetID = review.OrderID
+	}
+	if review.Status == "" {
+		review.Status = ReviewPublished
+	}
+	if review.Rating < 1 {
+		review.Rating = 1
+	}
+	if review.Rating > 5 {
+		review.Rating = 5
+	}
+	if review.RiderRating < 1 || review.RiderRating > 5 {
+		review.RiderRating = 0
+	}
+	if review.UserID == "" || review.TargetID == "" || review.Content == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	review.ImageURLs = sanitizedStringSlice(review.ImageURLs)
+	review.Tags = sanitizedStringSlice(review.Tags)
+	review.ItemRatings = sanitizeReviewItemRatings(review.ItemRatings, s.orders[review.OrderID])
+	if review.OrderID != "" {
+		for _, existing := range s.reviews {
+			if existing == nil || existing.UserID != review.UserID || existing.OrderID != review.OrderID {
+				continue
+			}
+			existing.TargetType = review.TargetType
+			existing.TargetID = review.TargetID
+			existing.Rating = review.Rating
+			existing.RiderRating = review.RiderRating
+			existing.Content = review.Content
+			existing.ImageURLs = append([]string{}, review.ImageURLs...)
+			existing.ItemRatings = cloneReviewItemRatings(review.ItemRatings)
+			existing.Anonymous = review.Anonymous
+			existing.Status = review.Status
+			existing.Tags = append([]string{}, review.Tags...)
+			existing.CreatedAt = now
+			return cloneReview(existing), nil
+		}
+	}
+	s.nextReviewID++
+	review.ID = fmt.Sprintf("rev_%d", s.nextReviewID)
+	review.CreatedAt = now
+	s.reviews[review.ID] = cloneReview(&review)
+	return cloneReview(&review), nil
+}
+
+func (s *Store) CreateReviewImageUpload(req CreateReviewImageUploadRequest) (*ObjectUploadTicket, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.OrderID = strings.TrimSpace(req.OrderID)
+	req.FileName = sanitizeObjectFileName(req.FileName)
+	req.ContentType = normalizeEvidenceContentType(req.ContentType)
+	if req.UserID == "" || req.OrderID == "" || req.FileName == "" || req.ContentType == "" || req.SizeBytes <= 0 || req.SizeBytes > AfterSalesEvidenceMaxBytes {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	order := s.orders[req.OrderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	if order.UserID != req.UserID {
+		return nil, ErrInvalidArgument
+	}
+	now := time.Now().UTC()
+	storage := s.objectStorageConfigLocked()
+	scanStatus := AfterSalesUploadScanNotRequired
+	if storage.RequireScanApprovalForConfirm {
+		scanStatus = AfterSalesUploadScanPending
+	}
+	expiresAt := now.Add(storage.TicketTTL)
+	objectKey := fmt.Sprintf("reviews/%s/%s/%s/%s", shortHash(req.UserID), shortHash(req.OrderID), shortHash(fmt.Sprintf("%s:%s:%d", req.UserID, req.FileName, now.UnixNano())), req.FileName)
+	ticket, err := storage.createObjectUploadTicket(objectUploadTicketInput{
+		ObjectKey:    objectKey,
+		ContentType:  req.ContentType,
+		SizeBytes:    req.SizeBytes,
+		MaxSizeBytes: AfterSalesEvidenceMaxBytes,
+		ExpiresAt:    expiresAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ticketID := "rvu_" + shortHash(ticket.ObjectKey)
+	ticket.TicketID = ticketID
+	if s.reviewImageTickets == nil {
+		s.reviewImageTickets = map[string]*ReviewImageUploadTicket{}
+	}
+	s.reviewImageTickets[ticketID] = &ReviewImageUploadTicket{
+		ID:           ticketID,
+		UserID:       req.UserID,
+		OrderID:      req.OrderID,
+		Provider:     ticket.Provider,
+		Bucket:       ticket.Bucket,
+		ObjectKey:    ticket.ObjectKey,
+		PublicURL:    ticket.PublicURL,
+		FileName:     req.FileName,
+		ContentType:  req.ContentType,
+		SizeBytes:    req.SizeBytes,
+		MaxSizeBytes: ticket.MaxSizeBytes,
+		Status:       AfterSalesUploadTicketIssued,
+		ScanStatus:   scanStatus,
+		CreatedAt:    now,
+		ExpiresAt:    ticket.ExpiresAt,
+	}
+	return ticket, nil
+}
+
+func (s *Store) ConfirmReviewImageUpload(req ConfirmReviewImageUploadRequest) (*ReviewImageUploadTicket, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ObjectKey = strings.TrimSpace(req.ObjectKey)
+	req.FileName = sanitizeObjectFileName(req.FileName)
+	req.ContentType = normalizeEvidenceContentType(req.ContentType)
+	req.ContentSHA = strings.TrimSpace(req.ContentSHA)
+	if req.UserID == "" || req.TicketID == "" || req.ObjectKey == "" || req.ContentType == "" || req.SizeBytes <= 0 || req.SizeBytes > AfterSalesEvidenceMaxBytes {
+		return nil, ErrInvalidArgument
+	}
+	if !validReviewImageObjectKey(req.ObjectKey) {
+		return nil, ErrInvalidArgument
+	}
+	if req.FileName == "" {
+		req.FileName = sanitizeObjectFileName(objectKeyFileName(req.ObjectKey))
+	}
+	if req.FileName == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	ticket, storage, err := s.prepareReviewImageConfirmation(req)
+	if err != nil {
+		return nil, err
+	}
+	if ticket.Status == AfterSalesUploadTicketConfirmed {
+		return ticket, nil
+	}
+	if err := storage.verifyUploadedObject(objectHeadCheckInput{
+		ObjectKey:   ticket.ObjectKey,
+		ContentType: ticket.ContentType,
+		SizeBytes:   ticket.SizeBytes,
+	}); err != nil {
+		return nil, err
+	}
+	return s.commitReviewImageConfirmation(req)
+}
+
+func (s *Store) UserReviews(req ReviewListRequest) ([]Review, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.OrderID = strings.TrimSpace(req.OrderID)
+	if req.UserID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	reviews := make([]Review, 0)
+	for _, review := range s.reviews {
+		if review.UserID != req.UserID {
+			continue
+		}
+		if req.OrderID != "" && review.OrderID != req.OrderID {
+			continue
+		}
+		reviews = append(reviews, *cloneReview(review))
+	}
+	sort.SliceStable(reviews, func(i, j int) bool {
+		return reviews[i].CreatedAt.After(reviews[j].CreatedAt)
+	})
+	return reviews, nil
+}
+
+func sanitizeReviewItemRatings(input []ReviewItemRating, order *Order) []ReviewItemRating {
+	if len(input) == 0 {
+		return nil
+	}
+	orderItems := map[string]OrderItem{}
+	if order != nil {
+		for _, item := range order.Items {
+			if strings.TrimSpace(item.ProductID) == "" {
+				continue
+			}
+			orderItems[strings.TrimSpace(item.ProductID)] = item
+		}
+	}
+	output := make([]ReviewItemRating, 0, len(input))
+	seen := map[string]bool{}
+	for _, item := range input {
+		productID := strings.TrimSpace(item.ProductID)
+		productName := strings.TrimSpace(item.ProductName)
+		if orderItem, ok := orderItems[productID]; ok {
+			if productName == "" {
+				productName = strings.TrimSpace(orderItem.ProductName)
+			}
+		}
+		if productID == "" && productName == "" {
+			continue
+		}
+		key := productID
+		if key == "" {
+			key = productName
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		rating := item.Rating
+		if rating < 1 {
+			rating = 1
+		}
+		if rating > 5 {
+			rating = 5
+		}
+		output = append(output, ReviewItemRating{
+			ProductID:   productID,
+			ProductName: productName,
+			Rating:      rating,
+			Tags:        sanitizedStringSlice(item.Tags),
+		})
+		if len(output) >= 20 {
+			break
+		}
+	}
+	return output
 }
 
 func (s *Store) CompensateOrderState(req CompensateOrderStateRequest) (*CompensateOrderStateResult, error) {
@@ -1422,7 +2637,8 @@ func (s *Store) CheckoutCart(req CheckoutCartRequest) (*Order, *CartSummary, err
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.shops[shopID] == nil {
+	shop := s.shops[shopID]
+	if shop == nil {
 		return nil, nil, ErrNotFound
 	}
 	if !s.shopCanAcceptOrdersLocked(shopID) {
@@ -1444,6 +2660,7 @@ func (s *Store) CheckoutCart(req CheckoutCartRequest) (*Order, *CartSummary, err
 		orderItems = append(orderItems, OrderItem{
 			ProductID:    item.ProductID,
 			ProductName:  item.ProductName,
+			ImageURL:     item.ImageURL,
 			UnitPriceFen: item.UnitPriceFen,
 			Quantity:     item.Quantity,
 		})
@@ -1452,7 +2669,9 @@ func (s *Store) CheckoutCart(req CheckoutCartRequest) (*Order, *CartSummary, err
 		ID:              fmt.Sprintf("ord_%d", s.nextOrderID),
 		UserID:          userID,
 		ShopID:          shopID,
+		ShopName:        shop.Name,
 		AddressID:       addressID,
+		AddressSnapshot: orderAddressSnapshot(*address),
 		Type:            OrderTypeTakeout,
 		Status:          StatusPendingPayment,
 		AmountFen:       summary.PayableFen,
@@ -1497,6 +2716,2504 @@ func (s *Store) CreditWallet(req CreditWalletRequest) (*WalletTransaction, *Wall
 	transaction := s.createWalletTransactionLocked(userID, "", "credit", req.AmountFen, "external_recharge", idempotencyKey)
 	s.walletIdempotency[idempotencyKey] = transaction
 	return cloneWalletTransaction(transaction), cloneWalletAccount(account), nil
+}
+
+func (s *Store) WalletTransactions(userID string) ([]WalletTransaction, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	transactions := make([]WalletTransaction, 0)
+	for _, transaction := range s.walletIdempotency {
+		if transaction.UserID == userID {
+			transactions = append(transactions, *cloneWalletTransaction(transaction))
+		}
+	}
+	sort.SliceStable(transactions, func(i, j int) bool {
+		return transactions[i].CreatedAt.After(transactions[j].CreatedAt)
+	})
+	return transactions, nil
+}
+
+func (s *Store) CreateFeedback(ticket FeedbackTicket) (*FeedbackTicket, error) {
+	ticket.UserID = strings.TrimSpace(ticket.UserID)
+	ticket.Type = strings.TrimSpace(ticket.Type)
+	ticket.Content = strings.TrimSpace(ticket.Content)
+	ticket.Contact = strings.TrimSpace(ticket.Contact)
+	if ticket.Type == "" {
+		ticket.Type = "feedback"
+	}
+	if ticket.UserID == "" || ticket.Content == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	s.nextFeedbackID++
+	ticket.ID = fmt.Sprintf("fb_%d", s.nextFeedbackID)
+	ticket.Status = "pending"
+	ticket.CreatedAt = now
+	ticket.UpdatedAt = now
+	s.feedbackTickets[ticket.ID] = cloneFeedbackTicket(&ticket)
+	return cloneFeedbackTicket(&ticket), nil
+}
+
+func (s *Store) UserFeedbackTickets(userID string) ([]FeedbackTicket, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tickets := make([]FeedbackTicket, 0)
+	for _, ticket := range s.feedbackTickets {
+		if ticket.UserID == userID {
+			tickets = append(tickets, *cloneFeedbackTicket(ticket))
+		}
+	}
+	sort.SliceStable(tickets, func(i, j int) bool {
+		return tickets[i].CreatedAt.After(tickets[j].CreatedAt)
+	})
+	return tickets, nil
+}
+
+func (s *Store) CreateServiceTicket(req CreateServiceTicketRequest) (*ServiceTicketDetail, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Type = strings.TrimSpace(req.Type)
+	req.Category = strings.TrimSpace(req.Category)
+	req.Title = strings.TrimSpace(req.Title)
+	req.Content = strings.TrimSpace(req.Content)
+	req.Contact = strings.TrimSpace(req.Contact)
+	req.RelatedOrderID = strings.TrimSpace(req.RelatedOrderID)
+	req.RelatedOrderTitle = strings.TrimSpace(req.RelatedOrderTitle)
+	req.RelatedOrderStatus = strings.TrimSpace(req.RelatedOrderStatus)
+	req.Severity = strings.TrimSpace(req.Severity)
+	req.Attachments = sanitizedStringSlice(req.Attachments)
+	if req.Type == "" {
+		req.Type = "delivery"
+	}
+	if req.Category == "" {
+		req.Category = "配送问题"
+	}
+	if req.Title == "" {
+		req.Title = req.Category + " · 预计送达未更新"
+	}
+	if req.Content == "" {
+		req.Content = "骑手到店很久了，预计送达时间一直没变化。"
+	}
+	if req.RelatedOrderID == "" {
+		req.RelatedOrderID = "DD240518001"
+	}
+	if req.RelatedOrderTitle == "" {
+		req.RelatedOrderTitle = "蓝海餐厅 · 招牌牛肉饭等 3 件"
+	}
+	if req.RelatedOrderStatus == "" {
+		req.RelatedOrderStatus = "配送中"
+	}
+	if req.Severity == "" {
+		req.Severity = "较严重"
+	}
+	if req.UserID == "" {
+		return nil, ErrInvalidArgument
+	}
+	now := time.Now().UTC()
+	risk := messageRiskCheck(req.Content, now)
+	if risk.State == MessageRiskBlocked {
+		return nil, fmt.Errorf("%w: %s", ErrRiskControlRejected, risk.Reason)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextServiceTicketID++
+	ticket := &ServiceTicket{
+		ID:                 fmt.Sprintf("st_%d", s.nextServiceTicketID),
+		UserID:             req.UserID,
+		Type:               req.Type,
+		Category:           req.Category,
+		Title:              req.Title,
+		Content:            req.Content,
+		Contact:            req.Contact,
+		RelatedOrderID:     req.RelatedOrderID,
+		RelatedOrderTitle:  req.RelatedOrderTitle,
+		RelatedOrderStatus: req.RelatedOrderStatus,
+		Severity:           req.Severity,
+		Status:             ServiceTicketStatusProcessing,
+		SLAStatus:          ServiceTicketSLAStatusNormal,
+		Solution:           "继续等待：预计 14:35 前送达；延误补偿：订单完成后发放 ¥5 延误券",
+		Attachments:        req.Attachments,
+		RiskState:          risk.State,
+		RiskReasonCode:     risk.ReasonCode,
+		RiskReason:         risk.Reason,
+		RiskCheckedAt:      risk.CheckedAt,
+		ReplyDueAt:         now.Add(serviceTicketReplySLA(req.Severity, req.Category)),
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	s.serviceTickets[ticket.ID] = cloneServiceTicket(ticket)
+	seedEvents := []ServiceTicketEvent{
+		{TicketID: ticket.ID, ActorID: "system", ActorRole: "system", Title: "已提交", Message: "问题已同步到客服工单", Status: ServiceTicketEventDone, CreatedAt: now},
+		{TicketID: ticket.ID, ActorID: "customer_service", ActorRole: "support", Title: "客服已受理", Message: "正在核实商家出餐情况", Status: ServiceTicketEventDone, CreatedAt: now.Add(time.Minute)},
+		{TicketID: ticket.ID, ActorID: "merchant_1", ActorRole: "merchant", Title: "商家反馈", Message: "补做菜品，预计 8 分钟后出餐", Status: ServiceTicketEventActive, CreatedAt: now.Add(5 * time.Minute)},
+		{TicketID: ticket.ID, ActorID: "system", ActorRole: "system", Title: "结果确认", Message: "送达后可确认处理结果", Status: ServiceTicketEventPending, CreatedAt: now.Add(6 * time.Minute)},
+	}
+	for index := range seedEvents {
+		s.nextServiceTicketEventID++
+		seedEvents[index].ID = fmt.Sprintf("ste_%d", s.nextServiceTicketEventID)
+		s.serviceTicketEvents[seedEvents[index].ID] = cloneServiceTicketEvent(&seedEvents[index])
+	}
+	return s.serviceTicketDetailLocked(ticket.ID)
+}
+
+func (s *Store) UserServiceTickets(userID string) ([]ServiceTicket, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	tickets := make([]ServiceTicket, 0)
+	for _, ticket := range s.serviceTickets {
+		if ticket != nil && ticket.UserID == userID {
+			s.syncServiceTicketSLAStatusLocked(ticket, now)
+			tickets = append(tickets, *cloneServiceTicket(ticket))
+		}
+	}
+	if len(tickets) == 0 && userID == "user_1" {
+		return defaultServiceTickets(userID), nil
+	}
+	sort.SliceStable(tickets, func(i, j int) bool {
+		return tickets[i].UpdatedAt.After(tickets[j].UpdatedAt)
+	})
+	return tickets, nil
+}
+
+func (s *Store) AdminServiceTicketDetail(ticketID string) (*ServiceTicketDetail, error) {
+	ticketID = strings.TrimSpace(ticketID)
+	if ticketID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.serviceTickets[ticketID]; ok {
+		return s.serviceTicketDetailLocked(ticketID)
+	}
+	for _, seeded := range defaultServiceTickets("user_1") {
+		if seeded.ID == ticketID {
+			return defaultServiceTicketDetail(seeded), nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (s *Store) ServiceTicketDetail(userID string, ticketID string) (*ServiceTicketDetail, error) {
+	userID = strings.TrimSpace(userID)
+	ticketID = strings.TrimSpace(ticketID)
+	if userID == "" || ticketID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.serviceTickets[ticketID]
+	if ticket == nil {
+		for _, seeded := range defaultServiceTickets(userID) {
+			if seeded.ID == ticketID {
+				return defaultServiceTicketDetail(seeded), nil
+			}
+		}
+		return nil, ErrNotFound
+	}
+	if ticket.UserID != userID {
+		return nil, ErrNotFound
+	}
+	return s.serviceTicketDetailLocked(ticketID)
+}
+
+func (s *Store) AddServiceTicketEvent(req AddServiceTicketEventRequest) (*ServiceTicketDetail, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.ActorRole = strings.TrimSpace(req.ActorRole)
+	req.Title = strings.TrimSpace(req.Title)
+	req.Message = strings.TrimSpace(req.Message)
+	req.Status = strings.TrimSpace(req.Status)
+	req.Attachments = sanitizedStringSlice(req.Attachments)
+	if req.ActorRole == "" {
+		req.ActorRole = "user"
+	}
+	if req.Title == "" {
+		req.Title = "补充说明"
+	}
+	if req.Status == "" {
+		req.Status = ServiceTicketEventActive
+	}
+	if req.TicketID == "" || req.ActorID == "" || req.Message == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.serviceTickets[req.TicketID]
+	if ticket == nil {
+		return nil, ErrNotFound
+	}
+	now := time.Now().UTC()
+	risk := messageRiskCheck(req.Message, now)
+	if risk.State == MessageRiskBlocked {
+		return nil, fmt.Errorf("%w: %s", ErrRiskControlRejected, risk.Reason)
+	}
+	event := s.appendServiceTicketEventLocked(req.TicketID, req.ActorID, req.ActorRole, req.Title, req.Message, req.Status, req.Attachments, now)
+	applyMessageRiskToServiceTicketEvent(event, risk)
+	if event != nil {
+		s.serviceTicketEvents[event.ID] = cloneServiceTicketEvent(event)
+	}
+	ticket.UpdatedAt = now
+	if ticket.Status == ServiceTicketStatusClosed {
+		ticket.Status = ServiceTicketStatusProcessing
+	}
+	if ticket.Status == ServiceTicketStatusProcessing && ticket.SLAStatus != ServiceTicketSLAStatusEscalated {
+		ticket.SLAStatus = ServiceTicketSLAStatusNormal
+		ticket.ReplyDueAt = now.Add(serviceTicketReplySLA(ticket.Severity, ticket.Category))
+	}
+	return s.serviceTicketDetailLocked(req.TicketID)
+}
+
+func (s *Store) AdminServiceTickets(req ServiceTicketListRequest) ([]ServiceTicket, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.RelatedOrderID = strings.TrimSpace(req.RelatedOrderID)
+	req.Status = strings.TrimSpace(req.Status)
+	req.SLAStatus = strings.TrimSpace(req.SLAStatus)
+	req.AssignedSupportID = strings.TrimSpace(req.AssignedSupportID)
+	if req.Limit <= 0 || req.Limit > 200 {
+		req.Limit = 50
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tickets := make([]ServiceTicket, 0)
+	for _, ticket := range s.serviceTickets {
+		if ticket == nil {
+			continue
+		}
+		s.syncServiceTicketSLAStatusLocked(ticket, now)
+		if req.UserID != "" && ticket.UserID != req.UserID {
+			continue
+		}
+		if req.RelatedOrderID != "" && ticket.RelatedOrderID != req.RelatedOrderID {
+			continue
+		}
+		if req.Status != "" && ticket.Status != req.Status {
+			continue
+		}
+		if req.SLAStatus != "" && ticket.SLAStatus != req.SLAStatus {
+			continue
+		}
+		if req.AssignedSupportID != "" && ticket.AssignedSupportID != req.AssignedSupportID {
+			continue
+		}
+		tickets = append(tickets, *cloneServiceTicket(ticket))
+	}
+	if len(tickets) == 0 && req.UserID == "" && req.RelatedOrderID == "" && req.Status == "" && req.SLAStatus == "" && req.AssignedSupportID == "" {
+		tickets = defaultServiceTickets("user_1")
+	}
+	sort.SliceStable(tickets, func(i, j int) bool {
+		return tickets[i].UpdatedAt.After(tickets[j].UpdatedAt)
+	})
+	if len(tickets) > req.Limit {
+		tickets = tickets[:req.Limit]
+	}
+	return tickets, nil
+}
+
+func (s *Store) AssignServiceTicket(req AssignServiceTicketRequest) (*ServiceTicketDetail, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.SupportID = strings.TrimSpace(req.SupportID)
+	req.SupportName = strings.TrimSpace(req.SupportName)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	if req.TicketID == "" || req.SupportID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if req.SupportName == "" {
+		req.SupportName = "客服专员"
+	}
+	if req.ActorID == "" {
+		req.ActorID = req.SupportID
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.serviceTickets[req.TicketID]
+	if ticket == nil {
+		return nil, ErrNotFound
+	}
+	if ticket.Status == ServiceTicketStatusClosed || ticket.Status == ServiceTicketStatusResolved {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	ticket.AssignedSupportID = req.SupportID
+	ticket.AssignedSupportName = req.SupportName
+	ticket.AssignedAt = now
+	ticket.Status = ServiceTicketStatusProcessing
+	ticket.SLAStatus = ServiceTicketSLAStatusNormal
+	ticket.ReplyDueAt = now.Add(serviceTicketReplySLA(ticket.Severity, ticket.Category))
+	ticket.UpdatedAt = now
+	s.appendServiceTicketEventLocked(ticket.ID, req.ActorID, "support", "已分派客服", "工单已分派给"+req.SupportName, ServiceTicketEventDone, nil, now)
+	return s.serviceTicketDetailLocked(ticket.ID)
+}
+
+func (s *Store) ResolveServiceTicket(req ResolveServiceTicketRequest) (*ServiceTicketDetail, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.Solution = strings.TrimSpace(req.Solution)
+	if req.TicketID == "" || req.Solution == "" {
+		return nil, ErrInvalidArgument
+	}
+	if req.ActorID == "" {
+		req.ActorID = "customer_service"
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.serviceTickets[req.TicketID]
+	if ticket == nil {
+		return nil, ErrNotFound
+	}
+	if ticket.Status == ServiceTicketStatusClosed {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	ticket.Solution = req.Solution
+	ticket.Status = ServiceTicketStatusWaitingConfirm
+	ticket.SLAStatus = ServiceTicketSLAStatusCompleted
+	ticket.ResolvedAt = now
+	ticket.UpdatedAt = now
+	s.appendServiceTicketEventLocked(ticket.ID, req.ActorID, "support", "处理方案", req.Solution, ServiceTicketEventActive, nil, now)
+	return s.serviceTicketDetailLocked(ticket.ID)
+}
+
+func (s *Store) EscalateServiceTicket(req EscalateServiceTicketRequest) (*ServiceTicketDetail, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.EscalationLevel = strings.TrimSpace(req.EscalationLevel)
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.TicketID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if req.ActorID == "" {
+		req.ActorID = "customer_service"
+	}
+	if req.EscalationLevel == "" {
+		req.EscalationLevel = "support_lead"
+	}
+	if req.Reason == "" {
+		req.Reason = "超过 SLA 未更新，升级给客服主管处理"
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.serviceTickets[req.TicketID]
+	if ticket == nil {
+		return nil, ErrNotFound
+	}
+	if ticket.Status == ServiceTicketStatusClosed || ticket.Status == ServiceTicketStatusResolved || ticket.Status == ServiceTicketStatusWaitingConfirm {
+		return nil, ErrInvalidOrderState
+	}
+	ticket.SLAStatus = ServiceTicketSLAStatusEscalated
+	ticket.EscalationLevel = req.EscalationLevel
+	ticket.EscalationReason = req.Reason
+	ticket.EscalatedAt = now
+	ticket.UpdatedAt = now
+	s.appendServiceTicketEventLocked(ticket.ID, req.ActorID, "support", "已升级处理", req.Reason, ServiceTicketEventActive, nil, now)
+	return s.serviceTicketDetailLocked(ticket.ID)
+}
+
+func (s *Store) ReviewServiceTicketQuality(req ServiceTicketQualityReviewRequest) (*ServiceTicketQualityReview, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ReviewerID = strings.TrimSpace(req.ReviewerID)
+	req.ReviewerName = strings.TrimSpace(req.ReviewerName)
+	req.Result = normalizeServiceTicketQualityResult(req.Result, req.Score)
+	req.Notes = strings.TrimSpace(req.Notes)
+	if req.TicketID == "" || req.Score < 0 || req.Score > 100 || req.Result == "" {
+		return nil, ErrInvalidArgument
+	}
+	if req.ReviewerID == "" {
+		req.ReviewerID = "support_quality"
+	}
+	if req.ReviewerName == "" {
+		req.ReviewerName = "客服质检"
+	}
+	if req.Result != ServiceTicketQualityPassed {
+		req.CoachingRequired = true
+	}
+	if req.Notes == "" {
+		req.Notes = "客服工单抽检已完成"
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.serviceTickets[req.TicketID]
+	if ticket == nil {
+		return nil, ErrNotFound
+	}
+	s.syncServiceTicketSLAStatusLocked(ticket, now)
+	s.nextServiceTicketQualityID++
+	review := &ServiceTicketQualityReview{
+		ID:                fmt.Sprintf("stq_%d", s.nextServiceTicketQualityID),
+		TicketID:          ticket.ID,
+		SupportID:         ticket.AssignedSupportID,
+		SupportName:       ticket.AssignedSupportName,
+		ReviewerID:        req.ReviewerID,
+		ReviewerName:      req.ReviewerName,
+		Score:             req.Score,
+		Result:            req.Result,
+		Notes:             req.Notes,
+		CoachingRequired:  req.CoachingRequired,
+		TicketTitle:       ticket.Title,
+		TicketCategory:    ticket.Category,
+		TicketSLAStatus:   ticket.SLAStatus,
+		TicketFollowUp:    ticket.FollowUpRating,
+		TicketResolvedAt:  ticket.ResolvedAt,
+		TicketEscalatedAt: ticket.EscalatedAt,
+		CreatedAt:         now,
+	}
+	s.serviceTicketQualityReviews[review.ID] = cloneServiceTicketQualityReview(review)
+	ticket.UpdatedAt = now
+	s.appendServiceTicketEventLocked(ticket.ID, req.ReviewerID, "quality", "质检抽检", serviceTicketQualityMessage(review), ServiceTicketEventDone, nil, now)
+	return cloneServiceTicketQualityReview(review), nil
+}
+
+func (s *Store) ServiceTicketQualityReviews(req ServiceTicketQualityReviewListRequest) ([]ServiceTicketQualityReview, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.SupportID = strings.TrimSpace(req.SupportID)
+	req.ReviewerID = strings.TrimSpace(req.ReviewerID)
+	req.Result = strings.TrimSpace(req.Result)
+	req.CoachingRequired = strings.TrimSpace(req.CoachingRequired)
+	if req.Limit <= 0 || req.Limit > 200 {
+		req.Limit = 50
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	reviews := make([]ServiceTicketQualityReview, 0)
+	for _, review := range s.serviceTicketQualityReviews {
+		if review == nil {
+			continue
+		}
+		if req.TicketID != "" && review.TicketID != req.TicketID {
+			continue
+		}
+		if req.SupportID != "" && review.SupportID != req.SupportID {
+			continue
+		}
+		if req.ReviewerID != "" && review.ReviewerID != req.ReviewerID {
+			continue
+		}
+		if req.Result != "" && review.Result != req.Result {
+			continue
+		}
+		if req.CoachingRequired != "" && boolQueryValue(req.CoachingRequired) != review.CoachingRequired {
+			continue
+		}
+		reviews = append(reviews, *cloneServiceTicketQualityReview(review))
+	}
+	if len(reviews) == 0 && req.TicketID == "" && req.SupportID == "" && req.ReviewerID == "" && req.Result == "" && req.CoachingRequired == "" {
+		reviews = defaultServiceTicketQualityReviews()
+	}
+	sort.SliceStable(reviews, func(i, j int) bool {
+		return reviews[i].CreatedAt.After(reviews[j].CreatedAt)
+	})
+	if len(reviews) > req.Limit {
+		reviews = reviews[:req.Limit]
+	}
+	return reviews, nil
+}
+
+func (s *Store) ServiceTicketPerformance(req ServiceTicketPerformanceRequest) ([]ServiceTicketPerformanceSummary, error) {
+	req.SupportID = strings.TrimSpace(req.SupportID)
+	if req.Limit <= 0 || req.Limit > 200 {
+		req.Limit = 50
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tickets := make([]ServiceTicket, 0, len(s.serviceTickets))
+	for _, ticket := range s.serviceTickets {
+		if ticket == nil {
+			continue
+		}
+		s.syncServiceTicketSLAStatusLocked(ticket, now)
+		tickets = append(tickets, *cloneServiceTicket(ticket))
+	}
+	if len(tickets) == 0 {
+		return filterServiceTicketPerformance(defaultServiceTicketPerformanceSummaries(), req.SupportID, req.Limit), nil
+	}
+	summaries := buildServiceTicketPerformanceSummaries(tickets, s.serviceTicketQualityReviews, req.SupportID)
+	if len(summaries) == 0 && req.SupportID == "" {
+		summaries = defaultServiceTicketPerformanceSummaries()
+	}
+	return filterServiceTicketPerformance(summaries, req.SupportID, req.Limit), nil
+}
+
+func (s *Store) CloseServiceTicket(req CloseServiceTicketRequest) (*ServiceTicketDetail, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.ActorID = strings.TrimSpace(req.ActorID)
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.TicketID == "" || req.UserID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if req.ActorID == "" {
+		req.ActorID = req.UserID
+	}
+	if req.Reason == "" {
+		req.Reason = "用户确认处理结果"
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.serviceTickets[req.TicketID]
+	if ticket == nil {
+		return nil, ErrNotFound
+	}
+	if ticket.UserID != req.UserID {
+		return nil, ErrNotFound
+	}
+	now := time.Now().UTC()
+	ticket.Status = ServiceTicketStatusClosed
+	ticket.SLAStatus = ServiceTicketSLAStatusCompleted
+	ticket.ClosedAt = now
+	ticket.UpdatedAt = now
+	s.appendServiceTicketEventLocked(ticket.ID, req.ActorID, "user", "用户确认", req.Reason, ServiceTicketEventDone, nil, now)
+	return s.serviceTicketDetailLocked(ticket.ID)
+}
+
+func (s *Store) FollowUpServiceTicket(req FollowUpServiceTicketRequest) (*ServiceTicketDetail, error) {
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Comment = strings.TrimSpace(req.Comment)
+	if req.TicketID == "" || req.UserID == "" || req.Rating < 1 || req.Rating > 5 {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.serviceTickets[req.TicketID]
+	if ticket == nil {
+		return nil, ErrNotFound
+	}
+	if ticket.UserID != req.UserID {
+		return nil, ErrNotFound
+	}
+	if ticket.Status != ServiceTicketStatusClosed && ticket.Status != ServiceTicketStatusResolved {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	ticket.FollowUpRating = req.Rating
+	ticket.FollowUpComment = req.Comment
+	ticket.FollowUpAt = now
+	ticket.UpdatedAt = now
+	message := fmt.Sprintf("用户给本次服务评分 %d 分", req.Rating)
+	if req.Comment != "" {
+		message += "：" + req.Comment
+	}
+	s.appendServiceTicketEventLocked(ticket.ID, req.UserID, "user", "回访评价", message, ServiceTicketEventDone, nil, now)
+	return s.serviceTicketDetailLocked(ticket.ID)
+}
+
+func (s *Store) UserProfileOverview(userID string) (*UserProfileOverview, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	coupons := s.userCouponsForUserLocked(userID)
+	stats := map[string]int{"pending_payment": 0, "in_progress": 0, "pending_review": 0, "after_sales": 0}
+	for _, order := range s.orders {
+		if order == nil || order.UserID != userID {
+			continue
+		}
+		switch order.Status {
+		case StatusPendingPayment:
+			stats["pending_payment"]++
+		case StatusCompleted:
+			stats["pending_review"]++
+		case StatusRefundPending, StatusRefunded:
+			stats["after_sales"]++
+		default:
+			stats["in_progress"]++
+		}
+	}
+	for _, request := range s.afterSalesRequests {
+		if request != nil && request.UserID == userID {
+			stats["after_sales"]++
+		}
+	}
+	return &UserProfileOverview{
+		UserID:                userID,
+		Nickname:              s.nicknameForUserLocked(userID),
+		Phone:                 s.phoneForUserLocked(userID),
+		AvatarInitial:         avatarInitial(s.nicknameForUserLocked(userID)),
+		MembershipLevel:       MembershipSilver,
+		MembershipTitle:       "美食达人",
+		CreditText:            "信用良好",
+		Verified:              true,
+		GrowthValue:           2680,
+		NextLevelGrowth:       1320,
+		SavingsFen:            3600,
+		WalletBalanceFen:      s.walletBalanceForOverviewLocked(userID),
+		PendingReceivableFen:  s.pendingReceivableFenForUserLocked(userID),
+		CouponCount:           len(coupons),
+		RedPacketCount:        s.redPacketCountForUserLocked(userID),
+		Points:                s.pointsBalanceForUserLocked(userID),
+		FavoriteShopCount:     4,
+		PaymentPasswordStatus: s.paymentPasswordStatusForUserLocked(userID),
+		OrderStats:            stats,
+	}, nil
+}
+
+func (s *Store) CirclePosts(userID string) ([]CirclePost, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	posts := make([]CirclePost, 0)
+	for _, post := range s.circlePosts {
+		if post == nil || post.Status != CirclePostPublished {
+			continue
+		}
+		posts = append(posts, *cloneCirclePost(post))
+	}
+	sort.SliceStable(posts, func(i, j int) bool {
+		return posts[i].CreatedAt.After(posts[j].CreatedAt)
+	})
+	return posts, nil
+}
+
+func (s *Store) CreateCirclePost(post CirclePost) (*CirclePost, error) {
+	post.AuthorUserID = strings.TrimSpace(post.AuthorUserID)
+	post.AuthorName = strings.TrimSpace(post.AuthorName)
+	post.CircleID = strings.TrimSpace(post.CircleID)
+	post.Type = strings.TrimSpace(post.Type)
+	post.Title = strings.TrimSpace(post.Title)
+	post.Content = strings.TrimSpace(post.Content)
+	post.ImageURLs = sanitizedStringSlice(post.ImageURLs)
+	post.Tags = sanitizedStringSlice(post.Tags)
+	if post.CircleID == "" {
+		post.CircleID = "nearby"
+	}
+	if post.Type == "" {
+		post.Type = CirclePostText
+	}
+	if post.AuthorName == "" {
+		post.AuthorName = "我"
+	}
+	if post.AuthorUserID == "" || post.Content == "" {
+		return nil, ErrInvalidArgument
+	}
+	switch post.Type {
+	case CirclePostText, CirclePostImage, CirclePostFoodInvite:
+	default:
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextCirclePostID++
+	post.ID = fmt.Sprintf("cpost_%d", s.nextCirclePostID)
+	post.Status = CirclePostPublished
+	post.CreatedAt = time.Now().UTC()
+	s.circlePosts[post.ID] = cloneCirclePost(&post)
+	return cloneCirclePost(&post), nil
+}
+
+func (s *Store) SaveMealMatchProfile(profile MealMatchProfile) (*MealMatchProfile, error) {
+	profile.UserID = strings.TrimSpace(profile.UserID)
+	profile.Gender = strings.TrimSpace(profile.Gender)
+	profile.SchoolID = strings.TrimSpace(profile.SchoolID)
+	profile.SchoolName = strings.TrimSpace(profile.SchoolName)
+	profile.CampusName = strings.TrimSpace(profile.CampusName)
+	profile.BuildingID = strings.TrimSpace(profile.BuildingID)
+	profile.BuildingName = strings.TrimSpace(profile.BuildingName)
+	profile.PrivacyScope = normalizeMealMatchPrivacyScope(profile.PrivacyScope)
+	profile.LocationPrecision = normalizeMealMatchLocationPrecision(profile.LocationPrecision)
+	profile.DeviceID = strings.TrimSpace(profile.DeviceID)
+	profile.PersonalityTraits = sanitizedStringSlice(profile.PersonalityTraits)
+	profile.DietaryHabits = sanitizedStringSlice(profile.DietaryHabits)
+	if profile.UserID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	profile.SchoolName = mealMatchSchoolName(profile.SchoolID, profile.SchoolName)
+	profile.CampusName = mealMatchCampusName(profile.SchoolID, profile.CampusName)
+	deviceRisk := s.mealMatchDeviceRiskLocked(profile.UserID, profile.DeviceID, now)
+	if deviceRisk.State == MealMatchDeviceRiskBlocked {
+		return nil, fmt.Errorf("%w: %s", ErrRiskControlRejected, deviceRisk.Reason)
+	}
+	applyMealMatchDeviceRiskToProfile(&profile, deviceRisk)
+	if ok, _ := mealMatchProfilePrerequisites(profile); ok {
+		profile.ModerationStatus = MealMatchModerationPending
+		profile.ModerationReason = "资料已提交，等待平台人工审核"
+		if deviceRisk.State == MealMatchDeviceRiskReview {
+			profile.ModerationReason = deviceRisk.Reason
+		}
+		profile.ModerationReviewerID = ""
+		profile.ModerationReviewedAt = ""
+		record := s.createMealMatchProfileReviewLocked(profile.UserID, now)
+		profile.ModerationRecordID = record.ID
+	} else {
+		profile.ModerationStatus = ""
+		profile.ModerationReason = ""
+		profile.ModerationRecordID = ""
+		profile.ModerationReviewerID = ""
+		profile.ModerationReviewedAt = ""
+	}
+	s.mealMatchProfiles[profile.UserID] = cloneMealMatchProfile(&profile)
+	return cloneMealMatchProfile(&profile), nil
+}
+
+func (s *Store) UserMealMatchProfile(userID string) (*MealMatchProfile, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	profile := s.mealMatchProfiles[userID]
+	if profile == nil {
+		return &MealMatchProfile{UserID: userID}, nil
+	}
+	return cloneMealMatchProfile(profile), nil
+}
+
+func (s *Store) MealMatchCandidates(userID string) (*MealMatchCandidateList, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	profile := s.mealMatchProfiles[userID]
+	if profile == nil {
+		profile = &MealMatchProfile{UserID: userID}
+	}
+	canUse, missing := CanUseMealMatch(*profile)
+	result := &MealMatchCandidateList{
+		Profile:              *cloneMealMatchProfile(profile),
+		CanUse:               canUse,
+		Missing:              append([]string{}, missing...),
+		PrivacyScope:         normalizeMealMatchPrivacyScope(profile.PrivacyScope),
+		LocationPrecision:    normalizeMealMatchLocationPrecision(profile.LocationPrecision),
+		PrivacyNotice:        mealMatchProfilePrivacyNotice(*profile),
+		DeviceRiskState:      profile.DeviceRiskState,
+		DeviceRiskReasonCode: profile.DeviceRiskReasonCode,
+		DeviceRiskReason:     profile.DeviceRiskReason,
+		DeviceRiskCheckedAt:  profile.DeviceRiskCheckedAt,
+		ModerationStatus:     normalizeMealMatchModerationStatus(profile.ModerationStatus),
+		ReviewRequired:       mealMatchMissingIncludes(missing, "moderation_pending") || mealMatchMissingIncludes(missing, "moderation_rejected") || mealMatchMissingIncludes(missing, "device_risk_review"),
+	}
+	if !canUse {
+		result.Candidates = []MealMatchCandidate{}
+		return result, nil
+	}
+	candidates := []MealMatchCandidate{}
+	for candidateUserID, candidateProfile := range s.mealMatchProfiles {
+		if candidateProfile == nil || candidateUserID == userID {
+			continue
+		}
+		if s.mealMatchBlockedLocked(userID, candidateUserID) || s.mealMatchBlockedLocked(candidateUserID, userID) {
+			continue
+		}
+		if ok, _ := CanUseMealMatch(*candidateProfile); !ok {
+			continue
+		}
+		if !mealMatchCanShowCandidate(*profile, *candidateProfile) {
+			continue
+		}
+		candidate := mealMatchCandidateFromProfiles(*profile, *candidateProfile, s.nicknameForUserLocked(candidateUserID))
+		if candidate.MatchScore <= 0 {
+			candidate.MatchScore = 20
+		}
+		candidates = append(candidates, candidate)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].MatchScore == candidates[j].MatchScore {
+			return candidates[i].UserID < candidates[j].UserID
+		}
+		return candidates[i].MatchScore > candidates[j].MatchScore
+	})
+	if len(candidates) > 6 {
+		candidates = candidates[:6]
+	}
+	result.Candidates = candidates
+	return result, nil
+}
+
+func (s *Store) ReportMealMatchCandidate(req MealMatchReportRequest) (*MealMatchModerationRecord, error) {
+	req.ReporterUserID = strings.TrimSpace(req.ReporterUserID)
+	req.TargetUserID = strings.TrimSpace(req.TargetUserID)
+	req.Reason = strings.TrimSpace(req.Reason)
+	req.Description = strings.TrimSpace(req.Description)
+	if req.ReporterUserID == "" || req.TargetUserID == "" || req.ReporterUserID == req.TargetUserID || req.Reason == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.mealMatchProfiles[req.TargetUserID]; !ok {
+		return nil, ErrNotFound
+	}
+	s.nextMealMatchModerationID++
+	record := &MealMatchModerationRecord{
+		ID:           fmt.Sprintf("mmod_%d", s.nextMealMatchModerationID),
+		UserID:       req.ReporterUserID,
+		TargetUserID: req.TargetUserID,
+		Action:       MealMatchModerationReported,
+		Reason:       req.Reason,
+		Description:  req.Description,
+		Status:       MealMatchModerationPending,
+		CreatedAt:    time.Now().UTC(),
+	}
+	s.mealMatchModeration[record.ID] = cloneMealMatchModerationRecord(record)
+	return cloneMealMatchModerationRecord(record), nil
+}
+
+func (s *Store) BlockMealMatchCandidate(req MealMatchBlockRequest) (*MealMatchModerationRecord, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.TargetUserID = strings.TrimSpace(req.TargetUserID)
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.UserID == "" || req.TargetUserID == "" || req.UserID == req.TargetUserID {
+		return nil, ErrInvalidArgument
+	}
+	if req.Reason == "" {
+		req.Reason = "not_interested"
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.mealMatchProfiles[req.TargetUserID]; !ok {
+		return nil, ErrNotFound
+	}
+	key := mealMatchBlockKey(req.UserID, req.TargetUserID)
+	if existing := s.mealMatchModeration[key]; existing != nil {
+		return cloneMealMatchModerationRecord(existing), nil
+	}
+	record := &MealMatchModerationRecord{
+		ID:           key,
+		UserID:       req.UserID,
+		TargetUserID: req.TargetUserID,
+		Action:       MealMatchModerationBlocked,
+		Reason:       req.Reason,
+		Status:       MealMatchModerationActive,
+		CreatedAt:    time.Now().UTC(),
+	}
+	s.mealMatchModeration[record.ID] = cloneMealMatchModerationRecord(record)
+	return cloneMealMatchModerationRecord(record), nil
+}
+
+func (s *Store) AdminMealMatchModerationRecords(req MealMatchModerationListRequest) ([]MealMatchModerationRecord, error) {
+	req.Status = strings.TrimSpace(req.Status)
+	req.Action = strings.TrimSpace(req.Action)
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.TargetUserID = strings.TrimSpace(req.TargetUserID)
+	if req.Limit <= 0 {
+		req.Limit = 100
+	}
+	if req.Limit > 500 {
+		req.Limit = 500
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	records := make([]MealMatchModerationRecord, 0, len(s.mealMatchModeration))
+	for _, record := range s.mealMatchModeration {
+		if record == nil {
+			continue
+		}
+		if req.Status != "" && record.Status != req.Status {
+			continue
+		}
+		if req.Action != "" && record.Action != req.Action {
+			continue
+		}
+		if req.UserID != "" && record.UserID != req.UserID {
+			continue
+		}
+		if req.TargetUserID != "" && record.TargetUserID != req.TargetUserID {
+			continue
+		}
+		records = append(records, *cloneMealMatchModerationRecord(record))
+	}
+	sort.SliceStable(records, func(i, j int) bool {
+		return records[i].CreatedAt.After(records[j].CreatedAt)
+	})
+	if len(records) > req.Limit {
+		records = records[:req.Limit]
+	}
+	return records, nil
+}
+
+func (s *Store) ReviewMealMatchModeration(req MealMatchModerationReviewRequest) (*MealMatchModerationRecord, error) {
+	req.RecordID = strings.TrimSpace(req.RecordID)
+	req.Decision = normalizeMealMatchModerationDecision(req.Decision)
+	req.ReviewerID = strings.TrimSpace(req.ReviewerID)
+	req.ReviewNote = strings.TrimSpace(req.ReviewNote)
+	if req.RecordID == "" || req.Decision == "" || req.ReviewerID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record := s.mealMatchModeration[req.RecordID]
+	if record == nil {
+		return nil, ErrNotFound
+	}
+	if record.Status != MealMatchModerationPending {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	record.Status = req.Decision
+	record.ReviewerID = req.ReviewerID
+	record.ReviewNote = req.ReviewNote
+	record.ReviewedAt = now
+	switch record.Action {
+	case MealMatchModerationProfileReview:
+		profile := s.mealMatchProfiles[record.UserID]
+		if profile == nil {
+			return nil, ErrNotFound
+		}
+		profile.ModerationStatus = req.Decision
+		profile.ModerationReviewerID = req.ReviewerID
+		profile.ModerationReviewedAt = now.Format(time.RFC3339)
+		if req.Decision == MealMatchModerationApproved {
+			profile.ModerationReason = defaultString(req.ReviewNote, "资料审核通过")
+			if normalizeMealMatchDeviceRiskState(profile.DeviceRiskState) == MealMatchDeviceRiskReview {
+				profile.DeviceRiskState = MealMatchDeviceRiskPassed
+				profile.DeviceRiskReasonCode = ""
+				profile.DeviceRiskReason = "设备环境已由人工复核通过"
+				profile.DeviceRiskCheckedAt = now
+			}
+		} else {
+			profile.ModerationReason = defaultString(req.ReviewNote, "资料审核未通过，请修改后重新提交")
+		}
+	case MealMatchModerationReported:
+		if req.Decision == MealMatchModerationApproved {
+			if target := s.mealMatchProfiles[record.TargetUserID]; target != nil {
+				target.ModerationStatus = MealMatchModerationRejected
+				target.ModerationReason = defaultString(req.ReviewNote, "举报成立，资料已暂停展示")
+				target.ModerationReviewerID = req.ReviewerID
+				target.ModerationReviewedAt = now.Format(time.RFC3339)
+			}
+		}
+	}
+	s.mealMatchModeration[record.ID] = cloneMealMatchModerationRecord(record)
+	return cloneMealMatchModerationRecord(record), nil
+}
+
+func (s *Store) CreateRedPacket(packet RedPacket) (*RedPacketDetail, error) {
+	packet.SenderID = strings.TrimSpace(packet.SenderID)
+	packet.SenderRole = strings.TrimSpace(packet.SenderRole)
+	packet.Scene = strings.TrimSpace(packet.Scene)
+	packet.TargetID = strings.TrimSpace(packet.TargetID)
+	packet.Type = strings.TrimSpace(packet.Type)
+	packet.PaymentMethod = strings.TrimSpace(packet.PaymentMethod)
+	packet.Message = strings.TrimSpace(packet.Message)
+	if packet.SenderRole == "" {
+		packet.SenderRole = "user"
+	}
+	if packet.Scene == "" {
+		packet.Scene = RedPacketSceneGroupChat
+	}
+	if packet.TargetID == "" {
+		packet.TargetID = "group_chat_1"
+	}
+	if packet.Type == "" {
+		packet.Type = RedPacketTypeRandom
+	}
+	if packet.PaymentMethod == "" {
+		packet.PaymentMethod = PaymentBalance
+	}
+	if packet.SenderID == "" || packet.TotalAmountFen <= 0 || packet.Quantity <= 0 || packet.Quantity > 100 {
+		return nil, ErrInvalidArgument
+	}
+	if packet.TotalAmountFen < int64(packet.Quantity) {
+		return nil, ErrInvalidArgument
+	}
+	switch packet.Scene {
+	case RedPacketSceneGroupChat, RedPacketSceneDirectMessage:
+	default:
+		return nil, ErrInvalidArgument
+	}
+	switch packet.Type {
+	case RedPacketTypeFixed, RedPacketTypeRandom:
+	default:
+		return nil, ErrInvalidArgument
+	}
+	if packet.PaymentMethod != PaymentBalance {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	s.nextRedPacketID++
+	packet.ID = fmt.Sprintf("rp_%d", s.nextRedPacketID)
+	packet.Status = RedPacketStatusCreated
+	packet.CreatedAt = now
+	if packet.ExpiresAt.IsZero() {
+		packet.ExpiresAt = now.Add(24 * time.Hour)
+	}
+	account := s.getOrCreateWalletLocked(packet.SenderID)
+	if account.Balance == 0 && packet.SenderID == "user_1" {
+		account.Balance = 12850
+		account.Version++
+	}
+	if account.Balance < packet.TotalAmountFen {
+		return nil, ErrInsufficientBalance
+	}
+	account.Balance -= packet.TotalAmountFen
+	account.Frozen += packet.TotalAmountFen
+	account.Version++
+	freezeTransaction := s.createWalletTransactionLocked(packet.SenderID, packet.ID, "red_packet_freeze", -packet.TotalAmountFen, packet.PaymentMethod, redPacketFreezeKey(packet.ID))
+	freezeTransaction.Status = "frozen"
+	s.walletIdempotency[freezeTransaction.IdempotencyKey] = freezeTransaction
+	detail := &RedPacketDetail{
+		Packet: packet,
+		Shares: redPacketShares(packet, now),
+	}
+	s.redPackets[packet.ID] = cloneRedPacketDetail(detail)
+	return cloneRedPacketDetail(detail), nil
+}
+
+func (s *Store) RedPacketDetail(packetID string, userID string) (*RedPacketDetail, error) {
+	packetID = strings.TrimSpace(packetID)
+	if packetID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	detail := s.redPackets[packetID]
+	if detail == nil {
+		return nil, ErrNotFound
+	}
+	if err := s.autoRefundExpiredRedPacketLocked(detail, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+	output := cloneRedPacketDetail(detail)
+	if strings.TrimSpace(userID) != "" {
+		output.Risk = s.redPacketClaimRiskLocked(detail, strings.TrimSpace(userID), redPacketNextClaimAmount(detail), time.Now().UTC())
+	}
+	return output, nil
+}
+
+func (s *Store) ClaimRedPacket(packetID string, userID string) (*RedPacketClaimResult, error) {
+	packetID = strings.TrimSpace(packetID)
+	userID = strings.TrimSpace(userID)
+	if packetID == "" || userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	detail := s.redPackets[packetID]
+	if detail == nil {
+		return nil, ErrNotFound
+	}
+	now := time.Now().UTC()
+	if err := s.autoRefundExpiredRedPacketLocked(detail, now); err != nil {
+		return nil, err
+	}
+	if detail.Packet.Status == RedPacketStatusRefunded || detail.Packet.Status == RedPacketStatusExpired {
+		return nil, ErrInvalidOrderState
+	}
+	claimIndex := -1
+	for index := range detail.Shares {
+		if detail.Shares[index].UserID == userID {
+			claimIndex = index
+			break
+		}
+	}
+	if claimIndex >= 0 && !detail.Shares[claimIndex].ClaimedAt.IsZero() {
+		share := detail.Shares[claimIndex]
+		risk := &RedPacketRiskCheck{
+			State:     RedPacketRiskPassed,
+			Reason:    "已领取过该红包，本次返回原领取记录",
+			CheckedAt: now,
+		}
+		output := *cloneRedPacketDetail(detail)
+		output.Risk = risk
+		return &RedPacketClaimResult{
+			Detail: output,
+			Share:  share,
+			Risk:   risk,
+		}, nil
+	}
+	if claimIndex == -1 {
+		for index := range detail.Shares {
+			if detail.Shares[index].UserID == "" && detail.Shares[index].ClaimedAt.IsZero() {
+				claimIndex = index
+				break
+			}
+		}
+	}
+	if claimIndex == -1 {
+		return nil, ErrInvalidOrderState
+	}
+	risk := s.redPacketClaimRiskLocked(detail, userID, detail.Shares[claimIndex].AmountFen, now)
+	if risk != nil && risk.State == RedPacketRiskBlocked {
+		return nil, fmt.Errorf("%w: %s", ErrRiskControlRejected, risk.Reason)
+	}
+	detail.Shares[claimIndex].UserID = userID
+	if detail.Shares[claimIndex].ClaimedAt.IsZero() {
+		detail.Shares[claimIndex].ClaimedAt = now
+	}
+	share := detail.Shares[claimIndex]
+	claimKey := redPacketClaimKey(packetID, userID)
+	if s.walletIdempotency[claimKey] == nil {
+		senderAccount := s.getOrCreateWalletLocked(detail.Packet.SenderID)
+		if senderAccount.Frozen < share.AmountFen {
+			return nil, ErrInvalidOrderState
+		}
+		senderAccount.Frozen -= share.AmountFen
+		senderAccount.Version++
+		receiverAccount := s.getOrCreateWalletLocked(userID)
+		receiverAccount.Balance += share.AmountFen
+		receiverAccount.Version++
+		transaction := s.createWalletTransactionLocked(userID, packetID, "red_packet_claim", share.AmountFen, PaymentBalance, claimKey)
+		s.walletIdempotency[transaction.IdempotencyKey] = transaction
+	}
+	detail.Packet.ClaimedAmountFen = redPacketClaimedAmount(detail)
+	if redPacketClaimedCount(detail) >= detail.Packet.Quantity {
+		detail.Packet.Status = RedPacketStatusFinished
+	}
+	output := *cloneRedPacketDetail(detail)
+	output.Risk = risk
+	return &RedPacketClaimResult{
+		Detail: output,
+		Share:  share,
+		Risk:   risk,
+	}, nil
+}
+
+func (s *Store) RefundRedPacket(packetID string, userID string) (*RedPacketDetail, error) {
+	packetID = strings.TrimSpace(packetID)
+	userID = strings.TrimSpace(userID)
+	if packetID == "" || userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	detail := s.redPackets[packetID]
+	if detail == nil {
+		return nil, ErrNotFound
+	}
+	if detail.Packet.SenderID != userID {
+		return nil, ErrInvalidOrderState
+	}
+	if err := s.refundRedPacketRemainderLocked(detail, time.Now().UTC(), RedPacketStatusRefunded); err != nil {
+		return nil, err
+	}
+	return cloneRedPacketDetail(detail), nil
+}
+
+func (s *Store) AutoRefundExpiredRedPackets(now time.Time) ([]RedPacketDetail, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	refunded := make([]RedPacketDetail, 0)
+	for _, detail := range s.redPackets {
+		if detail == nil || detail.Packet.Status != RedPacketStatusCreated {
+			continue
+		}
+		if detail.Packet.ExpiresAt.IsZero() || now.Before(detail.Packet.ExpiresAt) {
+			continue
+		}
+		if err := s.refundRedPacketRemainderLocked(detail, now, RedPacketStatusExpired); err != nil {
+			return nil, err
+		}
+		refunded = append(refunded, *cloneRedPacketDetail(detail))
+	}
+	return refunded, nil
+}
+
+func (s *Store) MessageThreads(userID string) ([]ChatThread, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	threads := defaultChatThreads()
+	visible := make([]ChatThread, 0, len(threads))
+	for index := range threads {
+		member := s.chatThreadMemberLocked(threads[index].ID, "user", userID)
+		if member == nil {
+			continue
+		}
+		if latest := s.latestMessageForThreadLocked(threads[index].ID); latest != nil {
+			threads[index].Subtitle = latest.Content
+			threads[index].LastMessageID = latest.ID
+			threads[index].UpdatedAt = latest.CreatedAt
+		}
+		if read := s.chatReadStateLocked(userID, threads[index].ID); read != nil {
+			threads[index].LastReadMessageID = read.LastReadMessageID
+			threads[index].LastReadAt = read.ReadAt
+		}
+		threads[index].Muted = member.Muted
+		threads[index].UnreadCount = s.unreadChatMessageCountLocked(userID, &threads[index])
+		visible = append(visible, threads[index])
+	}
+	sort.SliceStable(visible, func(i, j int) bool {
+		return visible[i].UpdatedAt.After(visible[j].UpdatedAt)
+	})
+	return visible, nil
+}
+
+func (s *Store) ChatThreadOverview(userID string, threadID string) (*ChatThreadOverview, error) {
+	userID = strings.TrimSpace(userID)
+	threadID = strings.TrimSpace(threadID)
+	if userID == "" || threadID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(threadID) {
+		return nil, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	member := s.chatThreadMemberLocked(threadID, "user", userID)
+	if member == nil {
+		return nil, ErrNotFound
+	}
+	thread := chatThreadByID(threadID)
+	if thread == nil {
+		return nil, ErrNotFound
+	}
+	if latest := s.latestMessageForThreadLocked(thread.ID); latest != nil {
+		thread.LastMessageID = latest.ID
+		thread.UpdatedAt = latest.CreatedAt
+	}
+	memberCount := s.chatThreadOverviewMemberCountLocked(threadID)
+	thread.Muted = member.Muted
+	thread.UnreadCount = s.unreadChatMessageCountLocked(userID, thread)
+	seed := chatThreadOverviewSeed(threadID)
+	profiles := s.chatThreadMemberProfilesLocked(threadID, userID)
+	preview := profiles
+	if len(preview) > 5 {
+		preview = append([]ChatThreadMemberProfile{}, preview[:5]...)
+	}
+	return &ChatThreadOverview{
+		ThreadID:      thread.ID,
+		Type:          thread.Type,
+		Title:         thread.Title,
+		Icon:          thread.Icon,
+		Summary:       chatThreadOverviewSummary(threadID, memberCount),
+		Announcement:  seed.Announcement,
+		SettingsText:  seed.SettingsText,
+		MemberCount:   memberCount,
+		Muted:         member.Muted,
+		MemberPreview: preview,
+	}, nil
+}
+
+func (s *Store) ChatThreadMembers(userID string, threadID string) ([]ChatThreadMemberProfile, error) {
+	userID = strings.TrimSpace(userID)
+	threadID = strings.TrimSpace(threadID)
+	if userID == "" || threadID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(threadID) {
+		return nil, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.chatThreadMemberLocked(threadID, "user", userID) == nil {
+		return nil, ErrNotFound
+	}
+	return s.chatThreadMemberProfilesLocked(threadID, userID), nil
+}
+
+func (s *Store) ChatThreadMembership(userID string, threadID string) (*ChatThreadMembership, error) {
+	userID = strings.TrimSpace(userID)
+	threadID = strings.TrimSpace(threadID)
+	if userID == "" || threadID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(threadID) {
+		return nil, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.chatThreadMembershipLocked(userID, threadID)
+}
+
+func (s *Store) JoinChatThread(req ChatThreadJoinRequest) (*ChatThreadMembership, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.ThreadID = strings.TrimSpace(req.ThreadID)
+	if req.UserID == "" || req.ThreadID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(req.ThreadID) {
+		return nil, ErrNotFound
+	}
+	policy := chatThreadSelfServePolicy(req.ThreadID)
+	if !policy.Joinable {
+		return nil, fmt.Errorf("%w: thread does not support self join", ErrInvalidArgument)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if membership, err := s.chatThreadMembershipLocked(req.UserID, req.ThreadID); err != nil {
+		return nil, err
+	} else if membership.Joined {
+		return membership, nil
+	}
+	if s.chatThreadMembers == nil {
+		s.chatThreadMembers = seedChatThreadMembers()
+	}
+	member := ChatThreadMember{
+		ThreadID:    req.ThreadID,
+		SubjectType: "user",
+		SubjectID:   req.UserID,
+		Muted:       policy.DefaultMuted,
+		JoinedAt:    time.Now().UTC(),
+	}
+	s.chatThreadMembers[chatThreadMemberKey(req.ThreadID, member.SubjectType, member.SubjectID)] = cloneChatThreadMember(&member)
+	return s.chatThreadMembershipLocked(req.UserID, req.ThreadID)
+}
+
+func (s *Store) LeaveChatThread(req ChatThreadLeaveRequest) (*ChatThreadMembership, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.ThreadID = strings.TrimSpace(req.ThreadID)
+	if req.UserID == "" || req.ThreadID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(req.ThreadID) {
+		return nil, ErrNotFound
+	}
+	policy := chatThreadSelfServePolicy(req.ThreadID)
+	if !policy.Leaveable {
+		return nil, fmt.Errorf("%w: thread does not support self leave", ErrInvalidArgument)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.chatThreadMemberExactLocked(req.ThreadID, "user", req.UserID) == nil {
+		return nil, ErrNotFound
+	}
+	delete(s.chatThreadMembers, chatThreadMemberKey(req.ThreadID, "user", req.UserID))
+	return s.chatThreadMembershipLocked(req.UserID, req.ThreadID)
+}
+
+func (s *Store) ChatMessages(userID string, threadID string) ([]ChatMessage, error) {
+	userID = strings.TrimSpace(userID)
+	threadID = strings.TrimSpace(threadID)
+	if userID == "" || threadID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(threadID) {
+		return nil, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.chatThreadMemberLocked(threadID, "user", userID) == nil {
+		return nil, ErrNotFound
+	}
+	messages := make([]ChatMessage, 0)
+	for _, message := range s.chatMessages {
+		if message == nil || message.ThreadID != threadID {
+			continue
+		}
+		messages = append(messages, *cloneChatMessage(message))
+	}
+	sort.SliceStable(messages, func(i, j int) bool {
+		return messages[i].CreatedAt.Before(messages[j].CreatedAt)
+	})
+	return messages, nil
+}
+
+func (s *Store) ChatMessageSync(req ChatMessageSyncRequest) (*ChatMessageSyncResult, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.ThreadID = strings.TrimSpace(req.ThreadID)
+	req.SinceID = strings.TrimSpace(req.SinceID)
+	if req.UserID == "" || req.ThreadID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(req.ThreadID) {
+		return nil, ErrNotFound
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.chatThreadMemberLocked(req.ThreadID, "user", req.UserID) == nil {
+		return nil, ErrNotFound
+	}
+	allMessages := s.sortedChatMessagesLocked(req.ThreadID)
+	messages := chatMessagesAfterID(allMessages, req.SinceID)
+	if len(messages) > limit {
+		messages = messages[len(messages)-limit:]
+	}
+	lastMessageID := ""
+	if len(allMessages) > 0 {
+		lastMessageID = allMessages[len(allMessages)-1].ID
+	}
+	nextCursor := req.SinceID
+	if len(messages) > 0 {
+		nextCursor = messages[len(messages)-1].ID
+	}
+	var read *ChatReadState
+	if req.MarkRead {
+		read = s.markChatThreadReadLocked(MarkChatThreadReadRequest{
+			UserID:        req.UserID,
+			ThreadID:      req.ThreadID,
+			LastMessageID: lastMessageID,
+		})
+	} else {
+		read = s.chatReadStateLocked(req.UserID, req.ThreadID)
+	}
+	thread := chatThreadByID(req.ThreadID)
+	unread := 0
+	if thread != nil {
+		unread = s.unreadChatMessageCountLocked(req.UserID, thread)
+	}
+	result := &ChatMessageSyncResult{
+		ThreadID:      req.ThreadID,
+		Messages:      messages,
+		LastMessageID: lastMessageID,
+		NextCursor:    nextCursor,
+		UnreadCount:   unread,
+		ReadState:     cloneChatReadState(read),
+	}
+	return result, nil
+}
+
+func (s *Store) MarkChatThreadRead(req MarkChatThreadReadRequest) (*ChatReadState, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.ThreadID = strings.TrimSpace(req.ThreadID)
+	req.LastMessageID = strings.TrimSpace(req.LastMessageID)
+	if req.UserID == "" || req.ThreadID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(req.ThreadID) {
+		return nil, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.chatThreadMemberLocked(req.ThreadID, "user", req.UserID) == nil {
+		return nil, ErrNotFound
+	}
+	read := s.markChatThreadReadLocked(req)
+	return cloneChatReadState(read), nil
+}
+
+func (s *Store) ChatThreadPreference(userID string, threadID string) (*ChatThreadPreference, error) {
+	userID = strings.TrimSpace(userID)
+	threadID = strings.TrimSpace(threadID)
+	if userID == "" || threadID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(threadID) {
+		return nil, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	member := s.chatThreadMemberLocked(threadID, "user", userID)
+	if member == nil {
+		return nil, ErrNotFound
+	}
+	return &ChatThreadPreference{
+		ThreadID: threadID,
+		Muted:    member.Muted,
+	}, nil
+}
+
+func (s *Store) UpdateChatThreadPreference(req UpdateChatThreadPreferenceRequest) (*ChatThreadPreference, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.ThreadID = strings.TrimSpace(req.ThreadID)
+	if req.UserID == "" || req.ThreadID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(req.ThreadID) {
+		return nil, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	member := s.chatThreadMemberLocked(req.ThreadID, "user", req.UserID)
+	if member == nil {
+		return nil, ErrNotFound
+	}
+	member.SubjectID = req.UserID
+	member.SubjectType = "user"
+	member.Muted = req.Muted
+	if s.chatThreadMembers == nil {
+		s.chatThreadMembers = seedChatThreadMembers()
+	}
+	s.chatThreadMembers[chatThreadMemberKey(req.ThreadID, member.SubjectType, member.SubjectID)] = cloneChatThreadMember(member)
+	return &ChatThreadPreference{
+		ThreadID: req.ThreadID,
+		Muted:    member.Muted,
+	}, nil
+}
+
+func (s *Store) SendChatMessage(message ChatMessage) (*ChatMessage, error) {
+	message.ThreadID = strings.TrimSpace(message.ThreadID)
+	message.SenderID = strings.TrimSpace(message.SenderID)
+	message.Sender = strings.TrimSpace(message.Sender)
+	message.Content = strings.TrimSpace(message.Content)
+	message.MessageType = strings.TrimSpace(message.MessageType)
+	if message.MessageType == "" {
+		message.MessageType = "text"
+	}
+	if message.Sender == "" {
+		message.Sender = "我"
+	}
+	if message.ThreadID == "" || message.SenderID == "" || message.Content == "" || !knownChatThread(message.ThreadID) {
+		return nil, ErrInvalidArgument
+	}
+	now := time.Now().UTC()
+	risk := messageRiskCheck(message.Content, now)
+	if risk.State == MessageRiskBlocked {
+		return nil, fmt.Errorf("%w: %s", ErrRiskControlRejected, risk.Reason)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.chatThreadMemberLocked(message.ThreadID, chatSubjectTypeForID(message.SenderID), message.SenderID) == nil {
+		return nil, ErrNotFound
+	}
+	s.nextChatMessageID++
+	message.ID = fmt.Sprintf("msg_%d", s.nextChatMessageID)
+	message.CreatedAt = now
+	applyMessageRiskToChatMessage(&message, risk)
+	s.chatMessages[message.ID] = cloneChatMessage(&message)
+	s.enqueueOutboxEventLocked(
+		"message.sent",
+		"chat_thread",
+		message.ThreadID,
+		"message.sent",
+		"message.sent:"+message.ID,
+		chatMessageOutboxPayload(message),
+		message.CreatedAt,
+	)
+	return cloneChatMessage(&message), nil
+}
+
+func (s *Store) AuthorizeChatThreadAccess(req ChatThreadAccessRequest) (*ChatThreadAccessResult, error) {
+	req.ThreadID = strings.TrimSpace(req.ThreadID)
+	req.SubjectID = strings.TrimSpace(req.SubjectID)
+	req.SubjectType = normalizeChatSubjectType(req.SubjectType, req.Role, req.SubjectID)
+	if req.ThreadID == "" || req.SubjectType == "" || req.SubjectID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if !knownChatThread(req.ThreadID) {
+		return nil, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	member := s.chatThreadMemberLocked(req.ThreadID, req.SubjectType, req.SubjectID)
+	if member == nil {
+		return nil, ErrNotFound
+	}
+	return &ChatThreadAccessResult{
+		ThreadID:    req.ThreadID,
+		SubjectType: member.SubjectType,
+		SubjectID:   req.SubjectID,
+		Allowed:     true,
+		Muted:       member.Muted,
+	}, nil
+}
+
+func (s *Store) WalletOverview(userID string) (*WalletOverview, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	transactions := s.walletTransactionsForUserLocked(userID)
+	if len(transactions) == 0 {
+		transactions = defaultWalletTransactions(userID)
+	}
+	withdrawals := make([]WalletWithdrawRequest, 0)
+	for _, request := range s.withdrawRequests {
+		if request != nil && request.UserID == userID {
+			withdrawals = append(withdrawals, *cloneWalletWithdrawRequest(request))
+		}
+	}
+	sort.SliceStable(withdrawals, func(i, j int) bool {
+		return withdrawals[i].CreatedAt.After(withdrawals[j].CreatedAt)
+	})
+
+	account := s.wallets[userID]
+	accountCopy := WalletAccount{UserID: userID, Balance: s.walletBalanceForOverviewLocked(userID), RiskState: "normal"}
+	if account != nil {
+		accountCopy = *cloneWalletAccount(account)
+	}
+	coupons := s.userCouponsForUserLocked(userID)
+	return &WalletOverview{
+		Account:               accountCopy,
+		BalanceFen:            accountCopy.Balance,
+		PendingReceivableFen:  s.pendingReceivableFenForUserLocked(userID),
+		CouponCount:           len(coupons),
+		RedPacketCount:        s.redPacketCountForUserLocked(userID),
+		Points:                s.pointsBalanceForUserLocked(userID),
+		PaymentPasswordStatus: s.paymentPasswordStatusForUserLocked(userID),
+		Transactions:          transactions,
+		Withdrawals:           withdrawals,
+	}, nil
+}
+
+func (s *Store) RequestWalletWithdraw(req WalletWithdrawRequest) (*WalletWithdrawRequest, *WalletAccount, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Channel = strings.TrimSpace(req.Channel)
+	req.AccountName = strings.TrimSpace(req.AccountName)
+	req.AccountNo = strings.TrimSpace(req.AccountNo)
+	if req.Channel == "" {
+		req.Channel = "wechat_change"
+	}
+	if req.UserID == "" || req.AmountFen <= 0 {
+		return nil, nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	account := s.getOrCreateWalletLocked(req.UserID)
+	if account.Balance == 0 && req.UserID == "user_1" {
+		account.Balance = 12850
+		account.Version++
+	}
+	if account.Balance < req.AmountFen {
+		return nil, nil, ErrInsufficientBalance
+	}
+	account.Balance -= req.AmountFen
+	account.Frozen += req.AmountFen
+	account.Version++
+	now := time.Now().UTC()
+	s.nextWithdrawID++
+	req.ID = fmt.Sprintf("wd_%d", s.nextWithdrawID)
+	req.Status = "processing"
+	req.CreatedAt = now
+	s.withdrawRequests[req.ID] = cloneWalletWithdrawRequest(&req)
+	transaction := s.createWalletTransactionLocked(req.UserID, "", "withdraw", -req.AmountFen, req.Channel, "withdraw:"+req.ID)
+	transaction.Status = "processing"
+	s.walletIdempotency[transaction.IdempotencyKey] = transaction
+	return cloneWalletWithdrawRequest(&req), cloneWalletAccount(account), nil
+}
+
+func (s *Store) UserCoupons(userID string) (*UserCouponsSummary, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	coupons := s.userCouponsForUserLocked(userID)
+	now := time.Now().UTC()
+	expiring := 0
+	redPackets := s.redPacketCountForUserLocked(userID)
+	for _, coupon := range coupons {
+		if coupon.Status == "available" && !coupon.ExpiresAt.IsZero() && coupon.ExpiresAt.Before(now.Add(48*time.Hour)) {
+			expiring++
+		}
+	}
+	return &UserCouponsSummary{
+		AvailableCount: len(coupons),
+		RedPacketCount: redPackets,
+		ExpiringCount:  expiring,
+		Coupons:        coupons,
+	}, nil
+}
+
+func (s *Store) ClaimUserCoupon(userID string, code string) (*UserCoupon, error) {
+	userID = strings.TrimSpace(userID)
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if userID == "" || code == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if coupon, handled, err := s.claimMerchantGroupCouponLocked(userID, code); handled {
+		return coupon, err
+	}
+	s.nextCouponID++
+	now := time.Now().UTC()
+	coupon := &UserCoupon{
+		ID:           fmt.Sprintf("uc_%d", s.nextCouponID),
+		UserID:       userID,
+		Kind:         "platform",
+		Title:        "兑换码优惠券",
+		Subtitle:     "兑换码 " + strings.ToUpper(code),
+		Scope:        "外卖",
+		Source:       "平台券",
+		Status:       "available",
+		ButtonText:   "去使用",
+		AccentColor:  "#007aff",
+		AmountFen:    500,
+		ThresholdFen: 3000,
+		ExpiresAt:    now.Add(7 * 24 * time.Hour),
+		CreatedAt:    now,
+	}
+	s.userCoupons[coupon.ID] = cloneUserCoupon(coupon)
+	return cloneUserCoupon(coupon), nil
+}
+
+func (s *Store) UserPointsSummary(userID string) (*PointsSummary, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pointsSummaryLocked(userID), nil
+}
+
+func (s *Store) CheckInPoints(userID string) (*PointsSummary, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	today := time.Now().UTC().Format("2006-01-02")
+	for _, transaction := range s.pointsTransactions[userID] {
+		if transaction != nil && transaction.SourceID == "checkin:"+today {
+			return s.pointsSummaryLocked(userID), nil
+		}
+	}
+	now := time.Now().UTC()
+	s.pointsTransactions[userID] = append(s.pointsTransactions[userID], &PointsTransaction{
+		ID:        "pt_checkin_" + today,
+		UserID:    userID,
+		Type:      PointsTransactionEarn,
+		Title:     "每日签到奖励",
+		Points:    5,
+		SourceID:  "checkin:" + today,
+		CreatedAt: now,
+	})
+	return s.pointsSummaryLocked(userID), nil
+}
+
+func (s *Store) InviteSummary(userID string) (*InviteSummary, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	code := inviteCodeForUser(userID)
+	return &InviteSummary{
+		UserID:       userID,
+		InviteCode:   code,
+		RewardText:   "好友首单完成后，双方各得一张优惠券",
+		ShareTitle:   "来悦享e食一起点餐",
+		SharePath:    "/pages/auth/register/index?invite=" + code,
+		AbuseRiskTip: "同一手机号仅计一次，异常订单不参与奖励",
+		Records: []InviteRecord{
+			{ID: "inv_1", FriendName: "李四", Status: "首单待完成", RewardText: "待发放", CreatedAt: time.Now().UTC().Add(-48 * time.Hour)},
+			{ID: "inv_2", FriendName: "王五", Status: "奖励已到账", RewardText: "+1 张优惠券", CreatedAt: time.Now().UTC().Add(-96 * time.Hour)},
+		},
+	}, nil
+}
+
+func (s *Store) SearchCatalog(userID string, keyword string, category string) (*SearchCatalog, error) {
+	userID = strings.TrimSpace(userID)
+	keyword = strings.TrimSpace(keyword)
+	category = strings.TrimSpace(category)
+	if category == "" {
+		category = "all"
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	results := []SearchResult{}
+	for _, shop := range s.shops {
+		if shop == nil {
+			continue
+		}
+		resultType := "shop"
+		if containsString(shop.Capabilities, ShopCapabilityMedicine) {
+			resultType = "medicine"
+		}
+		results = append(results, SearchResult{
+			ID:           shop.ID,
+			Type:         resultType,
+			Title:        shop.Name,
+			Subtitle:     shop.Category + " · 月售 1.2万+",
+			DistanceText: "800m",
+			ImageURL:     defaultString(shop.CoverURL, shop.LogoURL),
+			Badge:        "品牌",
+			ButtonText:   buttonTextForSearchType(resultType),
+			Route:        "/pages/shop/detail/index?id=" + shop.ID,
+		})
+	}
+	for _, product := range s.products {
+		if product == nil || product.Status != ProductStatusActive {
+			continue
+		}
+		results = append(results, SearchResult{
+			ID:         product.ID,
+			Type:       "product",
+			Title:      product.Name,
+			Subtitle:   "蓝海餐厅 · 好评率 98%",
+			PriceFen:   product.PriceFen,
+			ImageURL:   product.ImageURL,
+			ButtonText: "加入购物车",
+			Route:      "/pages/shop/detail/index?id=" + product.ShopID,
+		})
+	}
+	for _, deal := range s.groupbuyDeals {
+		if deal == nil || deal.Status != ProductStatusActive {
+			continue
+		}
+		results = append(results, SearchResult{
+			ID:         deal.ID,
+			Type:       "groupbuy",
+			Title:      deal.Name,
+			Subtitle:   "周末通用 · 免预约",
+			PriceFen:   deal.PriceFen,
+			ImageURL:   deal.ImageURL,
+			Badge:      "团购券",
+			ButtonText: "去购买",
+			Route:      "/pages/shop/detail/index?id=" + deal.ShopID,
+		})
+	}
+	for _, product := range defaultMedicineProducts() {
+		results = append(results, SearchResult{
+			ID:         product.ID,
+			Type:       "medicine",
+			Title:      product.Name,
+			Subtitle:   product.Category + " · 校医务室",
+			PriceFen:   product.PriceFen,
+			ImageURL:   product.ImageURL,
+			Badge:      "买药",
+			ButtonText: "去买药",
+			Route:      "/pages/medicine/home/index",
+		})
+	}
+	results = append(results, SearchResult{
+		ID:           "errand_nearby",
+		Type:         "errand",
+		Title:        "附近跑腿",
+		Subtitle:     "帮买、帮送、帮取、帮办",
+		DistanceText: "约 35 分钟",
+		ImageURL:     errandImageURL(),
+		Badge:        "跑腿",
+		ButtonText:   "去下单",
+		Route:        "/pages/errand/home/index",
+	})
+	results = filterSearchResults(results, keyword, category)
+	suggestions := searchSuggestionsFromResults(results)
+	return &SearchCatalog{
+		Keyword:     keyword,
+		Category:    category,
+		Total:       len(results),
+		Suggestions: suggestions,
+		Results:     results,
+	}, nil
+}
+
+func (s *Store) MedicineHome(userID string) (*MedicineHome, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureMedicineStockLocked()
+	products := defaultMedicineProducts()
+	cartCount := 0
+	var cartAmountFen int64
+	for index := range products {
+		stock := s.medicineStock[products[index].ID]
+		if stock < 0 {
+			stock = 0
+		}
+		products[index].StockCount = stock
+		if products[index].SelectedQuantity > stock {
+			products[index].SelectedQuantity = stock
+		}
+		if products[index].SelectedQuantity > 0 {
+			cartCount += products[index].SelectedQuantity
+			cartAmountFen += products[index].PriceFen * int64(products[index].SelectedQuantity)
+		}
+	}
+	return &MedicineHome{
+		Clinic: MedicineClinic{
+			Name:         "校医务室",
+			Location:     "综合楼一层",
+			CoverURL:     "/assets/generated/medicine-clinic-cover.jpg",
+			BusinessTime: "今日 08:30-20:30",
+			Tags:         []string{"校内服务", "骑手配送"},
+			DeliveryText: "校内配送约 20-30 分钟",
+		},
+		Categories:    []string{"全部", "感冒发热", "处方药", "外伤消毒", "医用耗材"},
+		Products:      products,
+		CartCount:     cartCount,
+		CartAmountFen: cartAmountFen,
+	}, nil
+}
+
+func (s *Store) CreatePrescriptionImageUpload(req CreatePrescriptionImageUploadRequest) (*ObjectUploadTicket, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.ProductID = strings.TrimSpace(req.ProductID)
+	req.FileName = sanitizeObjectFileName(req.FileName)
+	req.ContentType = normalizeEvidenceContentType(req.ContentType)
+	if req.ProductID == "" {
+		req.ProductID = "med_amoxicillin"
+	}
+	if req.UserID == "" || req.FileName == "" || req.ContentType == "" || req.SizeBytes <= 0 || req.SizeBytes > AfterSalesEvidenceMaxBytes {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	storage := s.objectStorageConfigLocked()
+	scanStatus := AfterSalesUploadScanNotRequired
+	if storage.RequireScanApprovalForConfirm {
+		scanStatus = AfterSalesUploadScanPending
+	}
+	expiresAt := now.Add(storage.TicketTTL)
+	objectKey := fmt.Sprintf("prescriptions/%s/%s/%s", shortHash(req.UserID), shortHash(fmt.Sprintf("%s:%s:%d", req.UserID, req.FileName, now.UnixNano())), req.FileName)
+	ticket, err := storage.createObjectUploadTicket(objectUploadTicketInput{
+		ObjectKey:    objectKey,
+		ContentType:  req.ContentType,
+		SizeBytes:    req.SizeBytes,
+		MaxSizeBytes: AfterSalesEvidenceMaxBytes,
+		ExpiresAt:    expiresAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ticketID := "rxu_" + shortHash(ticket.ObjectKey)
+	ticket.TicketID = ticketID
+	if s.prescriptionImageTickets == nil {
+		s.prescriptionImageTickets = map[string]*PrescriptionImageUploadTicket{}
+	}
+	s.prescriptionImageTickets[ticketID] = &PrescriptionImageUploadTicket{
+		ID:           ticketID,
+		UserID:       req.UserID,
+		ProductID:    req.ProductID,
+		Provider:     ticket.Provider,
+		Bucket:       ticket.Bucket,
+		ObjectKey:    ticket.ObjectKey,
+		PublicURL:    ticket.PublicURL,
+		FileName:     req.FileName,
+		ContentType:  req.ContentType,
+		SizeBytes:    req.SizeBytes,
+		MaxSizeBytes: ticket.MaxSizeBytes,
+		Status:       AfterSalesUploadTicketIssued,
+		ScanStatus:   scanStatus,
+		CreatedAt:    now,
+		ExpiresAt:    ticket.ExpiresAt,
+	}
+	return ticket, nil
+}
+
+func (s *Store) ConfirmPrescriptionImageUpload(req ConfirmPrescriptionImageUploadRequest) (*PrescriptionImageUploadTicket, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.TicketID = strings.TrimSpace(req.TicketID)
+	req.ObjectKey = strings.TrimSpace(req.ObjectKey)
+	req.FileName = sanitizeObjectFileName(req.FileName)
+	req.ContentType = normalizeEvidenceContentType(req.ContentType)
+	req.ContentSHA = strings.TrimSpace(req.ContentSHA)
+	if req.UserID == "" || req.TicketID == "" || req.ObjectKey == "" || req.ContentType == "" || req.SizeBytes <= 0 || req.SizeBytes > AfterSalesEvidenceMaxBytes {
+		return nil, ErrInvalidArgument
+	}
+	if !validPrescriptionImageObjectKey(req.ObjectKey) {
+		return nil, ErrInvalidArgument
+	}
+	if req.FileName == "" {
+		req.FileName = sanitizeObjectFileName(objectKeyFileName(req.ObjectKey))
+	}
+	if req.FileName == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	ticket, storage, err := s.preparePrescriptionImageConfirmation(req)
+	if err != nil {
+		return nil, err
+	}
+	if ticket.Status == AfterSalesUploadTicketConfirmed {
+		return ticket, nil
+	}
+	if err := storage.verifyUploadedObject(objectHeadCheckInput{
+		ObjectKey:   ticket.ObjectKey,
+		ContentType: ticket.ContentType,
+		SizeBytes:   ticket.SizeBytes,
+	}); err != nil {
+		return nil, err
+	}
+	return s.commitPrescriptionImageConfirmation(req)
+}
+
+func (s *Store) CreatePrescriptionReview(req CreatePrescriptionReviewRequest) (*PrescriptionReview, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.PatientName = strings.TrimSpace(req.PatientName)
+	req.PatientPhone = strings.TrimSpace(req.PatientPhone)
+	req.Address = strings.TrimSpace(req.Address)
+	req.Hospital = strings.TrimSpace(req.Hospital)
+	req.ProductID = strings.TrimSpace(req.ProductID)
+	req.ProductName = strings.TrimSpace(req.ProductName)
+	req.ProductImage = strings.TrimSpace(req.ProductImage)
+	req.ImageURL = strings.TrimSpace(req.ImageURL)
+	req.PrescriptionImageTicketID = strings.TrimSpace(req.PrescriptionImageTicketID)
+	req.PrescriptionObjectKey = strings.TrimSpace(req.PrescriptionObjectKey)
+	req.PrescriptionContentSHA = strings.TrimSpace(req.PrescriptionContentSHA)
+	req.Note = strings.TrimSpace(req.Note)
+	if req.PatientName == "" {
+		req.PatientName = "张三"
+	}
+	if req.PatientPhone == "" {
+		req.PatientPhone = "13800000000"
+	}
+	if req.Address == "" {
+		req.Address = "望京校区 3 号宿舍楼"
+	}
+	if req.Hospital == "" {
+		req.Hospital = "校医务室"
+	}
+	if req.ProductID == "" {
+		req.ProductID = "med_amoxicillin"
+	}
+	if req.ProductName == "" {
+		req.ProductName = "阿莫西林胶囊"
+	}
+	if req.ProductImage == "" {
+		req.ProductImage = medicineProductImageURL(req.ProductID)
+	}
+	if req.PriceFen <= 0 {
+		req.PriceFen = 1880
+	}
+	if req.Quantity <= 0 {
+		req.Quantity = 1
+	}
+	if req.UserID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var imageTicket *PrescriptionImageUploadTicket
+	if req.PrescriptionImageTicketID != "" || req.PrescriptionObjectKey != "" {
+		var err error
+		imageTicket, err = s.prescriptionImageUploadTicketForReviewLocked(req)
+		if err != nil {
+			return nil, err
+		}
+		if req.ImageURL == "" {
+			req.ImageURL = imageTicket.PublicURL
+		}
+		if req.PrescriptionObjectKey == "" {
+			req.PrescriptionObjectKey = imageTicket.ObjectKey
+		}
+		if req.PrescriptionContentSHA == "" {
+			req.PrescriptionContentSHA = imageTicket.ContentSHA
+		}
+	}
+	now := time.Now().UTC()
+	reviewedAt := now.Add(3 * time.Minute)
+	s.nextPrescriptionID++
+	review := &PrescriptionReview{
+		ID:              fmt.Sprintf("rx_%d", s.nextPrescriptionID),
+		UserID:          req.UserID,
+		PatientName:     req.PatientName,
+		PatientPhone:    req.PatientPhone,
+		Address:         req.Address,
+		Hospital:        req.Hospital,
+		ProductID:       req.ProductID,
+		ProductName:     req.ProductName,
+		ProductImage:    req.ProductImage,
+		PriceFen:        req.PriceFen,
+		Quantity:        req.Quantity,
+		ImageURL:        req.ImageURL,
+		ImageObjectKey:  req.PrescriptionObjectKey,
+		ImageContentSHA: req.PrescriptionContentSHA,
+		Note:            req.Note,
+		Status:          PrescriptionReviewApproved,
+		DoctorName:      "王医生",
+		ReviewText:      "处方信息已确认，可加入购物车购买。",
+		OCRResult:       prescriptionOCRResult(req, imageTicket),
+		Archive:         prescriptionArchiveRecord(fmt.Sprintf("rx_%d", s.nextPrescriptionID), req.PrescriptionObjectKey, req.PrescriptionContentSHA, now),
+		CreatedAt:       now,
+		ReviewedAt:      reviewedAt,
+		UpdatedAt:       reviewedAt,
+	}
+	if imageTicket != nil {
+		review.ImageUploadTicketID = imageTicket.ID
+	}
+	review.Steps = prescriptionSteps(review)
+	s.prescriptionReviews[review.ID] = clonePrescriptionReview(review)
+	return clonePrescriptionReview(review), nil
+}
+
+func (s *Store) PrescriptionReview(userID string, reviewID string) (*PrescriptionReview, error) {
+	userID = strings.TrimSpace(userID)
+	reviewID = strings.TrimSpace(reviewID)
+	if userID == "" || reviewID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	review := s.prescriptionReviews[reviewID]
+	if review == nil {
+		if reviewID == "rx_preview" && userID == "user_1" {
+			preview := defaultPrescriptionReview(userID)
+			return clonePrescriptionReview(&preview), nil
+		}
+		return nil, ErrNotFound
+	}
+	if review.UserID != userID {
+		return nil, ErrNotFound
+	}
+	return clonePrescriptionReview(review), nil
+}
+
+func (s *Store) AdminPrescriptionReviews(req PrescriptionReviewListRequest) ([]PrescriptionReview, error) {
+	req.Status = strings.TrimSpace(req.Status)
+	req.ProductID = strings.TrimSpace(req.ProductID)
+	if req.Limit <= 0 || req.Limit > 100 {
+		req.Limit = 20
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	reviews := make([]PrescriptionReview, 0, len(s.prescriptionReviews))
+	for _, review := range s.prescriptionReviews {
+		if review == nil {
+			continue
+		}
+		if req.Status != "" && review.Status != req.Status {
+			continue
+		}
+		if req.ProductID != "" && review.ProductID != req.ProductID {
+			continue
+		}
+		reviews = append(reviews, *clonePrescriptionReview(review))
+	}
+	sort.Slice(reviews, func(i, j int) bool {
+		return reviews[i].CreatedAt.After(reviews[j].CreatedAt)
+	})
+	if len(reviews) > req.Limit {
+		reviews = reviews[:req.Limit]
+	}
+	return reviews, nil
+}
+
+func (s *Store) ReviewPrescription(req ReviewPrescriptionRequest) (*PrescriptionReview, error) {
+	req.ReviewID = strings.TrimSpace(req.ReviewID)
+	req.ReviewerID = strings.TrimSpace(req.ReviewerID)
+	req.ReviewerName = strings.TrimSpace(req.ReviewerName)
+	req.Decision = strings.TrimSpace(req.Decision)
+	req.ReviewText = strings.TrimSpace(req.ReviewText)
+	if req.ReviewID == "" || req.ReviewerID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if req.Decision != PrescriptionReviewApproved && req.Decision != PrescriptionReviewRejected {
+		return nil, ErrInvalidArgument
+	}
+	if req.ReviewerName == "" {
+		req.ReviewerName = "药师"
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	review := s.prescriptionReviews[req.ReviewID]
+	if review == nil {
+		return nil, ErrNotFound
+	}
+	now := time.Now().UTC()
+	review.Status = req.Decision
+	review.DoctorName = req.ReviewerName
+	if req.ReviewText != "" {
+		review.ReviewText = req.ReviewText
+	} else if req.Decision == PrescriptionReviewApproved {
+		review.ReviewText = "药师复核通过，可加入购物车购买。"
+	} else {
+		review.ReviewText = "处方信息未通过复核，请重新上传清晰处方或联系校医。"
+	}
+	review.ReviewedAt = now
+	review.UpdatedAt = now
+	if review.OCRResult == nil {
+		review.OCRResult = prescriptionOCRResult(CreatePrescriptionReviewRequest{
+			ProductID:              review.ProductID,
+			ProductName:            review.ProductName,
+			PatientName:            review.PatientName,
+			ImageURL:               review.ImageURL,
+			PriceFen:               review.PriceFen,
+			Quantity:               review.Quantity,
+			PrescriptionObjectKey:  review.ImageObjectKey,
+			PrescriptionContentSHA: review.ImageContentSHA,
+		}, nil)
+	}
+	if review.Archive == nil {
+		review.Archive = prescriptionArchiveRecord(review.ID, review.ImageObjectKey, review.ImageContentSHA, review.CreatedAt)
+	}
+	review.Steps = prescriptionSteps(review)
+	return clonePrescriptionReview(review), nil
+}
+
+func (s *Store) CreateMedicineOrder(req MedicineOrderRequest) (*MedicineOrderDetail, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Address = strings.TrimSpace(req.Address)
+	req.ContactName = strings.TrimSpace(req.ContactName)
+	req.ContactPhone = strings.TrimSpace(req.ContactPhone)
+	req.ClinicName = strings.TrimSpace(req.ClinicName)
+	req.PrescriptionID = strings.TrimSpace(req.PrescriptionID)
+	req.PaymentMethod = strings.TrimSpace(req.PaymentMethod)
+	req.Remark = strings.TrimSpace(req.Remark)
+	if req.UserID == "" {
+		return nil, ErrInvalidArgument
+	}
+	if req.Address == "" {
+		req.Address = "望京校区 3 号宿舍楼 508"
+	}
+	if req.ContactName == "" {
+		req.ContactName = "张三"
+	}
+	if req.ContactPhone == "" {
+		req.ContactPhone = "13800000000"
+	}
+	if req.ClinicName == "" {
+		req.ClinicName = "校医务室"
+	}
+	if req.PaymentMethod == "" {
+		req.PaymentMethod = PaymentBalance
+	}
+	if req.DeliveryFeeFen <= 0 {
+		req.DeliveryFeeFen = 200
+	}
+	items := normalizedMedicineOrderItems(req.Items)
+	if len(items) == 0 {
+		items = defaultMedicineOrderItems()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prescriptionStatus := ""
+	doctorName := ""
+	if req.PrescriptionID != "" {
+		review := s.prescriptionReviews[req.PrescriptionID]
+		if review == nil || review.UserID != req.UserID {
+			return nil, ErrNotFound
+		}
+		if review.Status != PrescriptionReviewApproved {
+			return nil, ErrInvalidOrderState
+		}
+		prescriptionStatus = review.Status
+		doctorName = review.DoctorName
+	}
+	if err := s.lockMedicineStockLocked(items); err != nil {
+		return nil, err
+	}
+	for index := range items {
+		if items[index].RequiresPrescription && prescriptionStatus == PrescriptionReviewApproved {
+			items[index].PrescriptionApproved = true
+		}
+	}
+	now := time.Now().UTC()
+	subtotal := medicineItemsTotalFen(items)
+	payable := subtotal + req.DeliveryFeeFen - req.CouponAmountFen
+	if payable <= 0 {
+		payable = subtotal + req.DeliveryFeeFen
+	}
+	s.nextOrderID++
+	orderItems := make([]OrderItem, 0, len(items))
+	for _, item := range items {
+		orderItems = append(orderItems, OrderItem{
+			ProductID:    item.ProductID,
+			ProductName:  item.Name,
+			ImageURL:     item.ImageURL,
+			UnitPriceFen: item.PriceFen,
+			Quantity:     item.Quantity,
+		})
+	}
+	order := &Order{
+		ID:             fmt.Sprintf("ord_%d", s.nextOrderID),
+		UserID:         req.UserID,
+		Type:           OrderTypeMedicine,
+		Status:         StatusPickedUp,
+		AmountFen:      payable,
+		ItemsTotalFen:  subtotal,
+		DeliveryFeeFen: req.DeliveryFeeFen,
+		DiscountFen:    req.CouponAmountFen,
+		PaymentMethod:  req.PaymentMethod,
+		RiderID:        "rider_zhang",
+		Items:          orderItems,
+		CreatedAt:      now,
+		UpdatedAt:      now.Add(12 * time.Minute),
+		Events: []OrderEvent{
+			{Type: "medicine.created", ActorID: req.UserID, Message: "订单已提交", CreatedAt: now},
+			{Type: "medicine.dispensed", ActorID: "clinic", Message: "校医出药完成", CreatedAt: now.Add(4 * time.Minute)},
+			{Type: "medicine.picked_up", ActorID: "rider_zhang", Message: "骑手已取药", CreatedAt: now.Add(12 * time.Minute)},
+		},
+	}
+	s.orders[order.ID] = order
+	detail := s.medicineDetailForOrderLocked(order, req, items, prescriptionStatus, doctorName)
+	s.medicineDetails[order.ID] = cloneMedicineOrderDetail(detail)
+	return cloneMedicineOrderDetail(detail), nil
+}
+
+func (s *Store) MedicineOrderDetail(userID string, orderID string) (*MedicineOrderDetail, error) {
+	userID = strings.TrimSpace(userID)
+	orderID = strings.TrimSpace(orderID)
+	if userID == "" || orderID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if detail := s.medicineDetails[orderID]; detail != nil {
+		if detail.Order.UserID != userID {
+			return nil, ErrNotFound
+		}
+		return cloneMedicineOrderDetail(detail), nil
+	}
+	order := s.orders[orderID]
+	if order == nil || order.UserID != userID || order.Type != OrderTypeMedicine {
+		return nil, ErrNotFound
+	}
+	items := defaultMedicineOrderItems()
+	if len(order.Items) > 0 {
+		items = make([]MedicineOrderItem, 0, len(order.Items))
+		for _, item := range order.Items {
+			items = append(items, MedicineOrderItem{
+				ProductID: item.ProductID,
+				Name:      item.ProductName,
+				ImageURL:  item.ImageURL,
+				PriceFen:  item.UnitPriceFen,
+				Quantity:  item.Quantity,
+			})
+		}
+	}
+	detail := s.medicineDetailForOrderLocked(order, MedicineOrderRequest{UserID: userID}, items, PrescriptionReviewApproved, "王医生")
+	s.medicineDetails[order.ID] = cloneMedicineOrderDetail(detail)
+	return cloneMedicineOrderDetail(detail), nil
+}
+
+func (s *Store) CreateErrandOrder(req ErrandOrderRequest) (*ErrandOrderDetail, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Type = strings.TrimSpace(req.Type)
+	req.PickupAddress = strings.TrimSpace(req.PickupAddress)
+	req.DeliveryAddress = strings.TrimSpace(req.DeliveryAddress)
+	req.ContactName = strings.TrimSpace(req.ContactName)
+	req.ContactPhone = strings.TrimSpace(req.ContactPhone)
+	req.ItemType = strings.TrimSpace(req.ItemType)
+	req.Description = strings.TrimSpace(req.Description)
+	req.ImageURL = strings.TrimSpace(req.ImageURL)
+	req.WeightText = strings.TrimSpace(req.WeightText)
+	req.PickupTime = strings.TrimSpace(req.PickupTime)
+	if req.Type == "" {
+		req.Type = OrderTypeErrandPickup
+	}
+	if req.AmountFen <= 0 {
+		req.AmountFen = 1600
+	}
+	if req.CouponAmountFen < 0 {
+		req.CouponAmountFen = 0
+	}
+	if req.UserID == "" || !isErrandOrderType(req.Type) {
+		return nil, ErrInvalidArgument
+	}
+	if req.PickupAddress == "" {
+		req.PickupAddress = "望京SOHO B座 快递柜"
+	}
+	if req.DeliveryAddress == "" {
+		req.DeliveryAddress = "望京SOHO A座 1208"
+	}
+	if req.ContactName == "" {
+		req.ContactName = "张三"
+	}
+	if req.ContactPhone == "" {
+		req.ContactPhone = "13800000000"
+	}
+	if req.ItemType == "" {
+		req.ItemType = "小件包裹"
+	}
+	if req.Description == "" {
+		req.Description = "取 3 号柜快递，验证码已备注"
+	}
+	if req.ImageURL == "" {
+		req.ImageURL = errandImageURL()
+	}
+	if req.WeightText == "" {
+		req.WeightText = "2kg 内"
+	}
+	if req.PickupTime == "" {
+		req.PickupTime = "立即取送"
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextOrderID++
+	now := time.Now().UTC()
+	payable := req.AmountFen - req.CouponAmountFen
+	if payable <= 0 {
+		payable = req.AmountFen
+	}
+	order := &Order{
+		ID:            fmt.Sprintf("ord_%d", s.nextOrderID),
+		UserID:        req.UserID,
+		Type:          req.Type,
+		Status:        StatusRiderAssigned,
+		AmountFen:     payable,
+		RiderID:       "rider_zhang",
+		PaymentMethod: PaymentBalance,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		Events: []OrderEvent{
+			{Type: "errand.created", ActorID: req.UserID, Message: "订单已创建", CreatedAt: now},
+			{Type: "errand.rider_assigned", ActorID: "rider_zhang", Message: "骑手已接单", CreatedAt: now.Add(2 * time.Minute)},
+			{Type: "errand.to_pickup", ActorID: "rider_zhang", Message: "骑手正在前往取件地址", CreatedAt: now.Add(4 * time.Minute)},
+		},
+	}
+	s.orders[order.ID] = order
+	detail := s.errandDetailForOrderLocked(order, req)
+	s.errandDetails[order.ID] = cloneErrandOrderDetail(detail)
+	return cloneErrandOrderDetail(detail), nil
+}
+
+func (s *Store) ErrandOrderDetail(userID string, orderID string) (*ErrandOrderDetail, error) {
+	userID = strings.TrimSpace(userID)
+	orderID = strings.TrimSpace(orderID)
+	if userID == "" || orderID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if detail := s.errandDetails[orderID]; detail != nil {
+		if detail.Order.UserID != userID {
+			return nil, ErrNotFound
+		}
+		return cloneErrandOrderDetail(detail), nil
+	}
+	order := s.orders[orderID]
+	if order == nil || order.UserID != userID || !isErrandOrderType(order.Type) {
+		return nil, ErrNotFound
+	}
+	detail := s.errandDetailForOrderLocked(order, ErrandOrderRequest{UserID: userID, Type: order.Type, AmountFen: order.AmountFen})
+	s.errandDetails[order.ID] = cloneErrandOrderDetail(detail)
+	return cloneErrandOrderDetail(detail), nil
 }
 
 func (s *Store) SetWalletPaymentPassword(req SetWalletPaymentPasswordRequest) (*WalletPaymentPasswordState, error) {
@@ -1683,6 +5400,49 @@ func (s *Store) SaveRefundSettingsWithAudit(req SaveRefundSettingsRequest, audit
 	sealAuditLogIntegrity(log, s.auditLogSigningSecret)
 	s.auditLogs[log.ID] = log
 	return &settings, cloneAuditLog(log), nil
+}
+
+func (s *Store) AdminRefundTransactions(req RefundTransactionListRequest) ([]RefundTransaction, error) {
+	req.OrderID = strings.TrimSpace(req.OrderID)
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Destination = strings.TrimSpace(req.Destination)
+	req.Status = strings.TrimSpace(req.Status)
+	if req.Limit <= 0 || req.Limit > 200 {
+		req.Limit = 50
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	refunds := make([]RefundTransaction, 0, len(s.refundTransactions))
+	for _, refund := range s.refundTransactions {
+		if refund == nil {
+			continue
+		}
+		if req.OrderID != "" && refund.OrderID != req.OrderID {
+			continue
+		}
+		if req.UserID != "" && refund.UserID != req.UserID {
+			continue
+		}
+		if req.Destination != "" && refund.Destination != req.Destination {
+			continue
+		}
+		if req.Status != "" && refund.Status != req.Status {
+			continue
+		}
+		refunds = append(refunds, *cloneRefundTransaction(refund))
+	}
+	sort.SliceStable(refunds, func(i, j int) bool {
+		if refunds[i].CreatedAt.Equal(refunds[j].CreatedAt) {
+			return refunds[i].ID > refunds[j].ID
+		}
+		return refunds[i].CreatedAt.After(refunds[j].CreatedAt)
+	})
+	if len(refunds) > req.Limit {
+		refunds = refunds[:req.Limit]
+	}
+	return refunds, nil
 }
 
 func (s *Store) RefundOrder(req RefundOrderRequest) (*RefundTransaction, *Order, *WalletAccount, error) {
@@ -1955,6 +5715,14 @@ func (s *Store) AdminOperationsSnapshot(req AdminOperationsSnapshotRequest) (*Ad
 		merchants = merchants[:limit]
 	}
 
+	riderPerformance, err := s.riderPerformanceSnapshotLocked(req.StationManagerID)
+	if err != nil {
+		return nil, err
+	}
+	if len(riderPerformance) > limit {
+		riderPerformance = riderPerformance[:limit]
+	}
+
 	riders := make([]RiderAccount, 0, len(s.riders))
 	for _, rider := range s.riders {
 		if rider == nil {
@@ -1988,14 +5756,6 @@ func (s *Store) AdminOperationsSnapshot(req AdminOperationsSnapshotRequest) (*Ad
 	})
 	if len(riders) > limit {
 		riders = riders[:limit]
-	}
-
-	riderPerformance, err := s.riderPerformanceSnapshotLocked(req.StationManagerID)
-	if err != nil {
-		return nil, err
-	}
-	if len(riderPerformance) > limit {
-		riderPerformance = riderPerformance[:limit]
 	}
 
 	afterSales := make([]AfterSalesRequest, 0, len(s.afterSalesRequests))
@@ -2325,28 +6085,76 @@ func (s *Store) ConfirmObjectStorageUpload(req ObjectStorageUploadCallbackReques
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ticket := s.afterSalesUploadTickets[req.TicketID]
-	if !afterSalesUploadTicketMatchesObjectCallback(ticket, req) {
-		return nil, ErrInvalidArgument
-	}
-	if ticket.Status == AfterSalesUploadTicketConfirmed {
+	if ticket := s.afterSalesUploadTickets[req.TicketID]; ticket != nil {
+		if !afterSalesUploadTicketMatchesObjectCallback(ticket, req) {
+			return nil, ErrInvalidArgument
+		}
+		if ticket.Status == AfterSalesUploadTicketConfirmed {
+			return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+		}
+		if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+			return nil, ErrInvalidOrderState
+		}
+		if time.Now().UTC().After(ticket.ExpiresAt) {
+			return nil, ErrInvalidOrderState
+		}
+		ticket.Status = AfterSalesUploadTicketUploaded
+		ticket.ContentSHA = req.ContentSHA
+		ticket.UploadedAt = req.UploadedAt
+		if storage.RequireScanApprovalForConfirm {
+			ticket.ScanStatus = AfterSalesUploadScanPending
+		} else {
+			ticket.ScanStatus = AfterSalesUploadScanNotRequired
+		}
 		return cloneAfterSalesEvidenceUploadTicket(ticket), nil
 	}
-	if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
-		return nil, ErrInvalidOrderState
+	if ticket := s.reviewImageTickets[req.TicketID]; ticket != nil {
+		if !reviewImageUploadTicketMatchesObjectCallback(ticket, req) {
+			return nil, ErrInvalidArgument
+		}
+		if ticket.Status == AfterSalesUploadTicketConfirmed {
+			return reviewTicketObjectStorageView(ticket), nil
+		}
+		if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+			return nil, ErrInvalidOrderState
+		}
+		if time.Now().UTC().After(ticket.ExpiresAt) {
+			return nil, ErrInvalidOrderState
+		}
+		ticket.Status = AfterSalesUploadTicketUploaded
+		ticket.ContentSHA = req.ContentSHA
+		ticket.UploadedAt = req.UploadedAt
+		if storage.RequireScanApprovalForConfirm {
+			ticket.ScanStatus = AfterSalesUploadScanPending
+		} else {
+			ticket.ScanStatus = AfterSalesUploadScanNotRequired
+		}
+		return reviewTicketObjectStorageView(ticket), nil
 	}
-	if time.Now().UTC().After(ticket.ExpiresAt) {
-		return nil, ErrInvalidOrderState
+	if ticket := s.prescriptionImageTickets[req.TicketID]; ticket != nil {
+		if !prescriptionImageUploadTicketMatchesObjectCallback(ticket, req) {
+			return nil, ErrInvalidArgument
+		}
+		if ticket.Status == AfterSalesUploadTicketConfirmed {
+			return prescriptionTicketObjectStorageView(ticket), nil
+		}
+		if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+			return nil, ErrInvalidOrderState
+		}
+		if time.Now().UTC().After(ticket.ExpiresAt) {
+			return nil, ErrInvalidOrderState
+		}
+		ticket.Status = AfterSalesUploadTicketUploaded
+		ticket.ContentSHA = req.ContentSHA
+		ticket.UploadedAt = req.UploadedAt
+		if storage.RequireScanApprovalForConfirm {
+			ticket.ScanStatus = AfterSalesUploadScanPending
+		} else {
+			ticket.ScanStatus = AfterSalesUploadScanNotRequired
+		}
+		return prescriptionTicketObjectStorageView(ticket), nil
 	}
-	ticket.Status = AfterSalesUploadTicketUploaded
-	ticket.ContentSHA = req.ContentSHA
-	ticket.UploadedAt = req.UploadedAt
-	if storage.RequireScanApprovalForConfirm {
-		ticket.ScanStatus = AfterSalesUploadScanPending
-	} else {
-		ticket.ScanStatus = AfterSalesUploadScanNotRequired
-	}
-	return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+	return nil, ErrInvalidArgument
 }
 
 func (s *Store) RecordObjectStorageScanResult(req ObjectStorageScanResultRequest) (*AfterSalesEvidenceUploadTicket, error) {
@@ -2379,23 +6187,61 @@ func (s *Store) RecordObjectStorageScanResult(req ObjectStorageScanResultRequest
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ticket := s.afterSalesUploadTickets[req.TicketID]
-	if ticket == nil || ticket.ObjectKey != req.ObjectKey {
-		return nil, ErrInvalidArgument
-	}
-	if ticket.Status == AfterSalesUploadTicketConfirmed {
-		if ticket.ScanStatus == req.ScanStatus && ticket.ScanResult == req.ScanResult {
-			return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+	if ticket := s.afterSalesUploadTickets[req.TicketID]; ticket != nil {
+		if ticket.ObjectKey != req.ObjectKey {
+			return nil, ErrInvalidArgument
 		}
-		return nil, ErrInvalidOrderState
+		if ticket.Status == AfterSalesUploadTicketConfirmed {
+			if ticket.ScanStatus == req.ScanStatus && ticket.ScanResult == req.ScanResult {
+				return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+			}
+			return nil, ErrInvalidOrderState
+		}
+		if ticket.Status != AfterSalesUploadTicketUploaded {
+			return nil, ErrInvalidOrderState
+		}
+		ticket.ScanStatus = req.ScanStatus
+		ticket.ScanResult = req.ScanResult
+		ticket.ScanCheckedAt = req.ScanCheckedAt
+		return cloneAfterSalesEvidenceUploadTicket(ticket), nil
 	}
-	if ticket.Status != AfterSalesUploadTicketUploaded {
-		return nil, ErrInvalidOrderState
+	if ticket := s.reviewImageTickets[req.TicketID]; ticket != nil {
+		if ticket.ObjectKey != req.ObjectKey {
+			return nil, ErrInvalidArgument
+		}
+		if ticket.Status == AfterSalesUploadTicketConfirmed {
+			if ticket.ScanStatus == req.ScanStatus && ticket.ScanResult == req.ScanResult {
+				return reviewTicketObjectStorageView(ticket), nil
+			}
+			return nil, ErrInvalidOrderState
+		}
+		if ticket.Status != AfterSalesUploadTicketUploaded {
+			return nil, ErrInvalidOrderState
+		}
+		ticket.ScanStatus = req.ScanStatus
+		ticket.ScanResult = req.ScanResult
+		ticket.ScanCheckedAt = req.ScanCheckedAt
+		return reviewTicketObjectStorageView(ticket), nil
 	}
-	ticket.ScanStatus = req.ScanStatus
-	ticket.ScanResult = req.ScanResult
-	ticket.ScanCheckedAt = req.ScanCheckedAt
-	return cloneAfterSalesEvidenceUploadTicket(ticket), nil
+	if ticket := s.prescriptionImageTickets[req.TicketID]; ticket != nil {
+		if ticket.ObjectKey != req.ObjectKey {
+			return nil, ErrInvalidArgument
+		}
+		if ticket.Status == AfterSalesUploadTicketConfirmed {
+			if ticket.ScanStatus == req.ScanStatus && ticket.ScanResult == req.ScanResult {
+				return prescriptionTicketObjectStorageView(ticket), nil
+			}
+			return nil, ErrInvalidOrderState
+		}
+		if ticket.Status != AfterSalesUploadTicketUploaded {
+			return nil, ErrInvalidOrderState
+		}
+		ticket.ScanStatus = req.ScanStatus
+		ticket.ScanResult = req.ScanResult
+		ticket.ScanCheckedAt = req.ScanCheckedAt
+		return prescriptionTicketObjectStorageView(ticket), nil
+	}
+	return nil, ErrInvalidArgument
 }
 
 func (s *Store) ObjectStorageCleanupCandidates(req ObjectStorageCleanupCandidatesRequest) ([]ObjectStorageCleanupCandidate, error) {
@@ -2804,16 +6650,20 @@ func (s *Store) AfterSalesEvidence(requestID string, actorID string, actorRole s
 	return evidence, nil
 }
 
-func (s *Store) UserAfterSalesRequests(userID string) ([]AfterSalesRequest, error) {
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
+func (s *Store) UserAfterSalesRequests(req AfterSalesListRequest) ([]AfterSalesRequest, error) {
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.OrderID = strings.TrimSpace(req.OrderID)
+	if req.UserID == "" {
 		return nil, ErrInvalidArgument
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	requests := make([]AfterSalesRequest, 0)
 	for _, request := range s.afterSalesRequests {
-		if request == nil || request.UserID != userID {
+		if request == nil || request.UserID != req.UserID {
+			continue
+		}
+		if req.OrderID != "" && request.OrderID != req.OrderID {
 			continue
 		}
 		requests = append(requests, *s.afterSalesRequestViewLocked(request))
@@ -2843,7 +6693,10 @@ func (s *Store) MerchantAfterSalesRequests(merchantID string) ([]AfterSalesReque
 	return requests, nil
 }
 
-func (s *Store) AdminAfterSalesRequests() ([]AfterSalesRequest, error) {
+func (s *Store) AdminAfterSalesRequests(req AfterSalesListRequest) ([]AfterSalesRequest, error) {
+	req.OrderID = strings.TrimSpace(req.OrderID)
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.Status = strings.TrimSpace(req.Status)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	requests := make([]AfterSalesRequest, 0, len(s.afterSalesRequests))
@@ -2851,10 +6704,404 @@ func (s *Store) AdminAfterSalesRequests() ([]AfterSalesRequest, error) {
 		if request == nil {
 			continue
 		}
+		if req.RequestID != "" && request.ID != req.RequestID {
+			continue
+		}
+		if req.OrderID != "" && request.OrderID != req.OrderID {
+			continue
+		}
+		if req.Status != "" && request.Status != req.Status {
+			continue
+		}
 		requests = append(requests, *s.afterSalesRequestViewLocked(request))
 	}
 	sortAfterSalesRequests(requests)
 	return requests, nil
+}
+
+func (s *Store) AdminOrderDetail(orderID string) (*AdminOrderDetail, error) {
+	orderID = strings.TrimSpace(orderID)
+	if orderID == "" {
+		return nil, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	order := s.orders[orderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+
+	orderCopy := cloneOrder(order)
+	if orderCopy == nil {
+		return nil, ErrNotFound
+	}
+	orderCopy.Reviewed = s.userReviewedOrderLocked(order.UserID, order.ID)
+
+	detail := &AdminOrderDetail{
+		Order: *orderCopy,
+	}
+	for _, request := range s.afterSalesRequests {
+		if request == nil || request.OrderID != orderID {
+			continue
+		}
+		cloned := s.afterSalesRequestViewLocked(request)
+		if cloned == nil {
+			continue
+		}
+		detail.AfterSalesRequests = append(detail.AfterSalesRequests, *cloned)
+		detail.AfterSalesSummary.Total++
+		switch cloned.Status {
+		case AfterSalesPendingMerchant, AfterSalesAdminReview:
+			detail.AfterSalesSummary.OpenCount++
+		case AfterSalesRefunded:
+			detail.AfterSalesSummary.RefundedCount++
+		}
+		if detail.AfterSalesSummary.LatestUpdatedAt.IsZero() || cloned.UpdatedAt.After(detail.AfterSalesSummary.LatestUpdatedAt) {
+			detail.AfterSalesSummary.LatestUpdatedAt = cloned.UpdatedAt
+			detail.AfterSalesSummary.LatestStatus = cloned.Status
+		}
+	}
+	sort.SliceStable(detail.AfterSalesRequests, func(i, j int) bool {
+		if detail.AfterSalesRequests[i].UpdatedAt.Equal(detail.AfterSalesRequests[j].UpdatedAt) {
+			return detail.AfterSalesRequests[i].ID > detail.AfterSalesRequests[j].ID
+		}
+		return detail.AfterSalesRequests[i].UpdatedAt.After(detail.AfterSalesRequests[j].UpdatedAt)
+	})
+	for _, refund := range s.refundTransactions {
+		if refund == nil || refund.OrderID != orderID {
+			continue
+		}
+		cloned := cloneRefundTransaction(refund)
+		if cloned == nil {
+			continue
+		}
+		detail.Refunds = append(detail.Refunds, *cloned)
+		detail.RefundSummary.Total++
+		detail.RefundSummary.TotalAmountFen += cloned.AmountFen
+		if cloned.Status == RefundStatusSuccess {
+			detail.RefundSummary.SuccessCount++
+		}
+		if detail.RefundSummary.LatestCreatedAt.IsZero() || cloned.CreatedAt.After(detail.RefundSummary.LatestCreatedAt) {
+			detail.RefundSummary.LatestCreatedAt = cloned.CreatedAt
+			detail.RefundSummary.LatestDestination = cloned.Destination
+		}
+	}
+	sort.SliceStable(detail.Refunds, func(i, j int) bool {
+		if detail.Refunds[i].CreatedAt.Equal(detail.Refunds[j].CreatedAt) {
+			return detail.Refunds[i].ID < detail.Refunds[j].ID
+		}
+		return detail.Refunds[i].CreatedAt.Before(detail.Refunds[j].CreatedAt)
+	})
+	now := time.Now().UTC()
+	for _, ticket := range s.serviceTickets {
+		if ticket == nil || ticket.RelatedOrderID != orderID {
+			continue
+		}
+		s.syncServiceTicketSLAStatusLocked(ticket, now)
+		cloned := cloneServiceTicket(ticket)
+		if cloned == nil {
+			continue
+		}
+		detail.ServiceTickets = append(detail.ServiceTickets, *cloned)
+		detail.ServiceTicketSummary.Total++
+		if cloned.Status != ServiceTicketStatusClosed && cloned.Status != ServiceTicketStatusResolved {
+			detail.ServiceTicketSummary.OpenCount++
+		}
+		if cloned.SLAStatus == ServiceTicketSLAStatusEscalated {
+			detail.ServiceTicketSummary.EscalatedCount++
+		}
+		if detail.ServiceTicketSummary.LatestUpdatedAt.IsZero() || cloned.UpdatedAt.After(detail.ServiceTicketSummary.LatestUpdatedAt) {
+			detail.ServiceTicketSummary.LatestUpdatedAt = cloned.UpdatedAt
+			detail.ServiceTicketSummary.LatestStatus = cloned.Status
+		}
+	}
+	sort.SliceStable(detail.ServiceTickets, func(i, j int) bool {
+		if detail.ServiceTickets[i].UpdatedAt.Equal(detail.ServiceTickets[j].UpdatedAt) {
+			return detail.ServiceTickets[i].ID < detail.ServiceTickets[j].ID
+		}
+		return detail.ServiceTickets[i].UpdatedAt.After(detail.ServiceTickets[j].UpdatedAt)
+	})
+	for _, event := range s.dispatchEvents {
+		if event == nil || event.OrderID != orderID {
+			continue
+		}
+		cloned := cloneDispatchEvent(event)
+		if cloned == nil {
+			continue
+		}
+		detail.DispatchEvents = append(detail.DispatchEvents, *cloned)
+		detail.DispatchSummary.Total++
+		switch cloned.Mode {
+		case DispatchModeAutoAssign:
+			detail.DispatchSummary.AutoAssignCount++
+		case DispatchModeManualAssign:
+			detail.DispatchSummary.ManualAssignCount++
+		}
+		switch cloned.Type {
+		case "dispatch.rejected":
+			detail.DispatchSummary.RejectCount++
+		case "dispatch.timeout":
+			detail.DispatchSummary.TimeoutCount++
+		}
+		if detail.DispatchSummary.LatestEventAt.IsZero() || cloned.CreatedAt.After(detail.DispatchSummary.LatestEventAt) {
+			detail.DispatchSummary.LatestEventAt = cloned.CreatedAt
+			detail.DispatchSummary.LatestType = cloned.Type
+		}
+	}
+	sort.SliceStable(detail.DispatchEvents, func(i, j int) bool {
+		if detail.DispatchEvents[i].CreatedAt.Equal(detail.DispatchEvents[j].CreatedAt) {
+			return detail.DispatchEvents[i].ID < detail.DispatchEvents[j].ID
+		}
+		return detail.DispatchEvents[i].CreatedAt.Before(detail.DispatchEvents[j].CreatedAt)
+	})
+	auditTargets := map[string]struct{}{
+		"order:" + orderID: {},
+	}
+	for _, request := range detail.AfterSalesRequests {
+		auditTargets["after_sales:"+request.ID] = struct{}{}
+	}
+	for _, ticket := range detail.ServiceTickets {
+		auditTargets["service_ticket:"+ticket.ID] = struct{}{}
+	}
+	for _, auditLog := range s.auditLogs {
+		if auditLog == nil {
+			continue
+		}
+		if _, ok := auditTargets[auditLog.TargetType+":"+auditLog.TargetID]; !ok {
+			continue
+		}
+		cloned := cloneAuditLog(auditLog)
+		if cloned == nil {
+			continue
+		}
+		cloned.IntegrityVerified = verifyAuditLogIntegrity(*cloned, s.auditLogSigningSecret)
+		detail.RelatedAudits = append(detail.RelatedAudits, *cloned)
+		detail.AuditSummary.Total++
+		if cloned.IntegrityVerified {
+			detail.AuditSummary.VerifiedCount++
+		}
+		switch cloned.TargetType {
+		case "order":
+			detail.AuditSummary.OrderCount++
+		case "after_sales":
+			detail.AuditSummary.AfterSalesCount++
+		case "service_ticket":
+			detail.AuditSummary.ServiceTicketCount++
+		}
+		if detail.AuditSummary.LatestCreatedAt.IsZero() || cloned.CreatedAt.After(detail.AuditSummary.LatestCreatedAt) {
+			detail.AuditSummary.LatestCreatedAt = cloned.CreatedAt
+			detail.AuditSummary.LatestAction = cloned.Action
+		}
+	}
+	sort.SliceStable(detail.RelatedAudits, func(i, j int) bool {
+		if detail.RelatedAudits[i].CreatedAt.Equal(detail.RelatedAudits[j].CreatedAt) {
+			return detail.RelatedAudits[i].ID > detail.RelatedAudits[j].ID
+		}
+		return detail.RelatedAudits[i].CreatedAt.After(detail.RelatedAudits[j].CreatedAt)
+	})
+	if len(detail.RelatedAudits) > 20 {
+		detail.RelatedAudits = detail.RelatedAudits[:20]
+	}
+	return detail, nil
+}
+
+func (s *Store) AdminAfterSalesDetail(requestID string) (*AdminAfterSalesDetail, error) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	request := s.afterSalesRequests[requestID]
+	if request == nil {
+		return nil, ErrNotFound
+	}
+	order := s.orders[request.OrderID]
+	if order == nil {
+		return nil, ErrNotFound
+	}
+	detail := &AdminAfterSalesDetail{
+		Request: *s.afterSalesRequestViewLocked(request),
+	}
+	for _, event := range s.afterSalesEvents {
+		if event == nil || event.RequestID != requestID {
+			continue
+		}
+		cloned := cloneAfterSalesEvent(event)
+		if cloned == nil {
+			continue
+		}
+		detail.Events = append(detail.Events, *cloned)
+		detail.EventSummary.Total++
+		detail.EventSummary.AttachmentCount += len(cloned.Attachments)
+		if cloned.VisibleToUser {
+			detail.EventSummary.UserVisible++
+		} else {
+			detail.EventSummary.InternalOnly++
+		}
+		if detail.EventSummary.LatestEventAt.IsZero() || cloned.CreatedAt.After(detail.EventSummary.LatestEventAt) {
+			detail.EventSummary.LatestEventAt = cloned.CreatedAt
+			detail.EventSummary.LatestAction = cloned.Action
+		}
+	}
+	sortAfterSalesEvents(detail.Events)
+	for _, item := range s.afterSalesEvidence {
+		if item == nil || item.RequestID != requestID {
+			continue
+		}
+		cloned := cloneAfterSalesEvidence(item)
+		if cloned == nil {
+			continue
+		}
+		detail.Evidence = append(detail.Evidence, *cloned)
+		detail.EvidenceSummary.Total++
+		detail.EvidenceSummary.TotalSizeBytes += cloned.SizeBytes
+		if strings.HasPrefix(cloned.ContentType, "image/") {
+			detail.EvidenceSummary.ImageCount++
+		}
+		if !cloned.ConfirmedAt.IsZero() {
+			detail.EvidenceSummary.ConfirmedCount++
+			if detail.EvidenceSummary.LatestConfirmedAt.IsZero() || cloned.ConfirmedAt.After(detail.EvidenceSummary.LatestConfirmedAt) {
+				detail.EvidenceSummary.LatestConfirmedAt = cloned.ConfirmedAt
+			}
+		}
+	}
+	sortAfterSalesEvidence(detail.Evidence)
+	for _, event := range s.dispatchEvents {
+		if event == nil || event.OrderID != order.ID {
+			continue
+		}
+		cloned := cloneDispatchEvent(event)
+		if cloned == nil {
+			continue
+		}
+		detail.DispatchEvents = append(detail.DispatchEvents, *cloned)
+		detail.DispatchSummary.Total++
+		switch cloned.Mode {
+		case "auto_assign":
+			detail.DispatchSummary.AutoAssignCount++
+		case "manual_assign":
+			detail.DispatchSummary.ManualAssignCount++
+		}
+		switch cloned.Type {
+		case "dispatch.rejected":
+			detail.DispatchSummary.RejectCount++
+		case "dispatch.timeout":
+			detail.DispatchSummary.TimeoutCount++
+		}
+		if detail.DispatchSummary.LatestEventAt.IsZero() || cloned.CreatedAt.After(detail.DispatchSummary.LatestEventAt) {
+			detail.DispatchSummary.LatestEventAt = cloned.CreatedAt
+			detail.DispatchSummary.LatestType = cloned.Type
+		}
+	}
+	sort.SliceStable(detail.DispatchEvents, func(i, j int) bool {
+		if detail.DispatchEvents[i].CreatedAt.Equal(detail.DispatchEvents[j].CreatedAt) {
+			return detail.DispatchEvents[i].ID < detail.DispatchEvents[j].ID
+		}
+		return detail.DispatchEvents[i].CreatedAt.Before(detail.DispatchEvents[j].CreatedAt)
+	})
+	for _, refund := range s.refundTransactions {
+		if refund == nil || refund.OrderID != order.ID {
+			continue
+		}
+		cloned := cloneRefundTransaction(refund)
+		if cloned == nil {
+			continue
+		}
+		detail.Refunds = append(detail.Refunds, *cloned)
+		detail.RefundSummary.Total++
+		detail.RefundSummary.TotalAmountFen += cloned.AmountFen
+		if cloned.Status == RefundStatusSuccess {
+			detail.RefundSummary.SuccessCount++
+		}
+		if detail.RefundSummary.LatestCreatedAt.IsZero() || cloned.CreatedAt.After(detail.RefundSummary.LatestCreatedAt) {
+			detail.RefundSummary.LatestCreatedAt = cloned.CreatedAt
+			detail.RefundSummary.LatestDestination = cloned.Destination
+		}
+	}
+	sort.SliceStable(detail.Refunds, func(i, j int) bool {
+		if detail.Refunds[i].CreatedAt.Equal(detail.Refunds[j].CreatedAt) {
+			return detail.Refunds[i].ID < detail.Refunds[j].ID
+		}
+		return detail.Refunds[i].CreatedAt.Before(detail.Refunds[j].CreatedAt)
+	})
+	now := time.Now().UTC()
+	for _, ticket := range s.serviceTickets {
+		if ticket == nil || ticket.RelatedOrderID != order.ID {
+			continue
+		}
+		s.syncServiceTicketSLAStatusLocked(ticket, now)
+		cloned := cloneServiceTicket(ticket)
+		if cloned == nil {
+			continue
+		}
+		detail.ServiceTickets = append(detail.ServiceTickets, *cloned)
+		detail.ServiceTicketSummary.Total++
+		if cloned.Status != ServiceTicketStatusClosed && cloned.Status != ServiceTicketStatusResolved {
+			detail.ServiceTicketSummary.OpenCount++
+		}
+		if cloned.SLAStatus == ServiceTicketSLAStatusEscalated {
+			detail.ServiceTicketSummary.EscalatedCount++
+		}
+		if detail.ServiceTicketSummary.LatestUpdatedAt.IsZero() || cloned.UpdatedAt.After(detail.ServiceTicketSummary.LatestUpdatedAt) {
+			detail.ServiceTicketSummary.LatestUpdatedAt = cloned.UpdatedAt
+			detail.ServiceTicketSummary.LatestStatus = cloned.Status
+		}
+	}
+	sort.SliceStable(detail.ServiceTickets, func(i, j int) bool {
+		if detail.ServiceTickets[i].UpdatedAt.Equal(detail.ServiceTickets[j].UpdatedAt) {
+			return detail.ServiceTickets[i].ID < detail.ServiceTickets[j].ID
+		}
+		return detail.ServiceTickets[i].UpdatedAt.After(detail.ServiceTickets[j].UpdatedAt)
+	})
+	auditTargets := map[string]struct{}{
+		"after_sales:" + requestID: {},
+		"order:" + order.ID:        {},
+	}
+	for _, ticket := range detail.ServiceTickets {
+		auditTargets["service_ticket:"+ticket.ID] = struct{}{}
+	}
+	for _, auditLog := range s.auditLogs {
+		if auditLog == nil {
+			continue
+		}
+		if _, ok := auditTargets[auditLog.TargetType+":"+auditLog.TargetID]; !ok {
+			continue
+		}
+		cloned := cloneAuditLog(auditLog)
+		if cloned == nil {
+			continue
+		}
+		cloned.IntegrityVerified = verifyAuditLogIntegrity(*cloned, s.auditLogSigningSecret)
+		detail.RelatedAudits = append(detail.RelatedAudits, *cloned)
+		detail.AuditSummary.Total++
+		if cloned.IntegrityVerified {
+			detail.AuditSummary.VerifiedCount++
+		}
+		switch cloned.TargetType {
+		case "order":
+			detail.AuditSummary.OrderCount++
+		case "after_sales":
+			detail.AuditSummary.AfterSalesCount++
+		case "service_ticket":
+			detail.AuditSummary.ServiceTicketCount++
+		}
+		if detail.AuditSummary.LatestCreatedAt.IsZero() || cloned.CreatedAt.After(detail.AuditSummary.LatestCreatedAt) {
+			detail.AuditSummary.LatestCreatedAt = cloned.CreatedAt
+			detail.AuditSummary.LatestAction = cloned.Action
+		}
+	}
+	sort.SliceStable(detail.RelatedAudits, func(i, j int) bool {
+		if detail.RelatedAudits[i].CreatedAt.Equal(detail.RelatedAudits[j].CreatedAt) {
+			return detail.RelatedAudits[i].ID > detail.RelatedAudits[j].ID
+		}
+		return detail.RelatedAudits[i].CreatedAt.After(detail.RelatedAudits[j].CreatedAt)
+	})
+	if len(detail.RelatedAudits) > 20 {
+		detail.RelatedAudits = detail.RelatedAudits[:20]
+	}
+	return detail, nil
 }
 
 func (s *Store) ReviewAfterSales(req ReviewAfterSalesRequest) (*AfterSalesRequest, *RefundTransaction, *Order, *WalletAccount, error) {
@@ -3458,7 +7705,13 @@ func (s *Store) riderPerformanceSnapshotLocked(stationManagerID string) ([]Rider
 		return nil, err
 	}
 
+	return s.riderPerformanceSnapshotForScopeLocked(stationID, allStations), nil
+}
+
+func (s *Store) riderPerformanceSnapshotForScopeLocked(stationID string, allStations bool) []RiderPerformance {
+	reviewSummaries := s.riderReviewSummariesLocked()
 	performances := make([]RiderPerformance, 0)
+	now := time.Now().UTC()
 	for _, rider := range s.riders {
 		if rider == nil || rider.Type != RiderAccountRider {
 			continue
@@ -3475,12 +7728,19 @@ func (s *Store) riderPerformanceSnapshotLocked(stationManagerID string) ([]Rider
 		if acceptedCount > 0 && completedCount > 0 {
 			completionRate = float64(completedCount) / float64(acceptedCount)
 		}
+		reviewSummary := reviewSummaries[rider.ID]
+		riderAverageRating := 0.0
+		if reviewSummary.Count > 0 {
+			riderAverageRating = roundFloat(float64(reviewSummary.TotalRating)/float64(reviewSummary.Count), 2)
+		}
 		performances = append(performances, RiderPerformance{
 			RiderID:              rider.ID,
 			StationID:            rider.StationID,
 			AverageAcceptSeconds: rider.AverageAcceptSeconds,
 			AverageDailyOrders:   averageDailyOrders,
 			CompletionRate:       completionRate,
+			RiderAverageRating:   riderAverageRating,
+			RiderReviewCount:     reviewSummary.Count,
 		})
 	}
 
@@ -3488,7 +7748,12 @@ func (s *Store) riderPerformanceSnapshotLocked(stationManagerID string) ([]Rider
 	teamAverageDailyOrders := averagePositiveDailyOrders(performances)
 	for index := range performances {
 		performance := &performances[index]
-		performance.Score, performance.Level, performance.DispatchPriority = evaluateRiderPerformanceLevel(*performance, teamAverageAcceptSeconds, teamAverageDailyOrders)
+		performance.Score, performance.Level, performance.DispatchPriority, performance.ScoreBreakdown = evaluateRiderPerformanceLevel(*performance, teamAverageAcceptSeconds, teamAverageDailyOrders)
+		if rider := s.riders[performance.RiderID]; rider != nil {
+			performance.RecentTrend = s.riderPerformanceTrendLocked(rider, *performance, teamAverageAcceptSeconds, teamAverageDailyOrders, now)
+		}
+		performance.RecentReviews = s.riderRecentReviewExcerptsLocked(performance.RiderID, 2)
+		performance.ExceptionDetails, performance.ExceptionSummary = s.riderExceptionDetailsLocked(performance.RiderID, now.AddDate(0, 0, -7), 3)
 		if rider := s.riders[performance.RiderID]; rider != nil {
 			rider.DispatchPriority = performance.DispatchPriority
 		}
@@ -3499,12 +7764,346 @@ func (s *Store) riderPerformanceSnapshotLocked(stationManagerID string) ([]Rider
 		if performances[i].DispatchPriority != performances[j].DispatchPriority {
 			return performances[i].DispatchPriority > performances[j].DispatchPriority
 		}
+		if performances[i].Score != performances[j].Score {
+			return performances[i].Score > performances[j].Score
+		}
 		if performances[i].AverageAcceptSeconds != performances[j].AverageAcceptSeconds {
 			return performances[i].AverageAcceptSeconds < performances[j].AverageAcceptSeconds
 		}
 		return performances[i].RiderID < performances[j].RiderID
 	})
-	return performances, nil
+	return performances
+}
+
+func (s *Store) refreshDispatchPrioritiesForStationLocked(stationID string) {
+	stationID = strings.TrimSpace(stationID)
+	if stationID == "" {
+		return
+	}
+	_ = s.riderPerformanceSnapshotForScopeLocked(stationID, false)
+}
+
+type riderReviewSummary struct {
+	TotalRating int
+	Count       int
+}
+
+func (s *Store) riderReviewSummariesLocked() map[string]riderReviewSummary {
+	summaries := map[string]riderReviewSummary{}
+	for _, review := range s.reviews {
+		riderID, rating := s.riderReviewAttributionLocked(review)
+		if riderID == "" || rating < 1 || rating > 5 {
+			continue
+		}
+		summary := summaries[riderID]
+		summary.TotalRating += rating
+		summary.Count++
+		summaries[riderID] = summary
+	}
+	return summaries
+}
+
+func (s *Store) riderReviewAttributionLocked(review *Review) (string, int) {
+	if review == nil {
+		return "", 0
+	}
+	if strings.TrimSpace(review.TargetType) == ReviewTargetRider && strings.TrimSpace(review.TargetID) != "" {
+		rating := review.Rating
+		if review.RiderRating > 0 {
+			rating = review.RiderRating
+		}
+		return strings.TrimSpace(review.TargetID), rating
+	}
+	if review.RiderRating <= 0 || strings.TrimSpace(review.OrderID) == "" {
+		return "", 0
+	}
+	order := s.orders[strings.TrimSpace(review.OrderID)]
+	if order == nil || strings.TrimSpace(order.RiderID) == "" {
+		return "", 0
+	}
+	return strings.TrimSpace(order.RiderID), review.RiderRating
+}
+
+type riderTrendAggregate struct {
+	Date            string
+	CompletedOrders int
+	TotalRating     int
+	ReviewCount     int
+	TimeoutCount    int
+	RejectCount     int
+}
+
+func (s *Store) riderPerformanceTrendLocked(rider *RiderAccount, performance RiderPerformance, teamAverageAcceptSeconds float64, teamAverageDailyOrders float64, now time.Time) []RiderPerformanceTrendPoint {
+	if rider == nil {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	aggregates := map[string]*riderTrendAggregate{}
+	dates := make([]string, 0, 3)
+	for dayOffset := 2; dayOffset >= 0; dayOffset-- {
+		date := now.AddDate(0, 0, -dayOffset).Format("2006-01-02")
+		aggregates[date] = &riderTrendAggregate{Date: date}
+		dates = append(dates, date)
+	}
+	for _, order := range s.orders {
+		if order == nil || strings.TrimSpace(order.RiderID) != rider.ID || order.Status != StatusCompleted {
+			continue
+		}
+		completedAt := order.UpdatedAt
+		if completedAt.IsZero() {
+			completedAt = order.CreatedAt
+		}
+		date := completedAt.UTC().Format("2006-01-02")
+		aggregate := aggregates[date]
+		if aggregate == nil {
+			continue
+		}
+		aggregate.CompletedOrders++
+	}
+	for _, review := range s.reviews {
+		riderID, rating := s.riderReviewAttributionLocked(review)
+		if riderID != rider.ID || rating < 1 || rating > 5 {
+			continue
+		}
+		date := review.CreatedAt.UTC().Format("2006-01-02")
+		aggregate := aggregates[date]
+		if aggregate == nil {
+			continue
+		}
+		aggregate.TotalRating += rating
+		aggregate.ReviewCount++
+	}
+	for _, event := range s.dispatchEvents {
+		if event == nil || strings.TrimSpace(event.RiderID) != rider.ID {
+			continue
+		}
+		date := event.CreatedAt.UTC().Format("2006-01-02")
+		aggregate := aggregates[date]
+		if aggregate == nil {
+			continue
+		}
+		switch event.Type {
+		case "dispatch.timeout":
+			aggregate.TimeoutCount++
+		case "dispatch.rejected":
+			aggregate.RejectCount++
+		}
+	}
+	points := make([]RiderPerformanceTrendPoint, 0, len(dates))
+	for _, date := range dates {
+		aggregate := aggregates[date]
+		if aggregate == nil {
+			continue
+		}
+		averageRating := 0.0
+		if aggregate.ReviewCount > 0 {
+			averageRating = roundFloat(float64(aggregate.TotalRating)/float64(aggregate.ReviewCount), 2)
+		}
+		syntheticPerformance := RiderPerformance{
+			RiderID:              rider.ID,
+			StationID:            rider.StationID,
+			AverageAcceptSeconds: performance.AverageAcceptSeconds,
+			AverageDailyOrders:   float64(aggregate.CompletedOrders),
+			CompletionRate:       performance.CompletionRate,
+			RiderAverageRating:   averageRating,
+			RiderReviewCount:     aggregate.ReviewCount,
+		}
+		score, _, _, _ := evaluateRiderPerformanceLevel(syntheticPerformance, teamAverageAcceptSeconds, teamAverageDailyOrders)
+		points = append(points, RiderPerformanceTrendPoint{
+			Date:            aggregate.Date,
+			Score:           score,
+			CompletedOrders: aggregate.CompletedOrders,
+			AverageRating:   averageRating,
+			TimeoutCount:    aggregate.TimeoutCount,
+			RejectCount:     aggregate.RejectCount,
+		})
+	}
+	return points
+}
+
+func (s *Store) riderRecentReviewExcerptsLocked(riderID string, limit int) []RiderPerformanceReviewExcerpt {
+	riderID = strings.TrimSpace(riderID)
+	if riderID == "" || limit <= 0 {
+		return nil
+	}
+	excerpts := make([]RiderPerformanceReviewExcerpt, 0, limit)
+	for _, review := range s.reviews {
+		attributedRiderID, _ := s.riderReviewAttributionLocked(review)
+		if attributedRiderID != riderID {
+			continue
+		}
+		excerpts = append(excerpts, RiderPerformanceReviewExcerpt{
+			ReviewID:    review.ID,
+			OrderID:     review.OrderID,
+			Rating:      review.Rating,
+			RiderRating: review.RiderRating,
+			Content:     review.Content,
+			Tags:        append([]string{}, review.Tags...),
+			CreatedAt:   review.CreatedAt,
+		})
+	}
+	sort.SliceStable(excerpts, func(i, j int) bool {
+		if !excerpts[i].CreatedAt.Equal(excerpts[j].CreatedAt) {
+			return excerpts[i].CreatedAt.After(excerpts[j].CreatedAt)
+		}
+		return excerpts[i].ReviewID < excerpts[j].ReviewID
+	})
+	if len(excerpts) > limit {
+		excerpts = excerpts[:limit]
+	}
+	return excerpts
+}
+
+func (s *Store) riderExceptionDetailsLocked(riderID string, since time.Time, limit int) ([]RiderPerformanceExceptionDetail, RiderPerformanceExceptionSummary) {
+	riderID = strings.TrimSpace(riderID)
+	if riderID == "" {
+		return nil, RiderPerformanceExceptionSummary{}
+	}
+	summary := RiderPerformanceExceptionSummary{}
+	details := make([]RiderPerformanceExceptionDetail, 0)
+	for _, event := range s.dispatchEvents {
+		if event == nil || strings.TrimSpace(event.RiderID) != riderID {
+			continue
+		}
+		if !since.IsZero() && event.CreatedAt.Before(since) {
+			continue
+		}
+		switch event.Type {
+		case "dispatch.timeout":
+			summary.DispatchTimeoutCount++
+			details = append(details, RiderPerformanceExceptionDetail{
+				Kind:            "dispatch_timeout",
+				Label:           "派单超时",
+				OrderID:         event.OrderID,
+				DispatchEventID: event.ID,
+				Status:          event.Type,
+				Message:         riderExceptionDispatchMessage(event, "派单确认超时，系统已自动转派"),
+				CreatedAt:       event.CreatedAt,
+			})
+		case "dispatch.rejected":
+			summary.DispatchRejectCount++
+			details = append(details, RiderPerformanceExceptionDetail{
+				Kind:            "dispatch_reject",
+				Label:           "骑手拒单",
+				OrderID:         event.OrderID,
+				DispatchEventID: event.ID,
+				Status:          event.Type,
+				Message:         riderExceptionDispatchMessage(event, "骑手已拒绝当前派单，系统顺延下一位"),
+				CreatedAt:       event.CreatedAt,
+			})
+		default:
+			continue
+		}
+		if event.CreatedAt.After(summary.LastEventAt) {
+			summary.LastEventAt = event.CreatedAt
+		}
+	}
+	for _, request := range s.afterSalesRequests {
+		if request == nil || !request.CreatedAt.After(since) && !since.IsZero() {
+			continue
+		}
+		order := s.orders[request.OrderID]
+		if order == nil || strings.TrimSpace(order.RiderID) != riderID {
+			continue
+		}
+		summary.AfterSalesCount++
+		details = append(details, RiderPerformanceExceptionDetail{
+			Kind:                "after_sales",
+			Label:               "售后介入",
+			OrderID:             request.OrderID,
+			AfterSalesRequestID: request.ID,
+			Status:              request.Status,
+			Message:             riderExceptionAfterSalesMessage(s.afterSalesRequestViewLocked(request)),
+			CreatedAt:           riderExceptionAfterSalesAt(request),
+		})
+		detailAt := riderExceptionAfterSalesAt(request)
+		if detailAt.After(summary.LastEventAt) {
+			summary.LastEventAt = detailAt
+		}
+	}
+	for _, review := range s.reviews {
+		attributedRiderID, rating := s.riderReviewAttributionLocked(review)
+		if attributedRiderID != riderID || rating > 3 || rating <= 0 {
+			continue
+		}
+		if !since.IsZero() && review.CreatedAt.Before(since) {
+			continue
+		}
+		summary.LowRatingCount++
+		details = append(details, RiderPerformanceExceptionDetail{
+			Kind:      "low_rating",
+			Label:     "低分评价",
+			OrderID:   review.OrderID,
+			ReviewID:  review.ID,
+			Status:    fmt.Sprintf("%d 星", rating),
+			Message:   riderExceptionLowRatingMessage(review, rating),
+			CreatedAt: review.CreatedAt,
+		})
+		if review.CreatedAt.After(summary.LastEventAt) {
+			summary.LastEventAt = review.CreatedAt
+		}
+	}
+	sort.SliceStable(details, func(i, j int) bool {
+		if !details[i].CreatedAt.Equal(details[j].CreatedAt) {
+			return details[i].CreatedAt.After(details[j].CreatedAt)
+		}
+		if details[i].OrderID != details[j].OrderID {
+			return details[i].OrderID < details[j].OrderID
+		}
+		return details[i].Label < details[j].Label
+	})
+	if limit > 0 && len(details) > limit {
+		details = details[:limit]
+	}
+	return details, summary
+}
+
+func riderExceptionDispatchMessage(event *DispatchEvent, fallback string) string {
+	if event == nil {
+		return fallback
+	}
+	reason := strings.TrimSpace(event.Reason)
+	if reason == "" {
+		return fallback
+	}
+	return reason
+}
+
+func riderExceptionAfterSalesAt(request *AfterSalesRequest) time.Time {
+	if request == nil {
+		return time.Time{}
+	}
+	if !request.UpdatedAt.IsZero() {
+		return request.UpdatedAt
+	}
+	return request.CreatedAt
+}
+
+func riderExceptionAfterSalesMessage(request *AfterSalesRequest) string {
+	if request == nil {
+		return "售后单已进入处理流程"
+	}
+	message := strings.TrimSpace(request.LatestEventMessage)
+	if message == "" {
+		message = strings.TrimSpace(request.Reason)
+	}
+	if message == "" {
+		message = "售后单已进入处理流程"
+	}
+	return message
+}
+
+func riderExceptionLowRatingMessage(review *Review, rating int) string {
+	if review == nil {
+		return fmt.Sprintf("配送评分 %d 星", rating)
+	}
+	content := strings.TrimSpace(review.Content)
+	if content == "" {
+		return fmt.Sprintf("配送评分 %d 星", rating)
+	}
+	return fmt.Sprintf("配送评分 %d 星：%s", rating, content)
 }
 
 func (s *Store) GrabOrder(orderID string, riderID string) (*Order, error) {
@@ -3860,6 +8459,1430 @@ func (s *Store) AuditArchiveVerifications(req AuditArchiveVerificationListReques
 	return auditArchiveVerificationsFromLogs(req, logs), nil
 }
 
+func (s *Store) CreateNotification(req CreateNotificationRequest) (*PlatformNotification, error) {
+	normalized, err := normalizeCreateNotificationRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if normalized.TargetRole == "merchant" && s.merchants[normalized.TargetID] == nil {
+		return nil, ErrNotFound
+	}
+	if existingID := s.notificationByIdem[normalized.IdempotencyKey]; existingID != "" {
+		return clonePlatformNotification(s.notifications[existingID]), nil
+	}
+	now := normalized.CreatedAt
+	notification := &PlatformNotification{
+		ID:             "ntf_" + shortHash(normalized.IdempotencyKey),
+		TargetRole:     normalized.TargetRole,
+		TargetID:       normalized.TargetID,
+		Type:           normalized.Type,
+		Channel:        normalized.Channel,
+		Title:          normalized.Title,
+		Body:           normalized.Body,
+		Status:         NotificationStatusUnread,
+		SourceTopic:    normalized.SourceTopic,
+		SourceEventID:  normalized.SourceEventID,
+		IdempotencyKey: normalized.IdempotencyKey,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.notifications[notification.ID] = notification
+	s.notificationByIdem[notification.IdempotencyKey] = notification.ID
+	return clonePlatformNotification(notification), nil
+}
+
+func (s *Store) Notifications(req NotificationListRequest) ([]PlatformNotification, error) {
+	req = normalizeNotificationListRequest(req)
+	if (req.TargetRole == "") != (req.TargetID == "") {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	notifications := make([]PlatformNotification, 0)
+	for _, notification := range s.notifications {
+		if notification == nil {
+			continue
+		}
+		if req.TargetRole != "" && notification.TargetRole != req.TargetRole {
+			continue
+		}
+		if req.TargetID != "" && notification.TargetID != req.TargetID {
+			continue
+		}
+		if req.Status != "all" && notification.Status != req.Status {
+			continue
+		}
+		if req.SourceTopic != "" && notification.SourceTopic != req.SourceTopic {
+			continue
+		}
+		if req.SourceEventID != "" && notification.SourceEventID != req.SourceEventID {
+			continue
+		}
+		notifications = append(notifications, *clonePlatformNotification(notification))
+	}
+	sort.SliceStable(notifications, func(i, j int) bool {
+		if !notifications[i].CreatedAt.Equal(notifications[j].CreatedAt) {
+			return notifications[i].CreatedAt.After(notifications[j].CreatedAt)
+		}
+		return notifications[i].ID > notifications[j].ID
+	})
+	if len(notifications) > req.Limit {
+		notifications = notifications[:req.Limit]
+	}
+	return notifications, nil
+}
+
+func (s *Store) MarkNotificationRead(req MarkNotificationReadRequest) (*PlatformNotification, error) {
+	req.NotificationID = strings.TrimSpace(req.NotificationID)
+	req.TargetRole = strings.TrimSpace(req.TargetRole)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	if req.NotificationID == "" || req.TargetRole == "" || req.TargetID == "" {
+		return nil, ErrInvalidArgument
+	}
+	readAt := req.ReadAt
+	if readAt.IsZero() {
+		readAt = time.Now().UTC()
+	} else {
+		readAt = readAt.UTC()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	notification := s.notifications[req.NotificationID]
+	if notification == nil {
+		return nil, ErrNotFound
+	}
+	if notification.TargetRole != req.TargetRole || notification.TargetID != req.TargetID {
+		return nil, ErrNotFound
+	}
+	if notification.Status != NotificationStatusRead {
+		notification.Status = NotificationStatusRead
+		notification.ReadAt = readAt
+	}
+	notification.UpdatedAt = readAt
+	return clonePlatformNotification(notification), nil
+}
+
+func (s *Store) RecordNotificationDelivery(req RecordNotificationDeliveryRequest) (*PlatformNotificationDelivery, error) {
+	normalized, err := normalizeRecordNotificationDeliveryRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existingID := s.notificationDeliveryByIdem[normalized.IdempotencyKey]; existingID != "" {
+		return clonePlatformNotificationDelivery(s.notificationDeliveries[existingID]), nil
+	}
+	notification := s.notifications[normalized.NotificationID]
+	if notification == nil {
+		return nil, ErrNotFound
+	}
+	if normalized.Channel == "" {
+		normalized.Channel = notification.Channel
+	}
+	if normalized.Provider == "" {
+		normalized.Provider = normalized.Channel
+	}
+	if normalized.Status == NotificationDeliveryDelivered && normalized.DeliveredAt.IsZero() {
+		normalized.DeliveredAt = normalized.AttemptedAt
+	}
+	now := normalized.AttemptedAt
+	delivery := &PlatformNotificationDelivery{
+		ID:                "ntfd_" + shortHash(normalized.IdempotencyKey),
+		NotificationID:    notification.ID,
+		TargetRole:        notification.TargetRole,
+		TargetID:          notification.TargetID,
+		Channel:           normalized.Channel,
+		Provider:          normalized.Provider,
+		Status:            normalized.Status,
+		ProviderMessageID: normalized.ProviderMessageID,
+		ErrorCode:         normalized.ErrorCode,
+		ErrorMessage:      normalized.ErrorMessage,
+		IdempotencyKey:    normalized.IdempotencyKey,
+		AttemptedAt:       normalized.AttemptedAt,
+		DeliveredAt:       normalized.DeliveredAt,
+		RetryAt:           normalized.RetryAt,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	s.notificationDeliveries[delivery.ID] = delivery
+	s.notificationDeliveryByIdem[delivery.IdempotencyKey] = delivery.ID
+	return clonePlatformNotificationDelivery(delivery), nil
+}
+
+func (s *Store) NotificationDeliveries(req NotificationDeliveryListRequest) ([]PlatformNotificationDelivery, error) {
+	req = normalizeNotificationDeliveryListRequest(req)
+	if (req.TargetRole == "") != (req.TargetID == "") {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deliveries := make([]PlatformNotificationDelivery, 0)
+	for _, delivery := range s.notificationDeliveries {
+		if delivery == nil {
+			continue
+		}
+		if req.NotificationID != "" && delivery.NotificationID != req.NotificationID {
+			continue
+		}
+		if req.TargetRole != "" && delivery.TargetRole != req.TargetRole {
+			continue
+		}
+		if req.TargetID != "" && delivery.TargetID != req.TargetID {
+			continue
+		}
+		if req.Channel != "" && delivery.Channel != req.Channel {
+			continue
+		}
+		if req.Provider != "" && delivery.Provider != req.Provider {
+			continue
+		}
+		if req.Status != "all" && delivery.Status != req.Status {
+			continue
+		}
+		if req.ErrorCode != "" && delivery.ErrorCode != req.ErrorCode {
+			continue
+		}
+		if !req.RetryAtBefore.IsZero() && (delivery.RetryAt.IsZero() || delivery.RetryAt.After(req.RetryAtBefore)) {
+			continue
+		}
+		deliveries = append(deliveries, *clonePlatformNotificationDelivery(delivery))
+	}
+	sort.SliceStable(deliveries, func(i, j int) bool {
+		if !deliveries[i].AttemptedAt.Equal(deliveries[j].AttemptedAt) {
+			return deliveries[i].AttemptedAt.After(deliveries[j].AttemptedAt)
+		}
+		return deliveries[i].ID > deliveries[j].ID
+	})
+	if len(deliveries) > req.Limit {
+		deliveries = deliveries[:req.Limit]
+	}
+	return deliveries, nil
+}
+
+func (s *Store) EmitNotificationFailureAlerts(req NotificationFailureAlertEmissionRequest, audit RecordAuditLogRequest) (*NotificationFailureAlertEmission, *OutboxEvent, *AuditLog, error) {
+	req, err := normalizeNotificationFailureAlertEmissionRequest(req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = req.Now
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, log, err
+	}
+	if log.Action != "admin.notification_delivery_failure_alerts.emitted" || log.TargetType != "notification_delivery_alerts" || log.TargetID != "failed" {
+		return nil, nil, log, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deliveries := notificationFailureAlertDeliveriesFromMap(req, s.notificationDeliveries)
+	emission := notificationFailureAlertEmissionFromDeliveries(req, deliveries)
+	var event *OutboxEvent
+	if emission.FailedCount > 0 {
+		event = s.enqueueOutboxEventLocked(
+			notificationFailureAlertTopic,
+			"notification_delivery",
+			"failed",
+			"notification.delivery_failed_alerts.emitted",
+			emission.IdempotencyKey,
+			notificationFailureAlertOutboxPayload(emission),
+			emission.EmittedAt,
+		)
+		if event != nil {
+			emission.OutboxEventID = event.ID
+		}
+	}
+	log.Payload = notificationFailureAlertEmissionAuditPayload(emission)
+	auditLog := s.appendAuditLogLocked(log)
+	return emission, cloneOutboxEvent(event), auditLog, nil
+}
+
+func (s *Store) ScheduleNotificationDeliveryRetries(req NotificationDeliveryRetryScheduleRequest, audit RecordAuditLogRequest) (*NotificationDeliveryRetrySchedule, *OutboxEvent, *AuditLog, error) {
+	req, err := normalizeNotificationDeliveryRetryScheduleRequest(req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = req.Now
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, nil, log, err
+	}
+	if log.Action != "admin.notification_delivery_retries.scheduled" || log.TargetType != "notification_delivery_retries" || log.TargetID != req.Status {
+		return nil, nil, log, ErrInvalidArgument
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deliveries := notificationDeliveryRetryDeliveriesFromMap(req, s.notificationDeliveries)
+	notifications := notificationDeliveryRetryNotificationsFromMap(deliveries, s.notifications)
+	schedule := notificationDeliveryRetryScheduleFromDeliveries(req, deliveries, notifications)
+	var event *OutboxEvent
+	if schedule.ScheduledCount > 0 {
+		event = s.enqueueOutboxEventLocked(
+			notificationDeliveryRetryTopic,
+			"notification_delivery",
+			schedule.DeliveryStatus,
+			"notification.delivery_retries.scheduled",
+			schedule.IdempotencyKey,
+			notificationDeliveryRetryOutboxPayload(schedule),
+			schedule.RetryAt,
+		)
+		if event != nil {
+			schedule.OutboxEventID = event.ID
+		}
+	}
+	log.Payload = notificationDeliveryRetryScheduleAuditPayload(schedule)
+	auditLog := s.appendAuditLogLocked(log)
+	return schedule, cloneOutboxEvent(event), auditLog, nil
+}
+
+func (s *Store) ScheduleNotificationQuietWindowRetries(req NotificationQuietWindowRetryScheduleRequest, audit RecordAuditLogRequest) (*NotificationDeliveryRetrySchedule, *OutboxEvent, *AuditLog, error) {
+	req, err := normalizeNotificationQuietWindowRetryScheduleRequest(req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = req.Now
+	}
+	return s.ScheduleNotificationDeliveryRetries(NotificationDeliveryRetryScheduleRequest{
+		TargetRole:          req.TargetRole,
+		TargetID:            req.TargetID,
+		Channel:             req.Channel,
+		Provider:            req.Provider,
+		Status:              NotificationDeliveryQueued,
+		ErrorCode:           "notification_quiet_window",
+		Limit:               req.Limit,
+		RetryAfterSeconds:   req.RetryAfterSeconds,
+		RetryAt:             req.Now.Add(time.Duration(req.RetryAfterSeconds) * time.Second),
+		SourceRetryAtBefore: req.Now,
+		Now:                 req.Now,
+	}, audit)
+}
+
+func (s *Store) SaveNotificationPreference(req SaveNotificationPreferenceRequest) (*NotificationPreference, error) {
+	normalized, err := normalizeSaveNotificationPreferenceRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	preference, err := s.saveNotificationPreferenceLocked(normalized)
+	if err != nil {
+		return nil, err
+	}
+	s.enqueueNotificationPreferenceChangedOutboxLocked(preference)
+	return preference, nil
+}
+
+func (s *Store) SaveNotificationPreferenceWithAudit(req SaveNotificationPreferenceRequest, audit RecordAuditLogRequest) (*NotificationPreference, *AuditLog, error) {
+	normalized, err := normalizeSaveNotificationPreferenceRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = normalized.UpdatedAt
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, log, err
+	}
+	if log.Action != "admin.notification_preferences.saved" || log.TargetType != "notification_preference" {
+		return nil, log, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	preference, err := s.saveNotificationPreferenceLocked(normalized)
+	if err != nil {
+		return nil, log, err
+	}
+	log.TargetID = preference.ID
+	log.Payload = notificationPreferenceAuditPayload(preference)
+	auditLog := s.appendAuditLogLocked(log)
+	s.enqueueNotificationPreferenceChangedOutboxLocked(preference)
+	return preference, auditLog, nil
+}
+
+func (s *Store) SaveNotificationPreferenceBatchWithAudit(req SaveNotificationPreferenceBatchRequest, audit RecordAuditLogRequest) (*NotificationPreferenceBatchSaveResult, *AuditLog, error) {
+	normalized, err := normalizeSaveNotificationPreferenceBatchRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = normalized.UpdatedAt
+	}
+	log, err := auditLogFromRequest(audit, "")
+	if err != nil {
+		return nil, log, err
+	}
+	if !isNotificationPreferenceBatchAuditAction(log.Action) || log.TargetType != "notification_preference_batch" {
+		return nil, log, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, preferenceRequest := range normalized.Preferences {
+		if preferenceRequest.TargetRole == "merchant" && preferenceRequest.TargetID != "" && s.merchants[preferenceRequest.TargetID] == nil {
+			return nil, log, ErrNotFound
+		}
+	}
+	preferences := make([]NotificationPreference, 0, len(normalized.Preferences))
+	for _, preferenceRequest := range normalized.Preferences {
+		preference, err := s.saveNotificationPreferenceLocked(preferenceRequest)
+		if err != nil {
+			return nil, log, err
+		}
+		preferences = append(preferences, *preference)
+		s.enqueueNotificationPreferenceChangedOutboxLocked(preference)
+	}
+	result := notificationPreferenceBatchSaveResult(preferences, normalized.Reason, normalized.UpdatedAt)
+	log.TargetID = result.BatchID
+	log.Payload = mergeAuditPayload(log.Payload, notificationPreferenceBatchAuditPayload(result))
+	auditLog := s.appendAuditLogLocked(log)
+	return result, auditLog, nil
+}
+
+func (s *Store) NotificationPreferences(req NotificationPreferenceListRequest) ([]NotificationPreference, error) {
+	req = normalizeNotificationPreferenceListRequest(req)
+	if req.PreferenceKey == "" && ((req.TargetID != "" && req.TargetRole == "") || (req.NotificationType != "" && req.TargetRole != "" && req.TargetID == "")) {
+		return nil, ErrInvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	preferences := make([]NotificationPreference, 0)
+	for _, preference := range s.notificationPreferences {
+		if preference == nil {
+			continue
+		}
+		if req.PreferenceKey != "" && preference.PreferenceKey != req.PreferenceKey {
+			continue
+		}
+		if req.TargetRole != "" && preference.TargetRole != req.TargetRole {
+			continue
+		}
+		if req.TargetID != "" && preference.TargetID != req.TargetID {
+			continue
+		}
+		if req.NotificationType != "" && preference.NotificationType != req.NotificationType {
+			continue
+		}
+		preferences = append(preferences, *cloneNotificationPreference(preference))
+	}
+	sort.SliceStable(preferences, func(i, j int) bool {
+		if !preferences[i].UpdatedAt.Equal(preferences[j].UpdatedAt) {
+			return preferences[i].UpdatedAt.After(preferences[j].UpdatedAt)
+		}
+		return preferences[i].PreferenceKey < preferences[j].PreferenceKey
+	})
+	if len(preferences) > req.Limit {
+		preferences = preferences[:req.Limit]
+	}
+	return preferences, nil
+}
+
+func (s *Store) saveNotificationPreferenceLocked(req SaveNotificationPreferenceRequest) (*NotificationPreference, error) {
+	if req.TargetRole == "merchant" && req.TargetID != "" && s.merchants[req.TargetID] == nil {
+		return nil, ErrNotFound
+	}
+	preferenceKey := notificationPreferenceKey(req.TargetRole, req.TargetID, req.NotificationType)
+	now := req.UpdatedAt
+	id := s.notificationPreferenceByKey[preferenceKey]
+	preference := s.notificationPreferences[id]
+	if preference == nil {
+		id = "ntfp_" + shortHash(preferenceKey)
+		preference = &NotificationPreference{
+			ID:            id,
+			PreferenceKey: preferenceKey,
+			CreatedAt:     now,
+		}
+		s.notificationPreferences[id] = preference
+		s.notificationPreferenceByKey[preferenceKey] = id
+	}
+	preference.TargetRole = req.TargetRole
+	preference.TargetID = req.TargetID
+	preference.NotificationType = req.NotificationType
+	preference.EnabledChannels = append([]string{}, req.EnabledChannels...)
+	preference.DisabledChannels = append([]string{}, req.DisabledChannels...)
+	preference.QuietHours = cloneNotificationQuietHours(req.QuietHours)
+	preference.UpdatedAt = now
+	return cloneNotificationPreference(preference), nil
+}
+
+func normalizeSaveNotificationPreferenceRequest(req SaveNotificationPreferenceRequest) (SaveNotificationPreferenceRequest, error) {
+	req.TargetRole = strings.TrimSpace(req.TargetRole)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	req.NotificationType = strings.TrimSpace(req.NotificationType)
+	if req.TargetID != "" && req.TargetRole == "" {
+		return req, ErrInvalidArgument
+	}
+	if req.NotificationType != "" && req.TargetRole != "" && req.TargetID == "" {
+		return req, ErrInvalidArgument
+	}
+	if req.UpdatedAt.IsZero() {
+		req.UpdatedAt = time.Now().UTC()
+	} else {
+		req.UpdatedAt = req.UpdatedAt.UTC()
+	}
+	var err error
+	req.EnabledChannels, err = normalizeNotificationPreferenceChannels(req.EnabledChannels)
+	if err != nil {
+		return req, err
+	}
+	req.DisabledChannels, err = normalizeNotificationPreferenceChannels(req.DisabledChannels)
+	if err != nil {
+		return req, err
+	}
+	if notificationPreferenceChannelsOverlap(req.EnabledChannels, req.DisabledChannels) {
+		return req, ErrInvalidArgument
+	}
+	req.QuietHours, err = normalizeNotificationQuietHours(req.QuietHours)
+	if err != nil {
+		return req, err
+	}
+	return req, nil
+}
+
+func normalizeSaveNotificationPreferenceBatchRequest(req SaveNotificationPreferenceBatchRequest) (SaveNotificationPreferenceBatchRequest, error) {
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.Reason == "" || len(req.Preferences) == 0 || len(req.Preferences) > maxNotificationPreferenceBatchSize {
+		return req, ErrInvalidArgument
+	}
+	if req.UpdatedAt.IsZero() {
+		req.UpdatedAt = time.Now().UTC()
+	} else {
+		req.UpdatedAt = req.UpdatedAt.UTC()
+	}
+	normalizedPreferences := make([]SaveNotificationPreferenceRequest, 0, len(req.Preferences))
+	seen := map[string]bool{}
+	for _, item := range req.Preferences {
+		if item.UpdatedAt.IsZero() {
+			item.UpdatedAt = req.UpdatedAt
+		}
+		normalized, err := normalizeSaveNotificationPreferenceRequest(item)
+		if err != nil {
+			return req, err
+		}
+		preferenceKey := notificationPreferenceKey(normalized.TargetRole, normalized.TargetID, normalized.NotificationType)
+		if seen[preferenceKey] {
+			return req, ErrInvalidArgument
+		}
+		seen[preferenceKey] = true
+		normalizedPreferences = append(normalizedPreferences, normalized)
+	}
+	req.Preferences = normalizedPreferences
+	return req, nil
+}
+
+func normalizeNotificationPreferenceListRequest(req NotificationPreferenceListRequest) NotificationPreferenceListRequest {
+	req.PreferenceKey = strings.TrimSpace(req.PreferenceKey)
+	req.TargetRole = strings.TrimSpace(req.TargetRole)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	req.NotificationType = strings.TrimSpace(req.NotificationType)
+	if req.PreferenceKey != "" {
+		req.TargetRole = ""
+		req.TargetID = ""
+		req.NotificationType = ""
+	}
+	if req.Limit <= 0 {
+		req.Limit = 50
+	}
+	if req.Limit > 200 {
+		req.Limit = 200
+	}
+	return req
+}
+
+func normalizeNotificationPreferenceChannels(channels []string) ([]string, error) {
+	normalized := sanitizedStringSlice(channels)
+	for _, channel := range normalized {
+		if !isNotificationProviderChannel(channel) {
+			return normalized, ErrInvalidArgument
+		}
+	}
+	return normalized, nil
+}
+
+func normalizeNotificationQuietHours(quiet NotificationQuietHours) (NotificationQuietHours, error) {
+	quiet.Start = strings.TrimSpace(quiet.Start)
+	quiet.End = strings.TrimSpace(quiet.End)
+	quiet.TimezoneOffset = strings.TrimSpace(quiet.TimezoneOffset)
+	quiet.Status = strings.TrimSpace(quiet.Status)
+	quiet.Channels = sanitizedStringSlice(quiet.Channels)
+	quiet.ExemptTypes = sanitizedStringSlice(quiet.ExemptTypes)
+	if quiet.TimezoneOffset == "" {
+		quiet.TimezoneOffset = "+08:00"
+	}
+	if quiet.Status == "" {
+		quiet.Status = NotificationDeliveryQueued
+	}
+	for _, channel := range quiet.Channels {
+		if !isNotificationProviderChannel(channel) {
+			return quiet, ErrInvalidArgument
+		}
+	}
+	if quiet.Start == "" && quiet.End == "" {
+		quiet.Enabled = false
+		return quiet, nil
+	}
+	if !validNotificationClock(quiet.Start) || !validNotificationClock(quiet.End) || quiet.Start == quiet.End || !validNotificationTimezoneOffset(quiet.TimezoneOffset) {
+		return quiet, ErrInvalidArgument
+	}
+	switch quiet.Status {
+	case NotificationDeliveryQueued, NotificationDeliveryFailed:
+	default:
+		return quiet, ErrInvalidArgument
+	}
+	return quiet, nil
+}
+
+func notificationPreferenceChannelsOverlap(enabled []string, disabled []string) bool {
+	seen := map[string]bool{}
+	for _, channel := range enabled {
+		seen[channel] = true
+	}
+	for _, channel := range disabled {
+		if seen[channel] {
+			return true
+		}
+	}
+	return false
+}
+
+func isNotificationProviderChannel(channel string) bool {
+	switch strings.TrimSpace(channel) {
+	case NotificationWechatSubscribe, NotificationSMS, NotificationEnterpriseWechat, NotificationPush:
+		return true
+	default:
+		return false
+	}
+}
+
+func validNotificationClock(value string) bool {
+	parts := strings.Split(strings.TrimSpace(value), ":")
+	if len(parts) != 2 || len(parts[0]) < 1 || len(parts[0]) > 2 || len(parts[1]) != 2 {
+		return false
+	}
+	hour := parseTwoDigitNumber(parts[0])
+	minute := parseTwoDigitNumber(parts[1])
+	return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59
+}
+
+func validNotificationTimezoneOffset(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 6 || (value[0] != '+' && value[0] != '-') || value[3] != ':' {
+		return false
+	}
+	hour := parseTwoDigitNumber(value[1:3])
+	minute := parseTwoDigitNumber(value[4:6])
+	return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59
+}
+
+func parseTwoDigitNumber(value string) int {
+	if value == "" {
+		return -1
+	}
+	total := 0
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return -1
+		}
+		total = total*10 + int(char-'0')
+	}
+	return total
+}
+
+func notificationPreferenceKey(targetRole string, targetID string, notificationType string) string {
+	targetRole = strings.TrimSpace(targetRole)
+	targetID = strings.TrimSpace(targetID)
+	notificationType = strings.TrimSpace(notificationType)
+	if targetRole == "" && targetID == "" && notificationType == "" {
+		return "default"
+	}
+	if targetRole == "" && notificationType != "" {
+		return "type:" + notificationType
+	}
+	if targetID == "" {
+		return targetRole
+	}
+	if notificationType == "" {
+		return targetRole + ":" + targetID
+	}
+	return targetRole + ":" + targetID + ":" + notificationType
+}
+
+func notificationPreferenceBatchSaveResult(preferences []NotificationPreference, reason string, updatedAt time.Time) *NotificationPreferenceBatchSaveResult {
+	copied := make([]NotificationPreference, 0, len(preferences))
+	keys := make([]string, 0, len(preferences))
+	for _, preference := range preferences {
+		preferenceCopy := *cloneNotificationPreference(&preference)
+		copied = append(copied, preferenceCopy)
+		keys = append(keys, preference.PreferenceKey)
+	}
+	sort.Strings(keys)
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	} else {
+		updatedAt = updatedAt.UTC()
+	}
+	return &NotificationPreferenceBatchSaveResult{
+		BatchID:        "ntfp_batch_" + shortHash(strings.Join(keys, "|")+"|"+updatedAt.Format(time.RFC3339Nano)),
+		Preferences:    copied,
+		Saved:          len(copied),
+		PreferenceKeys: keys,
+		Reason:         strings.TrimSpace(reason),
+		UpdatedAt:      updatedAt,
+	}
+}
+
+func notificationPreferenceChangedIdempotencyKey(preference *NotificationPreference) string {
+	if preference == nil || strings.TrimSpace(preference.PreferenceKey) == "" || preference.UpdatedAt.IsZero() {
+		return ""
+	}
+	return fmt.Sprintf("notification_preference_changed:%s:%s", preference.PreferenceKey, preference.UpdatedAt.UTC().Format(time.RFC3339Nano))
+}
+
+func notificationPreferenceChangedOutboxPayload(preference *NotificationPreference) map[string]any {
+	if preference == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"preference_id":     preference.ID,
+		"preference_key":    preference.PreferenceKey,
+		"preference_keys":   []string{preference.PreferenceKey},
+		"target_role":       preference.TargetRole,
+		"target_id":         preference.TargetID,
+		"notification_type": preference.NotificationType,
+		"enabled_channels":  append([]string{}, preference.EnabledChannels...),
+		"disabled_channels": append([]string{}, preference.DisabledChannels...),
+		"quiet_hours":       cloneNotificationQuietHours(preference.QuietHours),
+		"updated_at":        preference.UpdatedAt.Format(time.RFC3339Nano),
+		"idempotency_key":   notificationPreferenceChangedIdempotencyKey(preference),
+	}
+}
+
+func notificationPreferenceChangedOutboxEvent(preference *NotificationPreference) *OutboxEvent {
+	if preference == nil {
+		return nil
+	}
+	idempotencyKey := notificationPreferenceChangedIdempotencyKey(preference)
+	if idempotencyKey == "" {
+		return nil
+	}
+	now := preference.UpdatedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	return &OutboxEvent{
+		ID:             "obe_notification_preference_" + shortHash(idempotencyKey),
+		Topic:          notificationPreferenceChangedTopic,
+		AggregateType:  "notification_preference",
+		AggregateID:    preference.ID,
+		EventType:      "notification.preferences.changed",
+		IdempotencyKey: idempotencyKey,
+		Payload:        notificationPreferenceChangedOutboxPayload(preference),
+		Status:         OutboxStatusPending,
+		AvailableAt:    now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+}
+
+func (s *Store) enqueueNotificationPreferenceChangedOutboxLocked(preference *NotificationPreference) *OutboxEvent {
+	event := notificationPreferenceChangedOutboxEvent(preference)
+	if event == nil {
+		return nil
+	}
+	return s.applyOutboxEventLocked(event)
+}
+
+func (s *Store) applyOutboxEventLocked(event *OutboxEvent) *OutboxEvent {
+	if event == nil || strings.TrimSpace(event.ID) == "" {
+		return nil
+	}
+	if event.IdempotencyKey != "" {
+		if existingID := s.outboxByIdempotency[event.IdempotencyKey]; existingID != "" {
+			return cloneOutboxEvent(s.outboxEvents[existingID])
+		}
+	}
+	eventCopy := *cloneOutboxEvent(event)
+	s.outboxEvents[eventCopy.ID] = &eventCopy
+	if eventCopy.IdempotencyKey != "" {
+		s.outboxByIdempotency[eventCopy.IdempotencyKey] = eventCopy.ID
+	}
+	return cloneOutboxEvent(&eventCopy)
+}
+
+func notificationPreferenceAuditPayload(preference *NotificationPreference) map[string]any {
+	if preference == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"preference_key":    preference.PreferenceKey,
+		"target_role":       preference.TargetRole,
+		"target_id":         preference.TargetID,
+		"notification_type": preference.NotificationType,
+		"enabled_channels":  append([]string{}, preference.EnabledChannels...),
+		"disabled_channels": append([]string{}, preference.DisabledChannels...),
+		"quiet_hours":       cloneNotificationQuietHours(preference.QuietHours),
+		"updated_at":        preference.UpdatedAt.Format(time.RFC3339Nano),
+	}
+}
+
+func notificationPreferenceBatchAuditPayload(result *NotificationPreferenceBatchSaveResult) map[string]any {
+	if result == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"batch_id":        result.BatchID,
+		"saved":           result.Saved,
+		"preference_keys": append([]string{}, result.PreferenceKeys...),
+		"reason":          result.Reason,
+		"updated_at":      result.UpdatedAt.Format(time.RFC3339Nano),
+		"preferences":     notificationPreferenceAuditSummaries(result.Preferences),
+	}
+}
+
+func isNotificationPreferenceBatchAuditAction(action string) bool {
+	switch strings.TrimSpace(action) {
+	case "admin.notification_preferences.batch_saved", "admin.notification_preferences.change_applied":
+		return true
+	default:
+		return false
+	}
+}
+
+func mergeAuditPayload(base map[string]any, overlay map[string]any) map[string]any {
+	output := map[string]any{}
+	for key, value := range base {
+		output[key] = cloneAny(value)
+	}
+	for key, value := range overlay {
+		output[key] = cloneAny(value)
+	}
+	return output
+}
+
+func notificationPreferenceAuditSummaries(preferences []NotificationPreference) []map[string]any {
+	items := make([]map[string]any, 0, len(preferences))
+	for _, preference := range preferences {
+		items = append(items, notificationPreferenceAuditPayload(&preference))
+	}
+	return items
+}
+
+func normalizeCreateNotificationRequest(req CreateNotificationRequest) (CreateNotificationRequest, error) {
+	req.TargetRole = strings.TrimSpace(req.TargetRole)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	req.Type = strings.TrimSpace(req.Type)
+	req.Channel = strings.TrimSpace(req.Channel)
+	req.Title = strings.TrimSpace(req.Title)
+	req.Body = strings.TrimSpace(req.Body)
+	req.SourceTopic = strings.TrimSpace(req.SourceTopic)
+	req.SourceEventID = strings.TrimSpace(req.SourceEventID)
+	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	if req.Channel == "" {
+		req.Channel = NotificationChannelInApp
+	}
+	if req.CreatedAt.IsZero() {
+		req.CreatedAt = time.Now().UTC()
+	} else {
+		req.CreatedAt = req.CreatedAt.UTC()
+	}
+	if req.TargetRole == "" || req.TargetID == "" || req.Type == "" || req.Title == "" || req.Body == "" || req.IdempotencyKey == "" {
+		return req, ErrInvalidArgument
+	}
+	switch req.Channel {
+	case NotificationChannelInApp, NotificationWechatSubscribe:
+	default:
+		return req, ErrInvalidArgument
+	}
+	return req, nil
+}
+
+func normalizeNotificationListRequest(req NotificationListRequest) NotificationListRequest {
+	req.TargetRole = strings.TrimSpace(req.TargetRole)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	req.Status = strings.TrimSpace(req.Status)
+	req.SourceTopic = strings.TrimSpace(req.SourceTopic)
+	req.SourceEventID = strings.TrimSpace(req.SourceEventID)
+	if req.Status == "" {
+		req.Status = "all"
+	}
+	switch req.Status {
+	case "all", NotificationStatusUnread, NotificationStatusRead:
+	default:
+		req.Status = "all"
+	}
+	if req.Limit <= 0 {
+		req.Limit = 50
+	}
+	if req.Limit > 200 {
+		req.Limit = 200
+	}
+	return req
+}
+
+func normalizeRecordNotificationDeliveryRequest(req RecordNotificationDeliveryRequest) (RecordNotificationDeliveryRequest, error) {
+	req.NotificationID = strings.TrimSpace(req.NotificationID)
+	req.Channel = strings.TrimSpace(req.Channel)
+	req.Provider = strings.TrimSpace(req.Provider)
+	req.Status = strings.TrimSpace(req.Status)
+	req.ProviderMessageID = strings.TrimSpace(req.ProviderMessageID)
+	req.ErrorCode = strings.TrimSpace(req.ErrorCode)
+	req.ErrorMessage = strings.TrimSpace(req.ErrorMessage)
+	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	if req.Status == "" {
+		req.Status = NotificationDeliveryDelivered
+	}
+	if req.AttemptedAt.IsZero() {
+		req.AttemptedAt = time.Now().UTC()
+	} else {
+		req.AttemptedAt = req.AttemptedAt.UTC()
+	}
+	if !req.DeliveredAt.IsZero() {
+		req.DeliveredAt = req.DeliveredAt.UTC()
+	}
+	if !req.RetryAt.IsZero() {
+		req.RetryAt = req.RetryAt.UTC()
+	}
+	if req.NotificationID == "" || req.IdempotencyKey == "" {
+		return req, ErrInvalidArgument
+	}
+	switch req.Status {
+	case NotificationDeliveryQueued, NotificationDeliveryDelivered, NotificationDeliveryFailed:
+	default:
+		return req, ErrInvalidArgument
+	}
+	if req.Status == NotificationDeliveryFailed && req.ErrorMessage == "" && req.ErrorCode == "" {
+		return req, ErrInvalidArgument
+	}
+	return req, nil
+}
+
+func normalizeNotificationDeliveryListRequest(req NotificationDeliveryListRequest) NotificationDeliveryListRequest {
+	req.NotificationID = strings.TrimSpace(req.NotificationID)
+	req.TargetRole = strings.TrimSpace(req.TargetRole)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	req.Channel = strings.TrimSpace(req.Channel)
+	req.Provider = strings.TrimSpace(req.Provider)
+	req.Status = strings.TrimSpace(req.Status)
+	req.ErrorCode = strings.TrimSpace(req.ErrorCode)
+	if !req.RetryAtBefore.IsZero() {
+		req.RetryAtBefore = req.RetryAtBefore.UTC()
+	}
+	if req.Status == "" {
+		req.Status = "all"
+	}
+	switch req.Status {
+	case "all", NotificationDeliveryQueued, NotificationDeliveryDelivered, NotificationDeliveryFailed:
+	default:
+		req.Status = "all"
+	}
+	if req.Limit <= 0 {
+		req.Limit = 50
+	}
+	if req.Limit > 200 {
+		req.Limit = 200
+	}
+	return req
+}
+
+func normalizeNotificationFailureAlertEmissionRequest(req NotificationFailureAlertEmissionRequest) (NotificationFailureAlertEmissionRequest, error) {
+	req.TargetRole = strings.TrimSpace(req.TargetRole)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	req.Channel = strings.TrimSpace(req.Channel)
+	req.Provider = strings.TrimSpace(req.Provider)
+	if (req.TargetRole == "") != (req.TargetID == "") {
+		return req, ErrInvalidArgument
+	}
+	if req.Now.IsZero() {
+		req.Now = time.Now().UTC()
+	} else {
+		req.Now = req.Now.UTC()
+	}
+	if req.Limit <= 0 {
+		req.Limit = 20
+	}
+	if req.Limit > 50 {
+		req.Limit = 50
+	}
+	return req, nil
+}
+
+func normalizeNotificationDeliveryRetryScheduleRequest(req NotificationDeliveryRetryScheduleRequest) (NotificationDeliveryRetryScheduleRequest, error) {
+	req.TargetRole = strings.TrimSpace(req.TargetRole)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	req.Channel = strings.TrimSpace(req.Channel)
+	req.Provider = strings.TrimSpace(req.Provider)
+	req.Status = strings.ToLower(strings.TrimSpace(req.Status))
+	req.ErrorCode = strings.TrimSpace(req.ErrorCode)
+	if !req.SourceRetryAtBefore.IsZero() {
+		req.SourceRetryAtBefore = req.SourceRetryAtBefore.UTC()
+	}
+	if (req.TargetRole == "") != (req.TargetID == "") {
+		return req, ErrInvalidArgument
+	}
+	if req.Status == "" {
+		req.Status = NotificationDeliveryFailed
+	}
+	switch req.Status {
+	case NotificationDeliveryQueued, NotificationDeliveryFailed:
+	default:
+		return req, ErrInvalidArgument
+	}
+	if req.Now.IsZero() {
+		req.Now = time.Now().UTC()
+	} else {
+		req.Now = req.Now.UTC()
+	}
+	if req.Limit <= 0 {
+		req.Limit = 20
+	}
+	if req.Limit > 50 {
+		req.Limit = 50
+	}
+	if req.RetryAfterSeconds < 0 {
+		return req, ErrInvalidArgument
+	}
+	if !req.RetryAt.IsZero() {
+		req.RetryAt = req.RetryAt.UTC()
+		if req.RetryAt.Before(req.Now) {
+			req.RetryAt = req.Now
+		}
+		req.RetryAfterSeconds = int(math.Ceil(req.RetryAt.Sub(req.Now).Seconds()))
+	} else {
+		if req.RetryAfterSeconds == 0 {
+			req.RetryAfterSeconds = notificationDeliveryRetryDefaultBackoffSeconds(req.Channel, req.Provider)
+		}
+		if req.RetryAfterSeconds > 86400 {
+			req.RetryAfterSeconds = 86400
+		}
+		req.RetryAt = req.Now.Add(time.Duration(req.RetryAfterSeconds) * time.Second)
+	}
+	return req, nil
+}
+
+func normalizeNotificationQuietWindowRetryScheduleRequest(req NotificationQuietWindowRetryScheduleRequest) (NotificationQuietWindowRetryScheduleRequest, error) {
+	req.TargetRole = strings.TrimSpace(req.TargetRole)
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	req.Channel = strings.TrimSpace(req.Channel)
+	req.Provider = strings.TrimSpace(req.Provider)
+	if (req.TargetRole == "") != (req.TargetID == "") {
+		return req, ErrInvalidArgument
+	}
+	if req.Now.IsZero() {
+		req.Now = time.Now().UTC()
+	} else {
+		req.Now = req.Now.UTC()
+	}
+	if req.Limit <= 0 {
+		req.Limit = 50
+	}
+	if req.Limit > 100 {
+		req.Limit = 100
+	}
+	if req.RetryAfterSeconds < 0 {
+		return req, ErrInvalidArgument
+	}
+	if req.RetryAfterSeconds > 86400 {
+		req.RetryAfterSeconds = 86400
+	}
+	return req, nil
+}
+
+func notificationFailureAlertDeliveriesFromMap(req NotificationFailureAlertEmissionRequest, source map[string]*PlatformNotificationDelivery) []PlatformNotificationDelivery {
+	deliveries := make([]PlatformNotificationDelivery, 0)
+	for _, delivery := range source {
+		if delivery == nil || delivery.Status != NotificationDeliveryFailed {
+			continue
+		}
+		if req.TargetRole != "" && delivery.TargetRole != req.TargetRole {
+			continue
+		}
+		if req.TargetID != "" && delivery.TargetID != req.TargetID {
+			continue
+		}
+		if req.Channel != "" && delivery.Channel != req.Channel {
+			continue
+		}
+		if req.Provider != "" && delivery.Provider != req.Provider {
+			continue
+		}
+		deliveries = append(deliveries, *clonePlatformNotificationDelivery(delivery))
+	}
+	sort.SliceStable(deliveries, func(i, j int) bool {
+		if !deliveries[i].AttemptedAt.Equal(deliveries[j].AttemptedAt) {
+			return deliveries[i].AttemptedAt.After(deliveries[j].AttemptedAt)
+		}
+		return deliveries[i].ID > deliveries[j].ID
+	})
+	if len(deliveries) > req.Limit {
+		deliveries = deliveries[:req.Limit]
+	}
+	return deliveries
+}
+
+func notificationDeliveryRetryDeliveriesFromMap(req NotificationDeliveryRetryScheduleRequest, source map[string]*PlatformNotificationDelivery) []PlatformNotificationDelivery {
+	deliveries := make([]PlatformNotificationDelivery, 0)
+	for _, delivery := range source {
+		if delivery == nil || delivery.Status != req.Status {
+			continue
+		}
+		if req.ErrorCode != "" && delivery.ErrorCode != req.ErrorCode {
+			continue
+		}
+		if !req.SourceRetryAtBefore.IsZero() && (delivery.RetryAt.IsZero() || delivery.RetryAt.After(req.SourceRetryAtBefore)) {
+			continue
+		}
+		if req.TargetRole != "" && delivery.TargetRole != req.TargetRole {
+			continue
+		}
+		if req.TargetID != "" && delivery.TargetID != req.TargetID {
+			continue
+		}
+		if req.Channel != "" && delivery.Channel != req.Channel {
+			continue
+		}
+		if req.Provider != "" && delivery.Provider != req.Provider {
+			continue
+		}
+		deliveries = append(deliveries, *clonePlatformNotificationDelivery(delivery))
+	}
+	sort.SliceStable(deliveries, func(i, j int) bool {
+		if !deliveries[i].AttemptedAt.Equal(deliveries[j].AttemptedAt) {
+			return deliveries[i].AttemptedAt.After(deliveries[j].AttemptedAt)
+		}
+		return deliveries[i].ID > deliveries[j].ID
+	})
+	if len(deliveries) > req.Limit {
+		deliveries = deliveries[:req.Limit]
+	}
+	return deliveries
+}
+
+func notificationFailureAlertEmissionFromDeliveries(req NotificationFailureAlertEmissionRequest, deliveries []PlatformNotificationDelivery) *NotificationFailureAlertEmission {
+	emission := &NotificationFailureAlertEmission{
+		Status:     "skipped",
+		Topic:      notificationFailureAlertTopic,
+		TargetRole: req.TargetRole,
+		TargetID:   req.TargetID,
+		Channel:    req.Channel,
+		Provider:   req.Provider,
+		EmittedAt:  req.Now,
+		Deliveries: append([]PlatformNotificationDelivery{}, deliveries...),
+	}
+	emission.FailedCount = len(emission.Deliveries)
+	if emission.FailedCount > 0 {
+		emission.Status = "emitted"
+		emission.IdempotencyKey = notificationFailureAlertIdempotencyKey(req, emission.Deliveries)
+	}
+	return emission
+}
+
+func notificationDeliveryRetryScheduleFromDeliveries(req NotificationDeliveryRetryScheduleRequest, deliveries []PlatformNotificationDelivery, notifications []PlatformNotification) *NotificationDeliveryRetrySchedule {
+	schedule := &NotificationDeliveryRetrySchedule{
+		Status:            "skipped",
+		Topic:             notificationDeliveryRetryTopic,
+		TargetRole:        req.TargetRole,
+		TargetID:          req.TargetID,
+		Channel:           req.Channel,
+		Provider:          req.Provider,
+		DeliveryStatus:    req.Status,
+		ErrorCode:         req.ErrorCode,
+		RetryPolicy:       notificationDeliveryRetryPolicy(req.Channel, req.Provider, req.RetryAfterSeconds),
+		RetryAfterSeconds: req.RetryAfterSeconds,
+		RetryAt:           req.RetryAt,
+		ScheduledAt:       req.Now,
+		Deliveries:        append([]PlatformNotificationDelivery{}, deliveries...),
+		Notifications:     append([]PlatformNotification{}, notifications...),
+	}
+	schedule.ScheduledCount = len(schedule.Deliveries)
+	if schedule.ScheduledCount > 0 {
+		schedule.Status = "scheduled"
+		schedule.IdempotencyKey = notificationDeliveryRetryIdempotencyKey(req, schedule.Deliveries)
+	}
+	return schedule
+}
+
+func notificationDeliveryRetryNotificationsFromMap(deliveries []PlatformNotificationDelivery, source map[string]*PlatformNotification) []PlatformNotification {
+	seen := map[string]bool{}
+	notifications := make([]PlatformNotification, 0)
+	for _, delivery := range deliveries {
+		notificationID := strings.TrimSpace(delivery.NotificationID)
+		if notificationID == "" || seen[notificationID] {
+			continue
+		}
+		notification := source[notificationID]
+		if notification == nil {
+			continue
+		}
+		seen[notificationID] = true
+		notifications = append(notifications, *clonePlatformNotification(notification))
+	}
+	sort.SliceStable(notifications, func(i, j int) bool {
+		if !notifications[i].CreatedAt.Equal(notifications[j].CreatedAt) {
+			return notifications[i].CreatedAt.After(notifications[j].CreatedAt)
+		}
+		return notifications[i].ID > notifications[j].ID
+	})
+	return notifications
+}
+
+func (s *Store) notificationDeliveryRetryNotificationsSnapshot(deliveries []PlatformNotificationDelivery) []PlatformNotification {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return notificationDeliveryRetryNotificationsFromMap(deliveries, s.notifications)
+}
+
+func notificationFailureAlertIdempotencyKey(req NotificationFailureAlertEmissionRequest, deliveries []PlatformNotificationDelivery) string {
+	if len(deliveries) == 0 {
+		return ""
+	}
+	latest := deliveries[0]
+	parts := []string{
+		"notification_delivery_failed_alerts",
+		req.Now.UTC().Format("2006-01-02"),
+		"target_role:" + req.TargetRole,
+		"target_id:" + req.TargetID,
+		"channel:" + req.Channel,
+		"provider:" + req.Provider,
+		fmt.Sprintf("failed:%d", len(deliveries)),
+		"latest:" + latest.ID,
+		latest.AttemptedAt.UTC().Format(time.RFC3339Nano),
+	}
+	return strings.Join(parts, ":")
+}
+
+func notificationDeliveryRetryIdempotencyKey(req NotificationDeliveryRetryScheduleRequest, deliveries []PlatformNotificationDelivery) string {
+	if len(deliveries) == 0 {
+		return ""
+	}
+	latest := deliveries[0]
+	parts := []string{
+		"notification_delivery_retries",
+		req.Now.UTC().Format("2006-01-02"),
+		"target_role:" + req.TargetRole,
+		"target_id:" + req.TargetID,
+		"channel:" + req.Channel,
+		"provider:" + req.Provider,
+		"status:" + req.Status,
+		"error_code:" + req.ErrorCode,
+		fmt.Sprintf("deliveries:%d", len(deliveries)),
+		fmt.Sprintf("retry_after:%d", req.RetryAfterSeconds),
+		"latest:" + latest.ID,
+		latest.AttemptedAt.UTC().Format(time.RFC3339Nano),
+	}
+	return strings.Join(parts, ":")
+}
+
+func notificationFailureAlertOutboxPayload(emission *NotificationFailureAlertEmission) map[string]any {
+	if emission == nil {
+		return map[string]any{}
+	}
+	payload := map[string]any{
+		"failed_count":    emission.FailedCount,
+		"target_role":     emission.TargetRole,
+		"target_id":       emission.TargetID,
+		"channel":         emission.Channel,
+		"provider":        emission.Provider,
+		"emitted_at":      emission.EmittedAt.Format(time.RFC3339Nano),
+		"idempotency_key": emission.IdempotencyKey,
+		"deliveries":      emission.Deliveries,
+	}
+	if len(emission.Deliveries) > 0 {
+		first := emission.Deliveries[0]
+		payload["notification_id"] = first.NotificationID
+		payload["delivery_id"] = first.ID
+		payload["error_code"] = first.ErrorCode
+		payload["error_message"] = first.ErrorMessage
+	}
+	return payload
+}
+
+func notificationDeliveryRetryOutboxPayload(schedule *NotificationDeliveryRetrySchedule) map[string]any {
+	if schedule == nil {
+		return map[string]any{}
+	}
+	payload := map[string]any{
+		"scheduled_count":     schedule.ScheduledCount,
+		"target_role":         schedule.TargetRole,
+		"target_id":           schedule.TargetID,
+		"channel":             schedule.Channel,
+		"provider":            schedule.Provider,
+		"delivery_status":     schedule.DeliveryStatus,
+		"error_code":          schedule.ErrorCode,
+		"retry_policy":        schedule.RetryPolicy,
+		"retry_after_seconds": schedule.RetryAfterSeconds,
+		"retry_at":            schedule.RetryAt.Format(time.RFC3339Nano),
+		"scheduled_at":        schedule.ScheduledAt.Format(time.RFC3339Nano),
+		"idempotency_key":     schedule.IdempotencyKey,
+		"deliveries":          schedule.Deliveries,
+		"notifications":       schedule.Notifications,
+	}
+	if len(schedule.Deliveries) > 0 {
+		first := schedule.Deliveries[0]
+		payload["notification_id"] = first.NotificationID
+		payload["delivery_id"] = first.ID
+		payload["error_code"] = first.ErrorCode
+		payload["error_message"] = first.ErrorMessage
+	}
+	return payload
+}
+
+func notificationFailureAlertOutboxEvent(emission *NotificationFailureAlertEmission) *OutboxEvent {
+	if emission == nil || strings.TrimSpace(emission.IdempotencyKey) == "" {
+		return nil
+	}
+	now := emission.EmittedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	eventID := "obe_notification_failure_alert_" + shortHash(emission.IdempotencyKey)
+	emission.OutboxEventID = eventID
+	return &OutboxEvent{
+		ID:             eventID,
+		Topic:          notificationFailureAlertTopic,
+		AggregateType:  "notification_delivery",
+		AggregateID:    "failed",
+		EventType:      "notification.delivery_failed_alerts.emitted",
+		IdempotencyKey: emission.IdempotencyKey,
+		Payload:        notificationFailureAlertOutboxPayload(emission),
+		Status:         OutboxStatusPending,
+		AvailableAt:    now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+}
+
+func notificationDeliveryRetryOutboxEvent(schedule *NotificationDeliveryRetrySchedule) *OutboxEvent {
+	if schedule == nil || strings.TrimSpace(schedule.IdempotencyKey) == "" {
+		return nil
+	}
+	scheduledAt := schedule.ScheduledAt
+	if scheduledAt.IsZero() {
+		scheduledAt = time.Now().UTC()
+	} else {
+		scheduledAt = scheduledAt.UTC()
+	}
+	retryAt := schedule.RetryAt
+	if retryAt.IsZero() {
+		retryAt = scheduledAt
+	} else {
+		retryAt = retryAt.UTC()
+	}
+	eventID := "obe_notification_retry_" + shortHash(schedule.IdempotencyKey)
+	schedule.OutboxEventID = eventID
+	return &OutboxEvent{
+		ID:             eventID,
+		Topic:          notificationDeliveryRetryTopic,
+		AggregateType:  "notification_delivery",
+		AggregateID:    schedule.DeliveryStatus,
+		EventType:      "notification.delivery_retries.scheduled",
+		IdempotencyKey: schedule.IdempotencyKey,
+		Payload:        notificationDeliveryRetryOutboxPayload(schedule),
+		Status:         OutboxStatusPending,
+		AvailableAt:    retryAt,
+		CreatedAt:      scheduledAt,
+		UpdatedAt:      scheduledAt,
+	}
+}
+
+func notificationFailureAlertEmissionAuditPayload(emission *NotificationFailureAlertEmission) map[string]any {
+	if emission == nil {
+		return map[string]any{}
+	}
+	payload := map[string]any{
+		"failed_count":    emission.FailedCount,
+		"status":          emission.Status,
+		"topic":           emission.Topic,
+		"target_role":     emission.TargetRole,
+		"target_id":       emission.TargetID,
+		"channel":         emission.Channel,
+		"provider":        emission.Provider,
+		"idempotency_key": emission.IdempotencyKey,
+		"outbox_event_id": emission.OutboxEventID,
+	}
+	if len(emission.Deliveries) > 0 {
+		first := emission.Deliveries[0]
+		payload["delivery_id"] = first.ID
+		payload["notification_id"] = first.NotificationID
+		payload["error_code"] = first.ErrorCode
+		payload["error_message"] = first.ErrorMessage
+	}
+	return payload
+}
+
+func notificationDeliveryRetryScheduleAuditPayload(schedule *NotificationDeliveryRetrySchedule) map[string]any {
+	if schedule == nil {
+		return map[string]any{}
+	}
+	payload := map[string]any{
+		"scheduled_count":     schedule.ScheduledCount,
+		"status":              schedule.Status,
+		"topic":               schedule.Topic,
+		"target_role":         schedule.TargetRole,
+		"target_id":           schedule.TargetID,
+		"channel":             schedule.Channel,
+		"provider":            schedule.Provider,
+		"delivery_status":     schedule.DeliveryStatus,
+		"error_code":          schedule.ErrorCode,
+		"retry_policy":        schedule.RetryPolicy,
+		"retry_after_seconds": schedule.RetryAfterSeconds,
+		"retry_at":            schedule.RetryAt.Format(time.RFC3339Nano),
+		"scheduled_at":        schedule.ScheduledAt.Format(time.RFC3339Nano),
+		"idempotency_key":     schedule.IdempotencyKey,
+		"outbox_event_id":     schedule.OutboxEventID,
+	}
+	if len(schedule.Deliveries) > 0 {
+		first := schedule.Deliveries[0]
+		payload["delivery_id"] = first.ID
+		payload["notification_id"] = first.NotificationID
+		payload["error_code"] = first.ErrorCode
+		payload["error_message"] = first.ErrorMessage
+	}
+	return payload
+}
+
+func notificationDeliveryRetryDefaultBackoffSeconds(channel string, provider string) int {
+	key := strings.TrimSpace(provider)
+	if key == "" {
+		key = strings.TrimSpace(channel)
+	}
+	switch key {
+	case NotificationChannelInApp:
+		return 30
+	case NotificationWechatSubscribe:
+		return 300
+	case "sms":
+		return 600
+	case "enterprise_wechat":
+		return 300
+	case "push":
+		return 120
+	default:
+		return 300
+	}
+}
+
+func notificationDeliveryRetryPolicy(channel string, provider string, retryAfterSeconds int) string {
+	key := strings.TrimSpace(provider)
+	if key == "" {
+		key = strings.TrimSpace(channel)
+	}
+	if key == "" {
+		key = "default"
+	}
+	return fmt.Sprintf("%s_backoff_%ds", key, retryAfterSeconds)
+}
+
 func normalizeAuditLogsRequest(req AuditLogsRequest) AuditLogsRequest {
 	req.ActorType = strings.TrimSpace(req.ActorType)
 	req.ActorID = strings.TrimSpace(req.ActorID)
@@ -3887,6 +9910,10 @@ const (
 	defaultAuditIntegritySampleLimit         = 500
 	maxAuditIntegritySampleLimit             = 5000
 	auditRetentionAlertTopic                 = "audit.retention_alerts"
+	notificationFailureAlertTopic            = "notification.delivery_failed_alerts"
+	notificationDeliveryRetryTopic           = "notification.delivery_retries"
+	notificationPreferenceChangedTopic       = "notification.preferences_changed"
+	maxNotificationPreferenceBatchSize       = 50
 	defaultAuditArchiveLimit                 = 500
 	maxAuditArchiveLimit                     = 5000
 	defaultAuditArchiveListLimit             = 100
@@ -3915,6 +9942,9 @@ var defaultCriticalAuditActions = []string{
 	"admin.rbac.change_reviewed",
 	"admin.rbac.change_applied",
 	"admin.rbac.change_rolled_back",
+	"admin.notification_preferences.change_requested",
+	"admin.notification_preferences.change_reviewed",
+	"admin.notification_preferences.change_applied",
 	"admin.audit_logs.exported",
 }
 
@@ -4834,14 +10864,19 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"actor_type":              {},
 	"after":                   {},
 	"amount_fen":              {},
+	"apply_reason":            {},
+	"applied_count":           {},
+	"applied_preference_keys": {},
 	"applied_scopes":          {},
 	"actual_bytes":            {},
 	"actual_content_hash":     {},
 	"archive_id_matched":      {},
 	"attempts":                {},
 	"before":                  {},
+	"batch_id":                {},
 	"bytes_matched":           {},
 	"change_request_id":       {},
+	"channel":                 {},
 	"changed":                 {},
 	"claimed":                 {},
 	"cleanup_attempts":        {},
@@ -4855,7 +10890,11 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"current_scopes":          {},
 	"decision":                {},
 	"default_refund_strategy": {},
+	"delivery_id":             {},
+	"delivery_status":         {},
 	"destination":             {},
+	"disabled_channels":       {},
+	"enabled_channels":        {},
 	"error_code":              {},
 	"error_message":           {},
 	"evidence_count":          {},
@@ -4866,6 +10905,7 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"export_format":           {},
 	"expires_at":              {},
 	"expired_logs":            {},
+	"failed_count":            {},
 	"generated_at":            {},
 	"header_log_count":        {},
 	"hot_days":                {},
@@ -4880,28 +10920,55 @@ var auditPayloadAllowlist = map[string]struct{}{
 	"manifest_entry_count":    {},
 	"manifest_hash":           {},
 	"manifest_hash_matched":   {},
+	"merchant_id":             {},
+	"notification_id":         {},
+	"notification_type":       {},
 	"object_key":              {},
 	"object_lock_mode":        {},
 	"outbox_event_id":         {},
 	"previous_scopes":         {},
 	"previous_rider_id":       {},
 	"previous_status":         {},
+	"preference_key":          {},
+	"preference_keys":         {},
+	"preference_requests":     {},
+	"preferences":             {},
 	"policy_version":          {},
+	"provider":                {},
+	"quiet_hours":             {},
+	"qualification_id":        {},
 	"reason":                  {},
 	"refund_id":               {},
 	"retention_days":          {},
 	"replayed":                {},
 	"requested_scopes":        {},
+	"requested_count":         {},
+	"request_reason":          {},
 	"retry_after_seconds":     {},
+	"retry_policy":            {},
 	"retain_until":            {},
+	"reviewed_at":             {},
 	"role":                    {},
 	"rollback_from_scopes":    {},
 	"rollback_to_scopes":      {},
+	"rollout":                 {},
+	"rollout_max_targets":     {},
+	"rollout_mode":            {},
+	"rollout_percentage":      {},
+	"rollout_target_ids":      {},
 	"row_count":               {},
+	"retry_at":                {},
 	"station_id":              {},
+	"scheduled_at":            {},
+	"scheduled_count":         {},
+	"saved":                   {},
+	"skipped_count":           {},
+	"skipped_preference_keys": {},
 	"status":                  {},
 	"storage_key":             {},
 	"storage_prefix":          {},
+	"target_id":               {},
+	"target_role":             {},
 	"topic":                   {},
 	"type":                    {},
 	"uploaded_at":             {},
@@ -5160,11 +11227,338 @@ func (s *Store) OutboxEvents(req OutboxEventsRequest) ([]OutboxEvent, error) {
 	return events, nil
 }
 
+func (s *Store) OutboxEventDetail(req OutboxEventDetailRequest) (*OutboxEventDetail, error) {
+	req, err := normalizeOutboxEventDetailRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	event := cloneOutboxEvent(s.outboxEvents[req.EventID])
+	s.mu.Unlock()
+	if event == nil {
+		return nil, ErrNotFound
+	}
+
+	audits, err := s.AuditLogs(AuditLogsRequest{
+		TargetType: "outbox_event",
+		TargetID:   req.EventID,
+		Limit:      req.AuditLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buildOutboxEventDetail(event, audits, req.Now, req.AuditLimit), nil
+}
+
+func normalizeOutboxEventDetailRequest(req OutboxEventDetailRequest) (OutboxEventDetailRequest, error) {
+	req.EventID = strings.TrimSpace(req.EventID)
+	if req.EventID == "" {
+		return req, ErrInvalidArgument
+	}
+	req.Now = normalizeOutboxNow(req.Now)
+	if req.AuditLimit <= 0 {
+		req.AuditLimit = 20
+	}
+	if req.AuditLimit > 50 {
+		req.AuditLimit = 50
+	}
+	return req, nil
+}
+
 func outboxLeaseActive(event *OutboxEvent, now time.Time) bool {
 	if event == nil || strings.TrimSpace(event.LeaseOwner) == "" || event.LeaseExpiresAt.IsZero() {
 		return false
 	}
 	return event.LeaseExpiresAt.UTC().After(now.UTC())
+}
+
+func buildOutboxEventDetail(event *OutboxEvent, audits []AuditLog, now time.Time, auditLimit int) *OutboxEventDetail {
+	eventCopy := cloneOutboxEvent(event)
+	if eventCopy == nil {
+		return nil
+	}
+	if eventCopy.Payload == nil {
+		eventCopy.Payload = map[string]any{}
+	}
+	now = normalizeOutboxNow(now)
+	availableAt := eventCopy.AvailableAt
+	if availableAt.IsZero() {
+		availableAt = eventCopy.CreatedAt
+	}
+	leaseActive := outboxLeaseActive(eventCopy, now)
+	retryAvailableInSeconds := int64(0)
+	if (eventCopy.Status == OutboxStatusPending || eventCopy.Status == OutboxStatusFailed) && availableAt.After(now) {
+		retryAvailableInSeconds = int64(availableAt.Sub(now).Seconds())
+	}
+	leaseExpiresInSeconds := int64(0)
+	if leaseActive {
+		leaseExpiresInSeconds = int64(eventCopy.LeaseExpiresAt.Sub(now).Seconds())
+		if leaseExpiresInSeconds < 0 {
+			leaseExpiresInSeconds = 0
+		}
+	}
+	ready := (eventCopy.Status == OutboxStatusPending || eventCopy.Status == OutboxStatusFailed) && !leaseActive && !availableAt.After(now)
+	blocked := (eventCopy.Status == OutboxStatusPending || eventCopy.Status == OutboxStatusFailed) && !ready
+
+	incidentCode, severity := outboxIncidentState(eventCopy, ready, blocked, leaseActive)
+	detail := &OutboxEventDetail{
+		GeneratedAt:             now,
+		Event:                   *eventCopy,
+		IncidentCode:            incidentCode,
+		IncidentSeverity:        severity,
+		Ready:                   ready,
+		Blocked:                 blocked,
+		LeaseActive:             leaseActive,
+		RetryAvailableInSeconds: retryAvailableInSeconds,
+		LeaseExpiresInSeconds:   leaseExpiresInSeconds,
+		PayloadSummary:          outboxPayloadSummary(eventCopy.Payload),
+		RelatedTargets:          outboxRelatedTargets(eventCopy),
+		AuditFilters: []OutboxEventAuditFilter{{
+			TargetType: "outbox_event",
+			TargetID:   eventCopy.ID,
+			Limit:      auditLimit,
+		}},
+		RecentAudits:         audits,
+		RecommendedOperation: outboxRecommendedOperation(eventCopy, ready, blocked, leaseActive),
+		Checklist:            outboxIncidentChecklist(eventCopy, ready, blocked, leaseActive),
+	}
+	if eventCopy.AggregateType != "" && eventCopy.AggregateID != "" {
+		detail.AuditFilters = append(detail.AuditFilters, OutboxEventAuditFilter{
+			TargetType: outboxRelatedTargetType(eventCopy.AggregateType),
+			TargetID:   eventCopy.AggregateID,
+			Limit:      auditLimit,
+		})
+	}
+	return detail
+}
+
+func outboxIncidentState(event *OutboxEvent, ready bool, blocked bool, leaseActive bool) (string, string) {
+	if event == nil {
+		return "outbox.unknown", "info"
+	}
+	switch event.Status {
+	case OutboxStatusDeadLetter:
+		return "outbox.dead_letter", "critical"
+	case OutboxStatusPublished:
+		return "outbox.published", "info"
+	case OutboxStatusFailed:
+		if ready {
+			return "outbox.failed_ready", "warning"
+		}
+		return "outbox.retry_backoff", "warning"
+	case OutboxStatusPending:
+		if leaseActive {
+			return "outbox.lease_active", "warning"
+		}
+		if blocked {
+			return "outbox.pending_blocked", "warning"
+		}
+		return "outbox.ready", "info"
+	default:
+		return "outbox.unknown", "info"
+	}
+}
+
+func outboxRecommendedOperation(event *OutboxEvent, ready bool, blocked bool, leaseActive bool) OutboxRecommendedOperation {
+	if event == nil {
+		return OutboxRecommendedOperation{}
+	}
+	values := map[string]any{"event_id": event.ID}
+	switch {
+	case event.Status == OutboxStatusDeadLetter:
+		return OutboxRecommendedOperation{
+			Key:    "outbox-release-dead-letter",
+			Title:  "解封 Outbox 死信",
+			Reason: "事件已进入 dead-letter，需核对下游幂等和业务状态后人工解封。",
+			Values: values,
+		}
+	case event.Status == OutboxStatusPublished:
+		return OutboxRecommendedOperation{
+			Key:    "audit-logs",
+			Title:  "查看处置审计",
+			Reason: "事件已发布，下一步应核对发布或人工处置审计。",
+			Values: map[string]any{"target_type": "outbox_event", "target_id": event.ID, "limit": 50},
+		}
+	case leaseActive:
+		return OutboxRecommendedOperation{
+			Key:    "outbox-renew-lease",
+			Title:  "续租 Outbox 租约",
+			Reason: "事件正在被 worker 或人工会话持有，继续处理前应确认租约持有人仍健康。",
+			Values: map[string]any{"event_id": event.ID, "lease_owner": event.LeaseOwner, "lease_seconds": 60},
+		}
+	case blocked:
+		return OutboxRecommendedOperation{
+			Key:    "outbox-replay-event",
+			Title:  "恢复单个 Outbox",
+			Reason: "事件处于 backoff 或暂不可投递，确认故障解除后可提前恢复。",
+			Values: values,
+		}
+	case ready:
+		return OutboxRecommendedOperation{
+			Key:    "outbox-claim-events",
+			Title:  "领取 Outbox 租约",
+			Reason: "事件已可投递，可由人工或 worker 领取短租约后处理。",
+			Values: map[string]any{"topic": event.Topic, "limit": 1, "lease_owner": "relay-admin", "lease_seconds": 60},
+		}
+	default:
+		return OutboxRecommendedOperation{
+			Key:    "outbox-events",
+			Title:  "刷新 Outbox 队列",
+			Reason: "当前状态不适合直接写操作，先刷新同主题队列确认最新状态。",
+			Values: map[string]any{"topic": event.Topic, "status": event.Status, "limit": 20},
+		}
+	}
+}
+
+func outboxIncidentChecklist(event *OutboxEvent, ready bool, blocked bool, leaseActive bool) []string {
+	checklist := []string{
+		"核对 payload、aggregate 和当前业务状态是否一致",
+		"确认下游服务恢复且幂等键不会造成重复副作用",
+		"处理后回查 outbox_event 审计和队列状态",
+	}
+	if event == nil {
+		return checklist
+	}
+	if event.Status == OutboxStatusDeadLetter {
+		checklist = append([]string{"先确认 dead-letter 原因和最大尝试次数"}, checklist...)
+	}
+	if event.Status == OutboxStatusPublished {
+		checklist = append([]string{"仅做审计核验，不再重放已发布事件"}, checklist...)
+	}
+	if leaseActive {
+		checklist = append([]string{"联系租约持有人或等待租约过期后再人工接管"}, checklist...)
+	}
+	if blocked {
+		checklist = append([]string{"确认 backoff 到期时间或故障解除证据"}, checklist...)
+	}
+	if ready {
+		checklist = append([]string{"优先领取短租约，避免多人同时处理"}, checklist...)
+	}
+	return checklist
+}
+
+func outboxPayloadSummary(payload map[string]any) []OutboxPayloadField {
+	if len(payload) == 0 {
+		return []OutboxPayloadField{}
+	}
+	keys := make([]string, 0, len(payload))
+	for key := range payload {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	limit := 16
+	fields := make([]OutboxPayloadField, 0, minInt(len(keys), limit))
+	for index, key := range keys {
+		if index >= limit {
+			fields = append(fields, OutboxPayloadField{Key: "__truncated__", Value: fmt.Sprintf("%d more fields", len(keys)-limit)})
+			break
+		}
+		fields = append(fields, OutboxPayloadField{Key: key, Value: compactOutboxPayloadValue(payload[key])})
+	}
+	return fields
+}
+
+func compactOutboxPayloadValue(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return truncateRunes(typed, 240)
+	case fmt.Stringer:
+		return truncateRunes(typed.String(), 240)
+	default:
+		encoded, err := json.Marshal(typed)
+		if err == nil {
+			return truncateRunes(string(encoded), 240)
+		}
+		return truncateRunes(fmt.Sprint(typed), 240)
+	}
+}
+
+func truncateRunes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	if limit <= 3 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-3]) + "..."
+}
+
+func minInt(left int, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func outboxRelatedTargets(event *OutboxEvent) []OutboxRelatedTarget {
+	if event == nil {
+		return []OutboxRelatedTarget{}
+	}
+	targets := []OutboxRelatedTarget{}
+	seen := map[string]bool{}
+	add := func(targetType string, targetID any, source string) {
+		targetType = outboxRelatedTargetType(targetType)
+		targetIDString := strings.TrimSpace(fmt.Sprint(targetID))
+		if targetType == "" || targetIDString == "" || targetIDString == "<nil>" {
+			return
+		}
+		key := targetType + ":" + targetIDString
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		targets = append(targets, OutboxRelatedTarget{
+			TargetType:   targetType,
+			TargetID:     targetIDString,
+			Source:       source,
+			OperationKey: "audit-logs",
+		})
+	}
+	add(event.AggregateType, event.AggregateID, "aggregate")
+	payloadTargets := map[string]string{
+		"archive_id":      "audit_archive",
+		"merchant_id":     "merchant_account",
+		"object_key":      "object_storage",
+		"order_id":        "order",
+		"outbox_event_id": "outbox_event",
+		"refund_id":       "refund",
+		"request_id":      "after_sales",
+		"rider_id":        "rider",
+		"shop_id":         "shop",
+		"station_id":      "station",
+		"user_id":         "user",
+	}
+	for key, targetType := range payloadTargets {
+		if value, ok := event.Payload[key]; ok {
+			add(targetType, value, "payload."+key)
+		}
+	}
+	sort.SliceStable(targets, func(i, j int) bool {
+		if targets[i].TargetType != targets[j].TargetType {
+			return targets[i].TargetType < targets[j].TargetType
+		}
+		return targets[i].TargetID < targets[j].TargetID
+	})
+	return targets
+}
+
+func outboxRelatedTargetType(value string) string {
+	value = strings.TrimSpace(value)
+	switch value {
+	case "dispatch":
+		return "dispatch"
+	case "audit_archive":
+		return "audit_archive"
+	default:
+		return value
+	}
 }
 
 func (s *Store) OutboxStats(req OutboxStatsRequest) (*OutboxStats, error) {
@@ -6584,7 +12978,7 @@ func averagePositiveDailyOrders(performances []RiderPerformance) float64 {
 	return total / float64(count)
 }
 
-func evaluateRiderPerformanceLevel(performance RiderPerformance, teamAverageAcceptSeconds float64, teamAverageDailyOrders float64) (int, string, int) {
+func evaluateRiderPerformanceLevel(performance RiderPerformance, teamAverageAcceptSeconds float64, teamAverageDailyOrders float64) (int, string, int, RiderPerformanceScoreBreakdown) {
 	acceptScore := 0.0
 	if performance.AverageAcceptSeconds > 0 {
 		acceptScore = (teamAverageAcceptSeconds / performance.AverageAcceptSeconds) * 50
@@ -6593,7 +12987,14 @@ func evaluateRiderPerformanceLevel(performance RiderPerformance, teamAverageAcce
 	if teamAverageDailyOrders > 0 {
 		orderScore = (performance.AverageDailyOrders / teamAverageDailyOrders) * 35
 	}
-	score := int(math.Round(math.Max(0, acceptScore+orderScore+(performance.CompletionRate*15))))
+	completionScore := performance.CompletionRate * 15
+	ratingScore := 0.0
+	ratingConfidence := 0.0
+	if performance.RiderAverageRating > 0 && performance.RiderReviewCount > 0 {
+		ratingConfidence = math.Min(1, float64(performance.RiderReviewCount)/5)
+		ratingScore = (performance.RiderAverageRating / 5) * 12 * ratingConfidence
+	}
+	score := int(math.Round(math.Max(0, acceptScore+orderScore+completionScore+ratingScore)))
 	level := RiderLevelC
 	if score >= 120 {
 		level = RiderLevelS
@@ -6602,7 +13003,16 @@ func evaluateRiderPerformanceLevel(performance RiderPerformance, teamAverageAcce
 	} else if score >= 80 {
 		level = RiderLevelB
 	}
-	return score, level, RiderDispatchPriority(level)
+	breakdown := RiderPerformanceScoreBreakdown{
+		AcceptScore:              roundFloat(acceptScore, 2),
+		OrderVolumeScore:         roundFloat(orderScore, 2),
+		CompletionScore:          roundFloat(completionScore, 2),
+		RatingScore:              roundFloat(ratingScore, 2),
+		RatingConfidence:         roundFloat(ratingConfidence, 2),
+		TeamAverageAcceptSeconds: roundFloat(teamAverageAcceptSeconds, 2),
+		TeamAverageDailyOrders:   roundFloat(teamAverageDailyOrders, 2),
+	}
+	return score, level, RiderDispatchPriority(level), breakdown
 }
 
 func roundFloat(value float64, precision int) float64 {
@@ -6769,10 +13179,63 @@ func (s *Store) afterSalesRequestViewLocked(request *AfterSalesRequest) *AfterSa
 	if remainingFen < 0 {
 		remainingFen = 0
 	}
+	output.ShopName = strings.TrimSpace(order.ShopName)
+	if output.ShopName == "" {
+		output.ShopName = strings.TrimSpace(order.ShopID)
+	}
+	output.OrderStatus = order.Status
+	output.OrderItemSummary = afterSalesOrderItemSummary(order.Items)
+	output.LatestEventMessage, output.LatestEventAt = s.afterSalesLatestUserEventLocked(output.ID)
 	output.OrderAmountFen = order.AmountFen
 	output.RefundedAmountFen = refundedFen
 	output.RefundableFen = remainingFen
 	return output
+}
+
+func (s *Store) afterSalesLatestUserEventLocked(requestID string) (string, time.Time) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return "", time.Time{}
+	}
+	var latest *AfterSalesEvent
+	for _, event := range s.afterSalesEvents {
+		if event == nil || event.RequestID != requestID || !event.VisibleToUser {
+			continue
+		}
+		if latest == nil || event.CreatedAt.After(latest.CreatedAt) {
+			latest = event
+		}
+	}
+	if latest == nil {
+		return "", time.Time{}
+	}
+	return latest.Message, latest.CreatedAt
+}
+
+func afterSalesOrderItemSummary(items []OrderItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	first := strings.TrimSpace(items[0].ProductName)
+	if first == "" {
+		first = "商品"
+	}
+	if len(items) == 1 {
+		quantity := items[0].Quantity
+		if quantity <= 0 {
+			quantity = 1
+		}
+		return fmt.Sprintf("%s x %d", first, quantity)
+	}
+	totalCount := 0
+	for _, item := range items {
+		quantity := item.Quantity
+		if quantity <= 0 {
+			quantity = 1
+		}
+		totalCount += quantity
+	}
+	return fmt.Sprintf("%s等 %d 件", first, totalCount)
 }
 
 func dispatchEventOutboxTopic(eventType string) string {
@@ -6872,6 +13335,7 @@ func rejectedRiderIDs(rejected map[string]bool) []string {
 func (s *Store) dispatchDecisionLocked(order *Order, mode string, now time.Time) *DispatchDecision {
 	rejected := s.dispatchRejectedRiders[order.ID]
 	stationID := s.orderStationIDLocked(order)
+	s.refreshDispatchPrioritiesForStationLocked(stationID)
 	candidates := make([]RiderAccount, 0)
 	for _, rider := range s.riders {
 		if !riderCanAcceptDispatchLocked(rider) {
@@ -7110,6 +13574,1719 @@ func sanitizedStringSlice(values []string) []string {
 	return output
 }
 
+func redPacketShares(packet RedPacket, _ time.Time) []RedPacketShare {
+	if packet.Quantity <= 0 {
+		return nil
+	}
+	shares := make([]RedPacketShare, 0, packet.Quantity)
+	base := packet.TotalAmountFen / int64(packet.Quantity)
+	remain := packet.TotalAmountFen % int64(packet.Quantity)
+	for index := 0; index < packet.Quantity; index++ {
+		amountFen := base
+		if remain > 0 {
+			amountFen++
+			remain--
+		}
+		shares = append(shares, RedPacketShare{
+			UserID:    "",
+			AmountFen: amountFen,
+			ClaimedAt: time.Time{},
+		})
+	}
+	return shares
+}
+
+func redPacketClaimedCount(detail *RedPacketDetail) int {
+	if detail == nil {
+		return 0
+	}
+	count := 0
+	for _, share := range detail.Shares {
+		if share.UserID != "" && !share.ClaimedAt.IsZero() {
+			count++
+		}
+	}
+	return count
+}
+
+func redPacketClaimedAmount(detail *RedPacketDetail) int64 {
+	if detail == nil {
+		return 0
+	}
+	var amount int64
+	for _, share := range detail.Shares {
+		if share.UserID != "" && !share.ClaimedAt.IsZero() {
+			amount += share.AmountFen
+		}
+	}
+	return amount
+}
+
+func redPacketRemainingAmount(detail *RedPacketDetail) int64 {
+	if detail == nil {
+		return 0
+	}
+	var amount int64
+	for _, share := range detail.Shares {
+		if share.UserID == "" || share.ClaimedAt.IsZero() {
+			amount += share.AmountFen
+		}
+	}
+	return amount
+}
+
+const (
+	redPacketRiskClaimWindowSeconds = 10 * 60
+	redPacketRiskClaimLimit         = 3
+	redPacketRiskAmountWindow       = 24 * time.Hour
+	redPacketRiskAmountLimitFen     = 20000
+)
+
+func redPacketNextClaimAmount(detail *RedPacketDetail) int64 {
+	if detail == nil {
+		return 0
+	}
+	for index := range detail.Shares {
+		if detail.Shares[index].UserID == "" && detail.Shares[index].ClaimedAt.IsZero() {
+			return detail.Shares[index].AmountFen
+		}
+	}
+	return 0
+}
+
+func (s *Store) redPacketClaimRiskLocked(detail *RedPacketDetail, userID string, nextAmountFen int64, now time.Time) *RedPacketRiskCheck {
+	if detail == nil {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	risk := &RedPacketRiskCheck{
+		State:          RedPacketRiskPassed,
+		Reason:         "当前领取环境正常",
+		WindowSeconds:  redPacketRiskClaimWindowSeconds,
+		ClaimLimit:     redPacketRiskClaimLimit,
+		AmountLimitFen: redPacketRiskAmountLimitFen,
+		CheckedAt:      now,
+	}
+	if detail.Packet.SenderID == userID {
+		risk.State = RedPacketRiskBlocked
+		risk.ReasonCode = RedPacketRiskSender
+		risk.Reason = "发红包人不可领取自己的红包"
+		return risk
+	}
+	claimCount, amountFen := s.redPacketClaimRiskStatsLocked(userID, detail.Packet.TargetID, now)
+	risk.ClaimCount = claimCount
+	risk.AmountFen = amountFen
+	if claimCount >= redPacketRiskClaimLimit {
+		risk.State = RedPacketRiskBlocked
+		risk.ReasonCode = RedPacketRiskFrequencyLimit
+		risk.Reason = "10分钟内领取红包次数过多，请稍后再试"
+		return risk
+	}
+	if nextAmountFen > 0 && amountFen+nextAmountFen > redPacketRiskAmountLimitFen {
+		risk.State = RedPacketRiskBlocked
+		risk.ReasonCode = RedPacketRiskAmountLimit
+		risk.Reason = "今日红包领取金额触达风控上限，请明日再试"
+		return risk
+	}
+	return risk
+}
+
+func (s *Store) redPacketClaimRiskStatsLocked(userID string, targetID string, now time.Time) (int, int64) {
+	claimWindowStart := now.Add(-time.Duration(redPacketRiskClaimWindowSeconds) * time.Second)
+	amountWindowStart := now.Add(-redPacketRiskAmountWindow)
+	claimCount := 0
+	var amountFen int64
+	for _, detail := range s.redPackets {
+		if detail == nil {
+			continue
+		}
+		for _, share := range detail.Shares {
+			if share.UserID != userID || share.ClaimedAt.IsZero() {
+				continue
+			}
+			if !share.ClaimedAt.Before(amountWindowStart) {
+				amountFen += share.AmountFen
+			}
+			if detail.Packet.TargetID == targetID && !share.ClaimedAt.Before(claimWindowStart) {
+				claimCount++
+			}
+		}
+	}
+	return claimCount, amountFen
+}
+
+func (s *Store) autoRefundExpiredRedPacketLocked(detail *RedPacketDetail, now time.Time) error {
+	if detail == nil || detail.Packet.Status != RedPacketStatusCreated {
+		return nil
+	}
+	if detail.Packet.ExpiresAt.IsZero() || now.Before(detail.Packet.ExpiresAt) {
+		return nil
+	}
+	return s.refundRedPacketRemainderLocked(detail, now, RedPacketStatusExpired)
+}
+
+func (s *Store) refundRedPacketRemainderLocked(detail *RedPacketDetail, now time.Time, status string) error {
+	if detail == nil {
+		return ErrNotFound
+	}
+	if detail.Packet.Status == RedPacketStatusRefunded || detail.Packet.Status == RedPacketStatusExpired {
+		return nil
+	}
+	if detail.Packet.Status == RedPacketStatusFinished {
+		return ErrInvalidOrderState
+	}
+	remaining := redPacketRemainingAmount(detail)
+	if remaining <= 0 {
+		detail.Packet.Status = RedPacketStatusFinished
+		detail.Packet.ClaimedAmountFen = redPacketClaimedAmount(detail)
+		return nil
+	}
+	refundKey := redPacketRefundKey(detail.Packet.ID)
+	if s.walletIdempotency[refundKey] == nil {
+		account := s.getOrCreateWalletLocked(detail.Packet.SenderID)
+		if account.Frozen < remaining {
+			return ErrInvalidOrderState
+		}
+		account.Frozen -= remaining
+		account.Balance += remaining
+		account.Version++
+		transaction := s.createWalletTransactionLocked(detail.Packet.SenderID, detail.Packet.ID, "red_packet_refund", remaining, PaymentBalance, refundKey)
+		s.walletIdempotency[transaction.IdempotencyKey] = transaction
+	}
+	detail.Packet.Status = status
+	detail.Packet.ClaimedAmountFen = redPacketClaimedAmount(detail)
+	detail.Packet.RefundedAmountFen = remaining
+	detail.Packet.RefundedAt = now
+	return nil
+}
+
+func redPacketFreezeKey(packetID string) string {
+	return "red_packet:freeze:" + strings.TrimSpace(packetID)
+}
+
+func redPacketClaimKey(packetID string, userID string) string {
+	return "red_packet:claim:" + strings.TrimSpace(packetID) + ":" + strings.TrimSpace(userID)
+}
+
+func redPacketRefundKey(packetID string) string {
+	return "red_packet:refund:" + strings.TrimSpace(packetID)
+}
+
+func defaultChatThreads() []ChatThread {
+	now := time.Now().UTC()
+	return []ChatThread{
+		{
+			ID:          "official",
+			Type:        GroupChatOfficial,
+			Title:       "悦享e食官方群",
+			Subtitle:    "新用户入群默认静默，重要通知站内信保留",
+			Icon:        "官",
+			Route:       "/pages/messages/merchant-group/index?thread_id=official&type=official",
+			UnreadCount: 3,
+			Muted:       true,
+			UpdatedAt:   now.Add(-20 * time.Minute),
+		},
+		{
+			ID:          "merchant_blue_sea",
+			Type:        GroupChatMerchant,
+			Title:       "蓝海餐厅商户群",
+			Subtitle:    "群内团购券限时领取，今晚 20:00 前可用",
+			Icon:        "店",
+			Route:       "/pages/messages/merchant-group/index?thread_id=merchant_blue_sea",
+			UnreadCount: 1,
+			Muted:       false,
+			UpdatedAt:   now.Add(-52 * time.Minute),
+		},
+		{
+			ID:        "customer_service",
+			Type:      "customer_service",
+			Title:     "客服小悦",
+			Subtitle:  "售后申请已提交，商家将在 24 小时内处理",
+			Icon:      "客",
+			Route:     "/pages/customer-service/chat/index",
+			UpdatedAt: now.Add(-24 * time.Hour),
+		},
+		{
+			ID:        "rider_zhang",
+			Type:      "private_chat",
+			Title:     "骑手 张师傅",
+			Subtitle:  "餐品已送达，记得给本次配送评价",
+			Icon:      "骑",
+			Route:     "/pages/messages/merchant-group/index?thread_id=rider_zhang",
+			UpdatedAt: now.Add(-26 * time.Hour),
+		},
+		{
+			ID:        "red_packet_helper",
+			Type:      "system",
+			Title:     "红包助手",
+			Subtitle:  "你收到一个商户群红包，可在余额中查看",
+			Icon:      "红",
+			Route:     "/pages/red-packet/detail/index",
+			UpdatedAt: now.Add(-72 * time.Hour),
+		},
+	}
+}
+
+func knownChatThread(threadID string) bool {
+	return chatThreadByID(threadID) != nil
+}
+
+func chatThreadByID(threadID string) *ChatThread {
+	threadID = strings.TrimSpace(threadID)
+	for _, thread := range defaultChatThreads() {
+		if thread.ID == threadID {
+			threadCopy := thread
+			return &threadCopy
+		}
+	}
+	return nil
+}
+
+func chatThreadMemberKey(threadID string, subjectType string, subjectID string) string {
+	return strings.TrimSpace(threadID) + ":" + strings.TrimSpace(subjectType) + ":" + strings.TrimSpace(subjectID)
+}
+
+func defaultChatThreadMembers(thread ChatThread) []ChatThreadMember {
+	joinedAt := thread.UpdatedAt
+	if joinedAt.IsZero() {
+		joinedAt = time.Now().UTC()
+	}
+	member := func(subjectType string, subjectID string, muted bool) ChatThreadMember {
+		return ChatThreadMember{
+			ThreadID:    thread.ID,
+			SubjectType: strings.TrimSpace(subjectType),
+			SubjectID:   strings.TrimSpace(subjectID),
+			Muted:       muted,
+			JoinedAt:    joinedAt,
+		}
+	}
+	switch thread.ID {
+	case "official":
+		return []ChatThreadMember{
+			member("user", "*", true),
+			member("system", "official", true),
+			member("support_admin", "*", true),
+		}
+	case "merchant_blue_sea":
+		return []ChatThreadMember{
+			member("user", "user_1", false),
+			member("user", "user_group_xiaolin", false),
+			member("user", "user_group_ajie", false),
+			member("merchant", "merchant_1", false),
+			member("support_admin", "*", false),
+			member("system", "*", false),
+		}
+	case "customer_service":
+		return []ChatThreadMember{
+			member("user", "user_1", false),
+			member("support_admin", "*", false),
+			member("system", "*", false),
+		}
+	case "rider_zhang":
+		return []ChatThreadMember{
+			member("user", "user_1", false),
+			member("rider", "rider_1", false),
+			member("support_admin", "*", false),
+			member("system", "*", false),
+		}
+	case "red_packet_helper":
+		return []ChatThreadMember{
+			member("user", "user_1", false),
+			member("system", "*", false),
+		}
+	default:
+		return nil
+	}
+}
+
+func seedChatThreadMembers() map[string]*ChatThreadMember {
+	members := map[string]*ChatThreadMember{}
+	for _, thread := range defaultChatThreads() {
+		for _, member := range defaultChatThreadMembers(thread) {
+			memberCopy := member
+			members[chatThreadMemberKey(member.ThreadID, member.SubjectType, member.SubjectID)] = cloneChatThreadMember(&memberCopy)
+		}
+	}
+	return members
+}
+
+func chatThreadMembers(threadID string) []ChatThreadMember {
+	thread := chatThreadByID(threadID)
+	if thread == nil {
+		return nil
+	}
+	return defaultChatThreadMembers(*thread)
+}
+
+func chatThreadMemberForSubject(threadID string, subjectType string, subjectID string) *ChatThreadMember {
+	subjectType = normalizeChatSubjectType(subjectType, "", subjectID)
+	subjectID = strings.TrimSpace(subjectID)
+	if subjectType == "" || subjectID == "" {
+		return nil
+	}
+	for _, member := range chatThreadMembers(threadID) {
+		if member.SubjectType != subjectType {
+			continue
+		}
+		if member.SubjectID == "*" || member.SubjectID == subjectID {
+			memberCopy := member
+			return &memberCopy
+		}
+	}
+	return nil
+}
+
+func chatThreadAllowsSubject(threadID string, subjectType string, subjectID string) bool {
+	return chatThreadMemberForSubject(threadID, subjectType, subjectID) != nil
+}
+
+type chatThreadSelfServePolicyData struct {
+	Joinable          bool
+	Leaveable         bool
+	DefaultMuted      bool
+	CouponRequirement string
+	CouponCode        string
+}
+
+func chatThreadSelfServePolicy(threadID string) chatThreadSelfServePolicyData {
+	switch strings.TrimSpace(threadID) {
+	case "merchant_blue_sea":
+		return chatThreadSelfServePolicyData{
+			Joinable:          true,
+			Leaveable:         true,
+			DefaultMuted:      true,
+			CouponRequirement: CouponRequirementGroupMembership,
+			CouponCode:        "GROUP8",
+		}
+	default:
+		return chatThreadSelfServePolicyData{}
+	}
+}
+
+func (s *Store) chatThreadMemberExactLocked(threadID string, subjectType string, subjectID string) *ChatThreadMember {
+	subjectType = normalizeChatSubjectType(subjectType, "", subjectID)
+	subjectID = strings.TrimSpace(subjectID)
+	if threadID == "" || subjectType == "" || subjectID == "" {
+		return nil
+	}
+	if member := s.chatThreadMembers[chatThreadMemberKey(threadID, subjectType, subjectID)]; member != nil {
+		return cloneChatThreadMember(member)
+	}
+	return nil
+}
+
+func (s *Store) chatThreadMemberLocked(threadID string, subjectType string, subjectID string) *ChatThreadMember {
+	subjectType = normalizeChatSubjectType(subjectType, "", subjectID)
+	subjectID = strings.TrimSpace(subjectID)
+	if threadID == "" || subjectType == "" || subjectID == "" {
+		return nil
+	}
+	if member := s.chatThreadMembers[chatThreadMemberKey(threadID, subjectType, subjectID)]; member != nil {
+		return cloneChatThreadMember(member)
+	}
+	if member := s.chatThreadMembers[chatThreadMemberKey(threadID, subjectType, "*")]; member != nil {
+		return cloneChatThreadMember(member)
+	}
+	return nil
+}
+
+func (s *Store) chatThreadMembershipLocked(userID string, threadID string) (*ChatThreadMembership, error) {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(threadID) == "" {
+		return nil, ErrInvalidArgument
+	}
+	if chatThreadByID(threadID) == nil {
+		return nil, ErrNotFound
+	}
+	policy := chatThreadSelfServePolicy(threadID)
+	member := s.chatThreadMemberLocked(threadID, "user", userID)
+	exact := s.chatThreadMemberExactLocked(threadID, "user", userID)
+	memberCount := s.chatThreadOverviewMemberCountLocked(threadID)
+	membership := &ChatThreadMembership{
+		ThreadID:          threadID,
+		Joined:            member != nil,
+		CanJoin:           member == nil && policy.Joinable,
+		CanLeave:          exact != nil && policy.Leaveable,
+		MemberCount:       memberCount,
+		Summary:           chatThreadOverviewSummary(threadID, memberCount),
+		CouponRequirement: policy.CouponRequirement,
+		CouponCode:        policy.CouponCode,
+	}
+	if member != nil {
+		membership.Muted = member.Muted
+		membership.JoinedAt = member.JoinedAt
+	}
+	return membership, nil
+}
+
+func (s *Store) chatThreadOverviewMemberCountLocked(threadID string) int {
+	thread := chatThreadByID(threadID)
+	if thread == nil {
+		return 0
+	}
+	seed := chatThreadOverviewSeed(threadID)
+	currentExplicit := 0
+	for _, member := range s.chatThreadMembers {
+		if member == nil || strings.TrimSpace(member.ThreadID) != strings.TrimSpace(threadID) || strings.TrimSpace(member.SubjectID) == "*" {
+			continue
+		}
+		currentExplicit++
+	}
+	defaultExplicit := 0
+	for _, member := range defaultChatThreadMembers(*thread) {
+		if strings.TrimSpace(member.SubjectID) == "*" {
+			continue
+		}
+		defaultExplicit++
+	}
+	count := seed.MemberCount + currentExplicit - defaultExplicit
+	if count < 1 {
+		return 1
+	}
+	return count
+}
+
+type chatThreadOverviewSeedData struct {
+	MemberCount  int
+	Summary      string
+	Announcement string
+	SettingsText string
+}
+
+func chatThreadOverviewSeed(threadID string) chatThreadOverviewSeedData {
+	switch strings.TrimSpace(threadID) {
+	case "official":
+		return chatThreadOverviewSeedData{
+			MemberCount:  1286,
+			Summary:      "1286 人已加入 · 新用户默认静音",
+			Announcement: "重要通知会同步保留在消息中心，常规讨论默认静默。",
+			SettingsText: "群设置",
+		}
+	case "merchant_blue_sea":
+		return chatThreadOverviewSeedData{
+			MemberCount:  326,
+			Summary:      "326 人已加入 · 新用户默认静音",
+			Announcement: "群内优惠每日 10:00 更新，重要通知会保留在消息中心。",
+			SettingsText: "群设置",
+		}
+	case "customer_service":
+		return chatThreadOverviewSeedData{
+			MemberCount:  2,
+			Summary:      "2 人会话 · 消息默认提醒",
+			Announcement: "如需人工介入，可先补充订单号或售后单号。",
+			SettingsText: "会话设置",
+		}
+	case "rider_zhang":
+		return chatThreadOverviewSeedData{
+			MemberCount:  2,
+			Summary:      "2 人会话 · 配送消息默认提醒",
+			Announcement: "涉及配送争议请优先通过订单页发起售后。",
+			SettingsText: "会话设置",
+		}
+	default:
+		return chatThreadOverviewSeedData{
+			MemberCount:  1,
+			Summary:      "消息助手",
+			Announcement: "相关权益和通知会同步记录到消息中心。",
+			SettingsText: "会话设置",
+		}
+	}
+}
+
+func chatThreadOverviewSummary(threadID string, memberCount int) string {
+	switch strings.TrimSpace(threadID) {
+	case "official", "merchant_blue_sea":
+		return fmt.Sprintf("%d 人已加入 · 新用户默认静音", memberCount)
+	case "customer_service":
+		return fmt.Sprintf("%d 人会话 · 消息默认提醒", memberCount)
+	case "rider_zhang":
+		return fmt.Sprintf("%d 人会话 · 配送消息默认提醒", memberCount)
+	default:
+		return chatThreadOverviewSeed(threadID).Summary
+	}
+}
+
+func chatThreadMemberRoleLabel(subjectType string, subjectID string, isSelf bool) string {
+	if isSelf {
+		return "我"
+	}
+	switch normalizeChatSubjectType(subjectType, "", subjectID) {
+	case "merchant":
+		return "商户"
+	case "system":
+		return "系统"
+	case "support_admin":
+		return "客服"
+	case "rider":
+		return "骑手"
+	default:
+		return "群成员"
+	}
+}
+
+func chatThreadMemberDisplayName(subjectID string) string {
+	switch strings.TrimSpace(subjectID) {
+	case "user_group_xiaolin":
+		return "小林"
+	case "user_group_ajie":
+		return "阿杰"
+	case "official":
+		return "悦享e食官方群"
+	default:
+		return ""
+	}
+}
+
+func chatThreadMemberAvatarText(subjectType string, subjectID string, displayName string) string {
+	switch normalizeChatSubjectType(subjectType, "", subjectID) {
+	case "merchant":
+		return "店"
+	case "system":
+		return "官"
+	case "support_admin":
+		return "服"
+	case "rider":
+		return "骑"
+	}
+	displayName = strings.TrimSpace(displayName)
+	if displayName != "" {
+		return string([]rune(displayName)[:1])
+	}
+	return "群"
+}
+
+func (s *Store) chatThreadMemberDisplayNameLocked(subjectType string, subjectID string) string {
+	if name := chatThreadMemberDisplayName(subjectID); name != "" {
+		return name
+	}
+	switch normalizeChatSubjectType(subjectType, "", subjectID) {
+	case "merchant":
+		if merchant := s.merchants[subjectID]; merchant != nil && strings.TrimSpace(merchant.DisplayName) != "" {
+			return strings.TrimSpace(merchant.DisplayName)
+		}
+		if shop := s.shopForMerchantLocked(subjectID); shop != nil && strings.TrimSpace(shop.Name) != "" {
+			return strings.TrimSpace(shop.Name)
+		}
+	case "user":
+		if nickname := s.nicknameForUserLocked(subjectID); nickname != "" && nickname != "悦享用户" {
+			return nickname
+		}
+	case "rider":
+		if strings.TrimSpace(subjectID) == "rider_1" {
+			return "骑手 张师傅"
+		}
+	case "system":
+		return "系统助手"
+	}
+	return strings.TrimSpace(subjectID)
+}
+
+func (s *Store) shopForMerchantLocked(merchantID string) *Shop {
+	for _, shop := range s.shops {
+		if shop != nil && strings.TrimSpace(shop.MerchantID) == strings.TrimSpace(merchantID) {
+			return cloneShop(shop)
+		}
+	}
+	return nil
+}
+
+type shopDetailSeedData struct {
+	RatingText         string
+	SalesText          string
+	DeliveryText       string
+	QualificationText  string
+	Announcement       string
+	BusinessHours      string
+	ContactPhone       string
+	Address            string
+	ActivityTags       []string
+	ServiceCommitments []string
+	QualificationItems []string
+	SupportBulletins   []string
+}
+
+func shopDetailSeed(shopID string) shopDetailSeedData {
+	switch strings.TrimSpace(shopID) {
+	case "shop_1":
+		return shopDetailSeedData{
+			RatingText:        "4.8",
+			SalesText:         "月售 2381",
+			DeliveryText:      "约 32 分钟送达",
+			QualificationText: "资质已审核",
+			Announcement:      "招牌牛肉饭热卖，到店套餐扫码验券。",
+			BusinessHours:     "09:30-22:30",
+			ContactPhone:      "13800000001",
+			Address:           "大学城生活区 2 号门西侧 18 米",
+			ActivityTags:      []string{"满 45 减 8", "新人立减 5", "团购可用"},
+			ServiceCommitments: []string{
+				"后厨明档公示",
+				"准时出餐提醒",
+				"支持到店自取",
+			},
+			QualificationItems: []string{
+				"营业执照已公示",
+				"健康证在有效期内",
+				"平台保证金已缴纳",
+			},
+			SupportBulletins: []string{
+				"遇到缺货会先电话确认再处理订单。",
+				"团购券支持到店扫码验券，不支持与到店红包叠加。",
+			},
+		}
+	default:
+		return shopDetailSeedData{
+			RatingText:        "4.7",
+			SalesText:         "月售 999",
+			DeliveryText:      "约 30 分钟送达",
+			QualificationText: "资质已审核",
+			BusinessHours:     "10:00-21:30",
+			ContactPhone:      "13800000000",
+			Address:           "校园生活区",
+			ActivityTags:      []string{"平台补贴"},
+			ServiceCommitments: []string{
+				"在线客服",
+			},
+			QualificationItems: []string{
+				"平台商户认证",
+			},
+		}
+	}
+}
+
+func merchantQualificationItemsForShop(profile *MerchantProfile) []string {
+	if profile == nil {
+		return nil
+	}
+	items := make([]string, 0, len(profile.Qualifications)+1)
+	for _, qualification := range profile.Qualifications {
+		if qualification.Status != QualificationStatusApproved {
+			continue
+		}
+		label := merchantQualificationTypeLabel(qualification.Type)
+		if label != "" {
+			items = append(items, label+"已审核")
+		}
+	}
+	if profile.Account.DepositStatus == DepositStatusPaid {
+		items = append(items, "平台保证金已缴纳")
+	}
+	if len(items) == 0 && profile.CanAcceptOrders {
+		items = append(items, "资质已通过平台审核")
+	}
+	return items
+}
+
+func merchantQualificationTypeLabel(value string) string {
+	switch strings.TrimSpace(value) {
+	case QualificationBusinessLicense:
+		return "营业执照"
+	case QualificationHealthCertificate:
+		return "健康证"
+	default:
+		return ""
+	}
+}
+
+func (s *Store) reviewBelongsToShopLocked(review *Review, shopID string) bool {
+	if review == nil || strings.TrimSpace(shopID) == "" {
+		return false
+	}
+	if strings.TrimSpace(review.TargetType) == ReviewTargetShop && strings.TrimSpace(review.TargetID) == strings.TrimSpace(shopID) {
+		return true
+	}
+	orderID := strings.TrimSpace(review.OrderID)
+	if orderID == "" {
+		orderID = strings.TrimSpace(review.TargetID)
+	}
+	if order := s.orders[orderID]; order != nil && strings.TrimSpace(order.ShopID) == strings.TrimSpace(shopID) {
+		return true
+	}
+	return false
+}
+
+func (s *Store) shopReviewEntriesLocked(shopID string) []ShopReviewEntry {
+	reviews := append([]ShopReviewEntry{}, defaultShopReviewEntries(shopID)...)
+	for _, review := range s.reviews {
+		if !s.reviewBelongsToShopLocked(review, shopID) {
+			continue
+		}
+		userName := s.nicknameForUserLocked(review.UserID)
+		avatarText := avatarInitial(userName)
+		if review.Anonymous {
+			userName = "匿名用户"
+			avatarText = "匿"
+		}
+		reviews = append(reviews, ShopReviewEntry{
+			ReviewID:       review.ID,
+			UserName:       userName,
+			AvatarText:     avatarText,
+			Rating:         review.Rating,
+			StarsText:      reviewStarsText(review.Rating),
+			Content:        review.Content,
+			ImageURLs:      append([]string{}, review.ImageURLs...),
+			ItemHighlights: shopReviewItemHighlights(review.ItemRatings),
+			RiderRating:    review.RiderRating,
+			RiderStarsText: reviewStarsTextOrEmpty(review.RiderRating),
+			Tags:           append([]string{}, review.Tags...),
+			ReplyText:      "商家已查收你的评价，欢迎下次再来。",
+			CreatedAt:      review.CreatedAt,
+			CreatedText:    reviewTimeText(review.CreatedAt),
+		})
+	}
+	sort.SliceStable(reviews, func(i, j int) bool {
+		return reviews[i].CreatedAt.After(reviews[j].CreatedAt)
+	})
+	return reviews
+}
+
+func (s *Store) userReviewedOrderLocked(userID string, orderID string) bool {
+	userID = strings.TrimSpace(userID)
+	orderID = strings.TrimSpace(orderID)
+	if userID == "" || orderID == "" {
+		return false
+	}
+	for _, review := range s.reviews {
+		if review == nil || review.UserID != userID || review.OrderID != orderID {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func buildShopReviewSummary(reviews []ShopReviewEntry) ShopReviewSummary {
+	if len(reviews) == 0 {
+		return ShopReviewSummary{
+			AverageRating: "4.8",
+			ReviewCount:   0,
+			PositiveRate:  "100% 好评",
+		}
+	}
+	total := 0
+	positive := 0
+	tagCounts := map[string]int{}
+	for _, review := range reviews {
+		total += review.Rating
+		if review.Rating >= 4 {
+			positive++
+		}
+		for _, tag := range sanitizedStringSlice(review.Tags) {
+			tagCounts[tag]++
+		}
+	}
+	highlightTags := make([]string, 0, len(tagCounts))
+	type tagEntry struct {
+		tag   string
+		count int
+	}
+	entries := make([]tagEntry, 0, len(tagCounts))
+	for tag, count := range tagCounts {
+		entries = append(entries, tagEntry{tag: tag, count: count})
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].count == entries[j].count {
+			return entries[i].tag < entries[j].tag
+		}
+		return entries[i].count > entries[j].count
+	})
+	for _, entry := range entries {
+		highlightTags = append(highlightTags, entry.tag)
+		if len(highlightTags) >= 4 {
+			break
+		}
+	}
+	average := float64(total) / float64(len(reviews))
+	positiveRate := int(math.Round((float64(positive) / float64(len(reviews))) * 100))
+	return ShopReviewSummary{
+		AverageRating: fmt.Sprintf("%.1f", average),
+		ReviewCount:   len(reviews),
+		PositiveRate:  fmt.Sprintf("%d%% 好评", positiveRate),
+		HighlightTags: highlightTags,
+	}
+}
+
+func reviewStarsText(rating int) string {
+	if rating < 1 {
+		rating = 1
+	}
+	if rating > 5 {
+		rating = 5
+	}
+	return strings.Repeat("★", rating) + strings.Repeat("☆", 5-rating)
+}
+
+func reviewTimeText(createdAt time.Time) string {
+	if createdAt.IsZero() {
+		return "刚刚"
+	}
+	return createdAt.Format("01-02 15:04")
+}
+
+func reviewStarsTextOrEmpty(rating int) string {
+	if rating < 1 || rating > 5 {
+		return ""
+	}
+	return reviewStarsText(rating)
+}
+
+func shopReviewItemHighlights(itemRatings []ReviewItemRating) []string {
+	if len(itemRatings) == 0 {
+		return nil
+	}
+	highlights := make([]string, 0, len(itemRatings))
+	seen := map[string]bool{}
+	for _, item := range itemRatings {
+		name := strings.TrimSpace(item.ProductName)
+		if name == "" {
+			name = strings.TrimSpace(item.ProductID)
+		}
+		rating := item.Rating
+		if name == "" || rating < 1 || rating > 5 {
+			continue
+		}
+		label := fmt.Sprintf("%s %d分", name, rating)
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		highlights = append(highlights, label)
+		if len(highlights) >= 3 {
+			break
+		}
+	}
+	return highlights
+}
+
+func defaultShopReviewEntries(shopID string) []ShopReviewEntry {
+	now := time.Now().UTC()
+	switch strings.TrimSpace(shopID) {
+	case "shop_1":
+		return []ShopReviewEntry{
+			{
+				ReviewID:       "shop_1_seed_review_1",
+				UserName:       "林同学",
+				AvatarText:     "林",
+				Rating:         5,
+				StarsText:      reviewStarsText(5),
+				ItemHighlights: []string{"招牌牛肉饭 5分", "柠檬茶 4分"},
+				RiderRating:    5,
+				RiderStarsText: reviewStarsText(5),
+				Content:        "牛肉饭分量很稳，晚高峰也没有撒汤，出餐比想象中快。",
+				Tags:           []string{"出餐快", "包装完整", "分量足"},
+				ReplyText:      "谢谢支持，晚饭时段也会尽量保证出餐速度。",
+				CreatedAt:      now.Add(-4 * time.Hour),
+				CreatedText:    reviewTimeText(now.Add(-4 * time.Hour)),
+			},
+			{
+				ReviewID:       "shop_1_seed_review_2",
+				UserName:       "阿杰",
+				AvatarText:     "阿",
+				Rating:         4,
+				StarsText:      reviewStarsText(4),
+				ItemHighlights: []string{"双人套餐 4分"},
+				RiderRating:    4,
+				RiderStarsText: reviewStarsText(4),
+				Content:        "柠檬茶清爽，套餐券到店核销也挺顺，适合中午拼单。",
+				Tags:           []string{"适合拼单", "饮品不错", "团购方便"},
+				ReplyText:      "团购券工作日和周末都能用，欢迎常来。",
+				CreatedAt:      now.Add(-28 * time.Hour),
+				CreatedText:    reviewTimeText(now.Add(-28 * time.Hour)),
+			},
+			{
+				ReviewID:       "shop_1_seed_review_3",
+				UserName:       "周周",
+				AvatarText:     "周",
+				Rating:         5,
+				StarsText:      reviewStarsText(5),
+				ItemHighlights: []string{"番茄鸡蛋面 5分"},
+				RiderRating:    5,
+				RiderStarsText: reviewStarsText(5),
+				Content:        "备注少辣有看到，骑手到店后商家也会同步进度，整体很省心。",
+				Tags:           []string{"备注有看", "服务细致", "商家沟通顺畅"},
+				ReplyText:      "收到，我们会继续保持备注确认流程。",
+				CreatedAt:      now.Add(-52 * time.Hour),
+				CreatedText:    reviewTimeText(now.Add(-52 * time.Hour)),
+			},
+		}
+	default:
+		return nil
+	}
+}
+
+func (s *Store) chatThreadMemberProfilesLocked(threadID string, viewerUserID string) []ChatThreadMemberProfile {
+	profiles := make([]ChatThreadMemberProfile, 0)
+	seen := map[string]bool{}
+	for _, member := range s.chatThreadMembers {
+		if member == nil || strings.TrimSpace(member.ThreadID) != strings.TrimSpace(threadID) || strings.TrimSpace(member.SubjectID) == "*" {
+			continue
+		}
+		key := chatThreadMemberKey(member.ThreadID, member.SubjectType, member.SubjectID)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		displayName := s.chatThreadMemberDisplayNameLocked(member.SubjectType, member.SubjectID)
+		isSelf := strings.TrimSpace(member.SubjectType) == "user" && strings.TrimSpace(member.SubjectID) == strings.TrimSpace(viewerUserID)
+		profiles = append(profiles, ChatThreadMemberProfile{
+			ThreadID:    member.ThreadID,
+			SubjectType: member.SubjectType,
+			SubjectID:   member.SubjectID,
+			DisplayName: displayName,
+			AvatarText:  chatThreadMemberAvatarText(member.SubjectType, member.SubjectID, displayName),
+			RoleLabel:   chatThreadMemberRoleLabel(member.SubjectType, member.SubjectID, isSelf),
+			IsSelf:      isSelf,
+			JoinedAt:    member.JoinedAt,
+		})
+	}
+	sort.SliceStable(profiles, func(i, j int) bool {
+		leftPriority := chatThreadMemberSortPriority(profiles[i])
+		rightPriority := chatThreadMemberSortPriority(profiles[j])
+		if leftPriority != rightPriority {
+			return leftPriority < rightPriority
+		}
+		if profiles[i].DisplayName != profiles[j].DisplayName {
+			return profiles[i].DisplayName < profiles[j].DisplayName
+		}
+		return profiles[i].SubjectID < profiles[j].SubjectID
+	})
+	return profiles
+}
+
+func chatThreadMemberSortPriority(profile ChatThreadMemberProfile) int {
+	if profile.SubjectType == "merchant" {
+		return 0
+	}
+	if profile.IsSelf {
+		return 1
+	}
+	if profile.SubjectType == "system" {
+		return 2
+	}
+	return 3
+}
+
+func normalizeChatSubjectType(subjectType string, role string, subjectID string) string {
+	subjectType = strings.TrimSpace(subjectType)
+	if subjectType != "" {
+		return subjectType
+	}
+	role = strings.TrimSpace(role)
+	switch role {
+	case "merchant":
+		return "merchant"
+	case "rider":
+		return "rider"
+	case "support_admin", "admin", "super_admin":
+		return "support_admin"
+	case "station_manager":
+		return "station_manager"
+	case "user":
+		return "user"
+	}
+	return chatSubjectTypeForID(subjectID)
+}
+
+func chatSubjectTypeForID(subjectID string) string {
+	subjectID = strings.TrimSpace(subjectID)
+	switch {
+	case subjectID == "system" || subjectID == "official":
+		return "system"
+	case strings.HasPrefix(subjectID, "merchant_"):
+		return "merchant"
+	case strings.HasPrefix(subjectID, "rider_"):
+		return "rider"
+	case strings.HasPrefix(subjectID, "station_manager_"):
+		return "station_manager"
+	case strings.HasPrefix(subjectID, "support_"):
+		return "support_admin"
+	default:
+		return "user"
+	}
+}
+
+func (s *Store) latestMessageForThreadLocked(threadID string) *ChatMessage {
+	var latest *ChatMessage
+	for _, message := range s.chatMessages {
+		if message == nil || message.ThreadID != threadID {
+			continue
+		}
+		if latest == nil || message.CreatedAt.After(latest.CreatedAt) {
+			latest = message
+		}
+	}
+	return latest
+}
+
+func (s *Store) sortedChatMessagesLocked(threadID string) []ChatMessage {
+	messages := make([]ChatMessage, 0)
+	for _, message := range s.chatMessages {
+		if message == nil || message.ThreadID != threadID {
+			continue
+		}
+		messages = append(messages, *cloneChatMessage(message))
+	}
+	sort.SliceStable(messages, func(i, j int) bool {
+		return messages[i].CreatedAt.Before(messages[j].CreatedAt)
+	})
+	return messages
+}
+
+func chatMessagesAfterID(messages []ChatMessage, sinceID string) []ChatMessage {
+	if sinceID == "" {
+		return append([]ChatMessage{}, messages...)
+	}
+	for index, message := range messages {
+		if message.ID == sinceID {
+			return append([]ChatMessage{}, messages[index+1:]...)
+		}
+	}
+	return append([]ChatMessage{}, messages...)
+}
+
+func chatReadStateKey(userID string, threadID string) string {
+	return strings.TrimSpace(userID) + ":" + strings.TrimSpace(threadID)
+}
+
+func seedChatReadStates() map[string]*ChatReadState {
+	now := time.Now().UTC()
+	return map[string]*ChatReadState{
+		chatReadStateKey("user_1", "merchant_blue_sea"): {
+			UserID:            "user_1",
+			ThreadID:          "merchant_blue_sea",
+			LastReadMessageID: "msg_seed_merchant_2",
+			ReadAt:            now.Add(-45 * time.Minute),
+			UnreadCount:       1,
+		},
+	}
+}
+
+func (s *Store) chatReadStateLocked(userID string, threadID string) *ChatReadState {
+	if s.chatReadStates == nil {
+		return nil
+	}
+	return s.chatReadStates[chatReadStateKey(userID, threadID)]
+}
+
+func (s *Store) markChatThreadReadLocked(req MarkChatThreadReadRequest) *ChatReadState {
+	if s.chatReadStates == nil {
+		s.chatReadStates = map[string]*ChatReadState{}
+	}
+	lastMessageID := strings.TrimSpace(req.LastMessageID)
+	readAt := time.Now().UTC()
+	if lastMessageID == "" {
+		if latest := s.latestMessageForThreadLocked(req.ThreadID); latest != nil {
+			lastMessageID = latest.ID
+			readAt = latest.CreatedAt
+		}
+	} else {
+		found := false
+		for _, message := range s.chatMessages {
+			if message != nil && message.ThreadID == req.ThreadID && message.ID == lastMessageID {
+				readAt = message.CreatedAt
+				found = true
+				break
+			}
+		}
+		if !found {
+			lastMessageID = ""
+		}
+	}
+	state := &ChatReadState{
+		UserID:            strings.TrimSpace(req.UserID),
+		ThreadID:          strings.TrimSpace(req.ThreadID),
+		LastReadMessageID: lastMessageID,
+		ReadAt:            readAt,
+	}
+	s.chatReadStates[chatReadStateKey(state.UserID, state.ThreadID)] = state
+	thread := chatThreadByID(state.ThreadID)
+	if thread != nil {
+		state.UnreadCount = s.unreadChatMessageCountLocked(state.UserID, thread)
+	}
+	return state
+}
+
+func (s *Store) unreadChatMessageCountLocked(userID string, thread *ChatThread) int {
+	if thread == nil {
+		return 0
+	}
+	read := s.chatReadStateLocked(userID, thread.ID)
+	if read == nil {
+		return thread.UnreadCount
+	}
+	count := 0
+	for _, message := range s.chatMessages {
+		if message == nil || message.ThreadID != thread.ID || message.SenderID == userID {
+			continue
+		}
+		if read.LastReadMessageID != "" && message.ID == read.LastReadMessageID {
+			continue
+		}
+		if message.CreatedAt.After(read.ReadAt) {
+			count++
+		}
+	}
+	return count
+}
+
+func chatMessageOutboxPayload(message ChatMessage) map[string]any {
+	payload := map[string]any{
+		"id":           message.ID,
+		"thread_id":    message.ThreadID,
+		"sender_id":    message.SenderID,
+		"sender":       message.Sender,
+		"content":      message.Content,
+		"message_type": message.MessageType,
+		"created_at":   message.CreatedAt.Format(time.RFC3339Nano),
+	}
+	if message.RiskState != "" {
+		payload["risk_state"] = message.RiskState
+	}
+	if message.RiskReasonCode != "" {
+		payload["risk_reason_code"] = message.RiskReasonCode
+	}
+	if message.RiskReason != "" {
+		payload["risk_reason"] = message.RiskReason
+	}
+	if !message.RiskCheckedAt.IsZero() {
+		payload["risk_checked_at"] = message.RiskCheckedAt.Format(time.RFC3339Nano)
+	}
+	return payload
+}
+
+func messageRiskCheck(content string, checkedAt time.Time) MessageRiskCheck {
+	if checkedAt.IsZero() {
+		checkedAt = time.Now().UTC()
+	} else {
+		checkedAt = checkedAt.UTC()
+	}
+	normalized := strings.ToLower(strings.TrimSpace(content))
+	risk := MessageRiskCheck{
+		State:     MessageRiskPassed,
+		Reason:    "客服消息敏感信息风控通过",
+		CheckedAt: checkedAt,
+	}
+	if normalized == "" {
+		return risk
+	}
+	reasonCode := ""
+	reason := ""
+	switch {
+	case containsAny(normalized, "支付密码", "付款密码", "payment password", "pay password"):
+		reasonCode = MessageRiskPaymentPasswordDisclosed
+		reason = "消息疑似包含支付密码信息，已为你拦截。客服不会索要支付密码。"
+	case containsAny(normalized, "验证码", "校验码", "短信码", "verification code", "sms code"):
+		reasonCode = MessageRiskVerificationCodeShared
+		reason = "消息疑似包含验证码信息，已为你拦截。客服不会索要验证码。"
+	case containsAny(normalized, "银行卡", "银行卡号", "卡号", "bank card", "card number"):
+		reasonCode = MessageRiskBankCardShared
+		reason = "消息疑似包含银行卡信息，已为你拦截。客服不会索要银行卡信息。"
+	}
+	if reasonCode == "" {
+		return risk
+	}
+	risk.State = MessageRiskFlagged
+	risk.ReasonCode = MessageRiskSensitiveMention
+	risk.Reason = "消息提到了支付密码、验证码或银行卡等敏感信息，已记录风控标签。"
+	if messageContainsSecretDisclosure(normalized) {
+		risk.State = MessageRiskBlocked
+		risk.ReasonCode = reasonCode
+		risk.Reason = reason
+	}
+	return risk
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if needle != "" && strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func messageContainsSecretDisclosure(value string) bool {
+	if hasDigitRun(value, 4) {
+		return true
+	}
+	return containsAny(
+		value,
+		"发给你",
+		"发给客服",
+		"告诉你",
+		"告诉客服",
+		"提供给你",
+		"提供给客服",
+		"报给你",
+		"报给客服",
+		"给你看",
+		"给客服看",
+		"my code is",
+		"my password is",
+		"my card number is",
+	)
+}
+
+func hasDigitRun(value string, minLength int) bool {
+	run := 0
+	for _, r := range value {
+		if r >= '0' && r <= '9' {
+			run++
+			if run >= minLength {
+				return true
+			}
+			continue
+		}
+		run = 0
+	}
+	return false
+}
+
+func applyMessageRiskToChatMessage(message *ChatMessage, risk MessageRiskCheck) {
+	if message == nil {
+		return
+	}
+	message.RiskState = risk.State
+	message.RiskReasonCode = risk.ReasonCode
+	message.RiskReason = risk.Reason
+	message.RiskCheckedAt = risk.CheckedAt
+}
+
+func applyMessageRiskToServiceTicketEvent(event *ServiceTicketEvent, risk MessageRiskCheck) {
+	if event == nil {
+		return
+	}
+	event.RiskState = risk.State
+	event.RiskReasonCode = risk.ReasonCode
+	event.RiskReason = risk.Reason
+	event.RiskCheckedAt = risk.CheckedAt
+}
+
+func (s *Store) serviceTicketDetailLocked(ticketID string) (*ServiceTicketDetail, error) {
+	ticket := s.serviceTickets[ticketID]
+	if ticket == nil {
+		return nil, ErrNotFound
+	}
+	s.syncServiceTicketSLAStatusLocked(ticket, time.Now().UTC())
+	events := make([]ServiceTicketEvent, 0)
+	for _, event := range s.serviceTicketEvents {
+		if event != nil && event.TicketID == ticketID {
+			events = append(events, *cloneServiceTicketEvent(event))
+		}
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].CreatedAt.Before(events[j].CreatedAt)
+	})
+	return &ServiceTicketDetail{
+		Ticket: *cloneServiceTicket(ticket),
+		Events: events,
+	}, nil
+}
+
+func (s *Store) syncServiceTicketSLAStatusLocked(ticket *ServiceTicket, now time.Time) {
+	if ticket == nil {
+		return
+	}
+	ticket.SLAStatus = serviceTicketSLAStatus(ticket, now)
+}
+
+func serviceTicketSLAStatus(ticket *ServiceTicket, now time.Time) string {
+	if ticket == nil {
+		return ServiceTicketSLAStatusNormal
+	}
+	if ticket.Status == ServiceTicketStatusClosed || ticket.Status == ServiceTicketStatusResolved || ticket.Status == ServiceTicketStatusWaitingConfirm || !ticket.ResolvedAt.IsZero() {
+		return ServiceTicketSLAStatusCompleted
+	}
+	if !ticket.EscalatedAt.IsZero() || strings.TrimSpace(ticket.EscalationLevel) != "" || strings.TrimSpace(ticket.SLAStatus) == ServiceTicketSLAStatusEscalated {
+		return ServiceTicketSLAStatusEscalated
+	}
+	dueAt := ticket.ReplyDueAt
+	if dueAt.IsZero() {
+		return ServiceTicketSLAStatusNormal
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	dueAt = dueAt.UTC()
+	if !now.Before(dueAt) {
+		return ServiceTicketSLAStatusOverdue
+	}
+	if !now.Before(dueAt.Add(-10 * time.Minute)) {
+		return ServiceTicketSLAStatusDueSoon
+	}
+	return ServiceTicketSLAStatusNormal
+}
+
+func serviceTicketReplySLA(severity string, category string) time.Duration {
+	severity = strings.TrimSpace(severity)
+	category = strings.TrimSpace(category)
+	switch {
+	case strings.Contains(severity, "严重") || strings.Contains(category, "支付") || strings.Contains(category, "红包") || strings.Contains(category, "配送"):
+		return 10 * time.Minute
+	case strings.Contains(severity, "一般"):
+		return 30 * time.Minute
+	default:
+		return 20 * time.Minute
+	}
+}
+
+func normalizeServiceTicketQualityResult(result string, score int) string {
+	result = strings.TrimSpace(result)
+	switch result {
+	case ServiceTicketQualityPassed, ServiceTicketQualityNeedsCoaching, ServiceTicketQualityCritical:
+		return result
+	case "":
+		switch {
+		case score >= 85:
+			return ServiceTicketQualityPassed
+		case score >= 70:
+			return ServiceTicketQualityNeedsCoaching
+		default:
+			return ServiceTicketQualityCritical
+		}
+	default:
+		return ""
+	}
+}
+
+func serviceTicketQualityMessage(review *ServiceTicketQualityReview) string {
+	if review == nil {
+		return "客服工单抽检已完成"
+	}
+	result := "通过"
+	switch review.Result {
+	case ServiceTicketQualityNeedsCoaching:
+		result = "需辅导"
+	case ServiceTicketQualityCritical:
+		result = "严重问题"
+	}
+	if strings.TrimSpace(review.Notes) == "" {
+		return fmt.Sprintf("质检结果：%s，评分 %d", result, review.Score)
+	}
+	return fmt.Sprintf("质检结果：%s，评分 %d；%s", result, review.Score, review.Notes)
+}
+
+func boolQueryValue(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return value == "1" || value == "true" || value == "yes" || value == "y"
+}
+
+func defaultServiceTicketQualityReviews() []ServiceTicketQualityReview {
+	now := time.Now().UTC()
+	return []ServiceTicketQualityReview{
+		{
+			ID:               "stq_preview_1",
+			TicketID:         "st_preview_quality",
+			SupportID:        "support_1",
+			SupportName:      "客服小悦",
+			ReviewerID:       "quality_1",
+			ReviewerName:     "质检主管",
+			Score:            92,
+			Result:           ServiceTicketQualityPassed,
+			Notes:            "补偿方案清晰，用户确认路径完整。",
+			TicketTitle:      "商品质量 · 少送小菜",
+			TicketCategory:   "商品质量",
+			TicketSLAStatus:  ServiceTicketSLAStatusCompleted,
+			TicketFollowUp:   5,
+			TicketResolvedAt: now.Add(-36 * time.Hour),
+			CreatedAt:        now.Add(-12 * time.Hour),
+		},
+		{
+			ID:               "stq_preview_2",
+			TicketID:         "st_preview_delivery",
+			SupportID:        "support_2",
+			SupportName:      "客服阿宁",
+			ReviewerID:       "quality_1",
+			ReviewerName:     "质检主管",
+			Score:            76,
+			Result:           ServiceTicketQualityNeedsCoaching,
+			Notes:            "首响接近 SLA，需补充主动同步话术。",
+			CoachingRequired: true,
+			TicketTitle:      "配送问题 · 预计送达未更新",
+			TicketCategory:   "配送问题",
+			TicketSLAStatus:  ServiceTicketSLAStatusDueSoon,
+			CreatedAt:        now.Add(-2 * time.Hour),
+		},
+	}
+}
+
+func defaultServiceTicketPerformanceSummaries() []ServiceTicketPerformanceSummary {
+	return []ServiceTicketPerformanceSummary{
+		{
+			SupportID:             "support_1",
+			SupportName:           "客服小悦",
+			AssignedTickets:       24,
+			ResolvedTickets:       21,
+			ClosedTickets:         18,
+			EscalatedTickets:      1,
+			OverdueTickets:        1,
+			AverageFollowUpRating: 4.8,
+			QualityReviewCount:    8,
+			QualityAverageScore:   91.5,
+			CoachingRequiredCount: 0,
+			SLAComplianceRate:     0.96,
+			RiskLevel:             "stable",
+		},
+		{
+			SupportID:             "support_2",
+			SupportName:           "客服阿宁",
+			AssignedTickets:       19,
+			ResolvedTickets:       15,
+			ClosedTickets:         14,
+			EscalatedTickets:      3,
+			OverdueTickets:        2,
+			AverageFollowUpRating: 4.3,
+			QualityReviewCount:    6,
+			QualityAverageScore:   82,
+			CoachingRequiredCount: 2,
+			SLAComplianceRate:     0.84,
+			RiskLevel:             "watch",
+		},
+	}
+}
+
+func buildServiceTicketPerformanceSummaries(tickets []ServiceTicket, reviews map[string]*ServiceTicketQualityReview, supportID string) []ServiceTicketPerformanceSummary {
+	type accumulator struct {
+		summary       ServiceTicketPerformanceSummary
+		ratingSum     int
+		ratingCount   int
+		qualitySum    int
+		qualityCount  int
+		compliantBase int
+	}
+	bySupport := map[string]*accumulator{}
+	ensure := func(id string, name string) *accumulator {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil
+		}
+		if supportID != "" && id != supportID {
+			return nil
+		}
+		item := bySupport[id]
+		if item == nil {
+			item = &accumulator{summary: ServiceTicketPerformanceSummary{SupportID: id, SupportName: strings.TrimSpace(name)}}
+			if item.summary.SupportName == "" {
+				item.summary.SupportName = id
+			}
+			bySupport[id] = item
+		}
+		if item.summary.SupportName == item.summary.SupportID && strings.TrimSpace(name) != "" {
+			item.summary.SupportName = strings.TrimSpace(name)
+		}
+		return item
+	}
+	for _, ticket := range tickets {
+		item := ensure(ticket.AssignedSupportID, ticket.AssignedSupportName)
+		if item == nil {
+			continue
+		}
+		item.summary.AssignedTickets++
+		item.compliantBase++
+		if ticket.Status == ServiceTicketStatusWaitingConfirm || ticket.Status == ServiceTicketStatusResolved || ticket.Status == ServiceTicketStatusClosed || !ticket.ResolvedAt.IsZero() {
+			item.summary.ResolvedTickets++
+		}
+		if ticket.Status == ServiceTicketStatusClosed || !ticket.ClosedAt.IsZero() {
+			item.summary.ClosedTickets++
+		}
+		if serviceTicketSLAStatus(&ticket, time.Now().UTC()) == ServiceTicketSLAStatusOverdue {
+			item.summary.OverdueTickets++
+		}
+		if serviceTicketSLAStatus(&ticket, time.Now().UTC()) == ServiceTicketSLAStatusEscalated {
+			item.summary.EscalatedTickets++
+		}
+		if ticket.FollowUpRating > 0 {
+			item.ratingSum += ticket.FollowUpRating
+			item.ratingCount++
+		}
+	}
+	for _, review := range reviews {
+		if review == nil {
+			continue
+		}
+		item := ensure(review.SupportID, review.SupportName)
+		if item == nil {
+			continue
+		}
+		item.summary.QualityReviewCount++
+		item.qualitySum += review.Score
+		item.qualityCount++
+		if review.CoachingRequired || review.Result == ServiceTicketQualityNeedsCoaching || review.Result == ServiceTicketQualityCritical {
+			item.summary.CoachingRequiredCount++
+		}
+	}
+	summaries := make([]ServiceTicketPerformanceSummary, 0, len(bySupport))
+	for _, item := range bySupport {
+		if item.ratingCount > 0 {
+			item.summary.AverageFollowUpRating = roundFloat(float64(item.ratingSum)/float64(item.ratingCount), 2)
+		}
+		if item.qualityCount > 0 {
+			item.summary.QualityAverageScore = roundFloat(float64(item.qualitySum)/float64(item.qualityCount), 2)
+		}
+		if item.compliantBase > 0 {
+			nonCompliant := item.summary.OverdueTickets + item.summary.EscalatedTickets
+			item.summary.SLAComplianceRate = roundFloat(float64(item.compliantBase-nonCompliant)/float64(item.compliantBase), 4)
+			if item.summary.SLAComplianceRate < 0 {
+				item.summary.SLAComplianceRate = 0
+			}
+		}
+		item.summary.RiskLevel = serviceTicketPerformanceRisk(item.summary)
+		summaries = append(summaries, item.summary)
+	}
+	sort.SliceStable(summaries, func(i, j int) bool {
+		if summaries[i].RiskLevel != summaries[j].RiskLevel {
+			return serviceTicketRiskRank(summaries[i].RiskLevel) > serviceTicketRiskRank(summaries[j].RiskLevel)
+		}
+		return summaries[i].AssignedTickets > summaries[j].AssignedTickets
+	})
+	return summaries
+}
+
+func filterServiceTicketPerformance(input []ServiceTicketPerformanceSummary, supportID string, limit int) []ServiceTicketPerformanceSummary {
+	supportID = strings.TrimSpace(supportID)
+	output := make([]ServiceTicketPerformanceSummary, 0)
+	for _, item := range input {
+		if supportID != "" && item.SupportID != supportID {
+			continue
+		}
+		output = append(output, item)
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if len(output) > limit {
+		output = output[:limit]
+	}
+	return output
+}
+
+func serviceTicketPerformanceRisk(summary ServiceTicketPerformanceSummary) string {
+	switch {
+	case summary.CoachingRequiredCount > 0 || summary.QualityAverageScore > 0 && summary.QualityAverageScore < 75 || summary.SLAComplianceRate > 0 && summary.SLAComplianceRate < 0.8:
+		return "risk"
+	case summary.EscalatedTickets > 0 || summary.OverdueTickets > 0 || summary.QualityAverageScore > 0 && summary.QualityAverageScore < 85:
+		return "watch"
+	default:
+		return "stable"
+	}
+}
+
+func serviceTicketRiskRank(level string) int {
+	switch level {
+	case "risk":
+		return 3
+	case "watch":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func (s *Store) appendServiceTicketEventLocked(ticketID string, actorID string, actorRole string, title string, message string, status string, attachments []string, createdAt time.Time) *ServiceTicketEvent {
+	ticketID = strings.TrimSpace(ticketID)
+	title = strings.TrimSpace(title)
+	message = strings.TrimSpace(message)
+	status = strings.TrimSpace(status)
+	if ticketID == "" || message == "" {
+		return nil
+	}
+	if title == "" {
+		title = "处理进度"
+	}
+	if status == "" {
+		status = ServiceTicketEventActive
+	}
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	s.nextServiceTicketEventID++
+	event := &ServiceTicketEvent{
+		ID:          fmt.Sprintf("ste_%d", s.nextServiceTicketEventID),
+		TicketID:    ticketID,
+		ActorID:     strings.TrimSpace(actorID),
+		ActorRole:   strings.TrimSpace(actorRole),
+		Title:       title,
+		Message:     message,
+		Status:      status,
+		Attachments: sanitizedStringSlice(attachments),
+		CreatedAt:   createdAt.UTC(),
+	}
+	s.serviceTicketEvents[event.ID] = cloneServiceTicketEvent(event)
+	return event
+}
+
+func defaultServiceTickets(userID string) []ServiceTicket {
+	now := time.Now().UTC()
+	return []ServiceTicket{
+		{
+			ID:                 "st_preview_delivery",
+			UserID:             userID,
+			Type:               "delivery",
+			Category:           "配送问题",
+			Title:              "配送问题 · 预计送达未更新",
+			Content:            "骑手到店很久了，预计送达时间一直没变化。",
+			Contact:            "138****0000",
+			RelatedOrderID:     "DD240518001",
+			RelatedOrderTitle:  "蓝海餐厅 · 招牌牛肉饭等 3 件",
+			RelatedOrderStatus: "配送中",
+			Severity:           "较严重",
+			Status:             ServiceTicketStatusProcessing,
+			SLAStatus:          ServiceTicketSLAStatusDueSoon,
+			Solution:           "继续等待：预计 14:35 前送达；延误补偿：订单完成后发放 ¥5 延误券",
+			ReplyDueAt:         now.Add(8 * time.Minute),
+			CreatedAt:          now.Add(-24 * time.Minute),
+			UpdatedAt:          now.Add(-5 * time.Minute),
+		},
+		{
+			ID:                 "st_preview_quality",
+			UserID:             userID,
+			Type:               "quality",
+			Category:           "商品质量",
+			Title:              "商品质量 · 少送小菜",
+			Content:            "客服已提出补偿方案，待你确认。",
+			RelatedOrderID:     "DD240516006",
+			RelatedOrderTitle:  "川味小馆 · 双人套餐",
+			RelatedOrderStatus: "已完成",
+			Severity:           "一般",
+			Status:             ServiceTicketStatusWaitingConfirm,
+			SLAStatus:          ServiceTicketSLAStatusCompleted,
+			Solution:           "客服已提出补偿方案，待你确认",
+			CreatedAt:          now.Add(-48 * time.Hour),
+			UpdatedAt:          now.Add(-36 * time.Hour),
+		},
+		{
+			ID:        "st_preview_red_packet",
+			UserID:    userID,
+			Type:      "red_packet",
+			Category:  "红包钱包",
+			Title:     "红包钱包 · 红包未到账",
+			Content:   "已退回余额 ¥9.14",
+			Status:    ServiceTicketStatusResolved,
+			SLAStatus: ServiceTicketSLAStatusCompleted,
+			CreatedAt: now.Add(-96 * time.Hour),
+			UpdatedAt: now.Add(-90 * time.Hour),
+		},
+	}
+}
+
+func defaultServiceTicketDetail(ticket ServiceTicket) *ServiceTicketDetail {
+	base := ticket.CreatedAt
+	if base.IsZero() {
+		base = time.Now().UTC().Add(-24 * time.Minute)
+	}
+	return &ServiceTicketDetail{
+		Ticket: ticket,
+		Events: []ServiceTicketEvent{
+			{ID: ticket.ID + "_e1", TicketID: ticket.ID, Title: "已提交", Message: "问题已同步到客服工单", Status: ServiceTicketEventDone, CreatedAt: base},
+			{ID: ticket.ID + "_e2", TicketID: ticket.ID, Title: "客服已受理", Message: "正在核实商家出餐情况", Status: ServiceTicketEventDone, CreatedAt: base.Add(time.Minute)},
+			{ID: ticket.ID + "_e3", TicketID: ticket.ID, Title: "商家反馈", Message: "补做菜品，预计 8 分钟后出餐", Status: ServiceTicketEventActive, CreatedAt: base.Add(5 * time.Minute)},
+			{ID: ticket.ID + "_e4", TicketID: ticket.ID, Title: "结果确认", Message: "送达后可确认处理结果", Status: ServiceTicketEventPending, CreatedAt: base.Add(6 * time.Minute)},
+		},
+	}
+}
+
 func sanitizeObjectFileName(value string) string {
 	value = strings.TrimSpace(filepath.Base(value))
 	if value == "." || value == "/" || value == "\\" {
@@ -7151,6 +15328,303 @@ func validAfterSalesEvidenceObjectKey(requestID string, objectKey string) bool {
 		return false
 	}
 	return sanitizeObjectFileName(objectKeyFileName(objectKey)) != ""
+}
+
+func validPrescriptionImageObjectKey(objectKey string) bool {
+	objectKey = strings.TrimSpace(objectKey)
+	if objectKey == "" || strings.HasPrefix(objectKey, "/") || strings.Contains(objectKey, "..") {
+		return false
+	}
+	if !strings.HasPrefix(objectKey, "prescriptions/") {
+		return false
+	}
+	return sanitizeObjectFileName(objectKeyFileName(objectKey)) != ""
+}
+
+func validReviewImageObjectKey(objectKey string) bool {
+	objectKey = strings.TrimSpace(objectKey)
+	if objectKey == "" || strings.HasPrefix(objectKey, "/") || strings.Contains(objectKey, "..") {
+		return false
+	}
+	if !strings.HasPrefix(objectKey, "reviews/") {
+		return false
+	}
+	return sanitizeObjectFileName(objectKeyFileName(objectKey)) != ""
+}
+
+func (s *Store) prepareReviewImageConfirmation(req ConfirmReviewImageUploadRequest) (*ReviewImageUploadTicket, ObjectStorageConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.reviewImageTickets[req.TicketID]
+	if !reviewImageUploadTicketMatchesConfirm(ticket, req) {
+		return nil, ObjectStorageConfig{}, ErrInvalidArgument
+	}
+	if ticket.Status == AfterSalesUploadTicketConfirmed {
+		return cloneReviewImageUploadTicket(ticket), ObjectStorageConfig{}, nil
+	}
+	if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+		return nil, ObjectStorageConfig{}, ErrInvalidOrderState
+	}
+	storage := s.objectStorageConfigLocked()
+	if err := reviewImageUploadTicketConfirmReady(ticket, storage, time.Now().UTC()); err != nil {
+		return nil, ObjectStorageConfig{}, err
+	}
+	return cloneReviewImageUploadTicket(ticket), storage, nil
+}
+
+func (s *Store) commitReviewImageConfirmation(req ConfirmReviewImageUploadRequest) (*ReviewImageUploadTicket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.reviewImageTickets[req.TicketID]
+	if !reviewImageUploadTicketMatchesConfirm(ticket, req) {
+		return nil, ErrInvalidArgument
+	}
+	if ticket.Status == AfterSalesUploadTicketConfirmed {
+		return cloneReviewImageUploadTicket(ticket), nil
+	}
+	if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	if err := reviewImageUploadTicketConfirmReady(ticket, s.objectStorageConfigLocked(), now); err != nil {
+		return nil, err
+	}
+	ticket.Status = AfterSalesUploadTicketConfirmed
+	if req.ContentSHA != "" {
+		ticket.ContentSHA = req.ContentSHA
+	}
+	if ticket.UploadedAt.IsZero() {
+		ticket.UploadedAt = now
+	}
+	ticket.ConfirmedAt = now
+	return cloneReviewImageUploadTicket(ticket), nil
+}
+
+func reviewImageUploadTicketMatchesConfirm(ticket *ReviewImageUploadTicket, req ConfirmReviewImageUploadRequest) bool {
+	if ticket == nil {
+		return false
+	}
+	return ticket.ID == req.TicketID &&
+		ticket.UserID == req.UserID &&
+		ticket.ObjectKey == req.ObjectKey &&
+		ticket.ContentType == req.ContentType &&
+		ticket.SizeBytes == req.SizeBytes
+}
+
+func reviewImageUploadTicketMatchesObjectCallback(ticket *ReviewImageUploadTicket, req ObjectStorageUploadCallbackRequest) bool {
+	if ticket == nil {
+		return false
+	}
+	return ticket.ID == req.TicketID &&
+		ticket.ObjectKey == req.ObjectKey &&
+		ticket.ContentType == req.ContentType &&
+		ticket.SizeBytes == req.SizeBytes
+}
+
+func reviewImageUploadTicketConfirmReady(ticket *ReviewImageUploadTicket, storage ObjectStorageConfig, now time.Time) error {
+	if ticket == nil {
+		return ErrInvalidArgument
+	}
+	if now.After(ticket.ExpiresAt) {
+		return ErrInvalidOrderState
+	}
+	if storage.RequireUploadCallbackForConfirm || storage.RequireScanApprovalForConfirm {
+		if ticket.Status != AfterSalesUploadTicketUploaded {
+			return ErrInvalidOrderState
+		}
+	} else if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+		return ErrInvalidOrderState
+	}
+	if ticket.ScanStatus == AfterSalesUploadScanRejected {
+		return ErrInvalidOrderState
+	}
+	if storage.RequireScanApprovalForConfirm && ticket.ScanStatus != AfterSalesUploadScanPassed {
+		return ErrInvalidOrderState
+	}
+	return nil
+}
+
+func reviewTicketObjectStorageView(ticket *ReviewImageUploadTicket) *AfterSalesEvidenceUploadTicket {
+	if ticket == nil {
+		return nil
+	}
+	return &AfterSalesEvidenceUploadTicket{
+		ID:             ticket.ID,
+		Provider:       ticket.Provider,
+		Bucket:         ticket.Bucket,
+		ObjectKey:      ticket.ObjectKey,
+		PublicURL:      ticket.PublicURL,
+		FileName:       ticket.FileName,
+		ContentType:    ticket.ContentType,
+		SizeBytes:      ticket.SizeBytes,
+		MaxSizeBytes:   ticket.MaxSizeBytes,
+		ContentSHA:     ticket.ContentSHA,
+		UploadedByID:   ticket.UserID,
+		UploadedByRole: "user",
+		Status:         ticket.Status,
+		ScanStatus:     ticket.ScanStatus,
+		ScanResult:     ticket.ScanResult,
+		CreatedAt:      ticket.CreatedAt,
+		ExpiresAt:      ticket.ExpiresAt,
+		UploadedAt:     ticket.UploadedAt,
+		ConfirmedAt:    ticket.ConfirmedAt,
+		ScanCheckedAt:  ticket.ScanCheckedAt,
+	}
+}
+
+func (s *Store) preparePrescriptionImageConfirmation(req ConfirmPrescriptionImageUploadRequest) (*PrescriptionImageUploadTicket, ObjectStorageConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.prescriptionImageTickets[req.TicketID]
+	if !prescriptionImageUploadTicketMatchesConfirm(ticket, req) {
+		return nil, ObjectStorageConfig{}, ErrInvalidArgument
+	}
+	if ticket.Status == AfterSalesUploadTicketConfirmed {
+		return clonePrescriptionImageUploadTicket(ticket), ObjectStorageConfig{}, nil
+	}
+	if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+		return nil, ObjectStorageConfig{}, ErrInvalidOrderState
+	}
+	storage := s.objectStorageConfigLocked()
+	if err := prescriptionImageUploadTicketConfirmReady(ticket, storage, time.Now().UTC()); err != nil {
+		return nil, ObjectStorageConfig{}, err
+	}
+	return clonePrescriptionImageUploadTicket(ticket), storage, nil
+}
+
+func (s *Store) commitPrescriptionImageConfirmation(req ConfirmPrescriptionImageUploadRequest) (*PrescriptionImageUploadTicket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.prescriptionImageTickets[req.TicketID]
+	if !prescriptionImageUploadTicketMatchesConfirm(ticket, req) {
+		return nil, ErrInvalidArgument
+	}
+	if ticket.Status == AfterSalesUploadTicketConfirmed {
+		return clonePrescriptionImageUploadTicket(ticket), nil
+	}
+	if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+		return nil, ErrInvalidOrderState
+	}
+	now := time.Now().UTC()
+	if err := prescriptionImageUploadTicketConfirmReady(ticket, s.objectStorageConfigLocked(), now); err != nil {
+		return nil, err
+	}
+	ticket.Status = AfterSalesUploadTicketConfirmed
+	if req.ContentSHA != "" {
+		ticket.ContentSHA = req.ContentSHA
+	}
+	if ticket.UploadedAt.IsZero() {
+		ticket.UploadedAt = now
+	}
+	ticket.ConfirmedAt = now
+	return clonePrescriptionImageUploadTicket(ticket), nil
+}
+
+func prescriptionImageUploadTicketMatchesConfirm(ticket *PrescriptionImageUploadTicket, req ConfirmPrescriptionImageUploadRequest) bool {
+	if ticket == nil {
+		return false
+	}
+	return ticket.ID == req.TicketID &&
+		ticket.UserID == req.UserID &&
+		ticket.ObjectKey == req.ObjectKey &&
+		ticket.ContentType == req.ContentType &&
+		ticket.SizeBytes == req.SizeBytes
+}
+
+func prescriptionImageUploadTicketMatchesObjectCallback(ticket *PrescriptionImageUploadTicket, req ObjectStorageUploadCallbackRequest) bool {
+	if ticket == nil {
+		return false
+	}
+	return ticket.ID == req.TicketID &&
+		ticket.ObjectKey == req.ObjectKey &&
+		ticket.ContentType == req.ContentType &&
+		ticket.SizeBytes == req.SizeBytes
+}
+
+func prescriptionImageUploadTicketConfirmReady(ticket *PrescriptionImageUploadTicket, storage ObjectStorageConfig, now time.Time) error {
+	if ticket == nil {
+		return ErrInvalidArgument
+	}
+	if now.After(ticket.ExpiresAt) {
+		return ErrInvalidOrderState
+	}
+	if storage.RequireUploadCallbackForConfirm || storage.RequireScanApprovalForConfirm {
+		if ticket.Status != AfterSalesUploadTicketUploaded {
+			return ErrInvalidOrderState
+		}
+	} else if ticket.Status != AfterSalesUploadTicketIssued && ticket.Status != AfterSalesUploadTicketUploaded {
+		return ErrInvalidOrderState
+	}
+	if ticket.ScanStatus == AfterSalesUploadScanRejected {
+		return ErrInvalidOrderState
+	}
+	if storage.RequireScanApprovalForConfirm && ticket.ScanStatus != AfterSalesUploadScanPassed {
+		return ErrInvalidOrderState
+	}
+	return nil
+}
+
+func prescriptionTicketObjectStorageView(ticket *PrescriptionImageUploadTicket) *AfterSalesEvidenceUploadTicket {
+	if ticket == nil {
+		return nil
+	}
+	return &AfterSalesEvidenceUploadTicket{
+		ID:             ticket.ID,
+		Provider:       ticket.Provider,
+		Bucket:         ticket.Bucket,
+		ObjectKey:      ticket.ObjectKey,
+		PublicURL:      ticket.PublicURL,
+		FileName:       ticket.FileName,
+		ContentType:    ticket.ContentType,
+		SizeBytes:      ticket.SizeBytes,
+		MaxSizeBytes:   ticket.MaxSizeBytes,
+		ContentSHA:     ticket.ContentSHA,
+		UploadedByID:   ticket.UserID,
+		UploadedByRole: "user",
+		Status:         ticket.Status,
+		ScanStatus:     ticket.ScanStatus,
+		ScanResult:     ticket.ScanResult,
+		CreatedAt:      ticket.CreatedAt,
+		ExpiresAt:      ticket.ExpiresAt,
+		UploadedAt:     ticket.UploadedAt,
+		ConfirmedAt:    ticket.ConfirmedAt,
+		ScanCheckedAt:  ticket.ScanCheckedAt,
+	}
+}
+
+func (s *Store) prescriptionImageUploadTicketForReviewLocked(req CreatePrescriptionReviewRequest) (*PrescriptionImageUploadTicket, error) {
+	if s.prescriptionImageTickets == nil {
+		return nil, ErrInvalidArgument
+	}
+	if req.PrescriptionImageTicketID != "" {
+		ticket := s.prescriptionImageTickets[req.PrescriptionImageTicketID]
+		return prescriptionImageUploadTicketReadyForReview(ticket, req)
+	}
+	for _, ticket := range s.prescriptionImageTickets {
+		if ticket != nil && ticket.ObjectKey == req.PrescriptionObjectKey && ticket.UserID == req.UserID {
+			return prescriptionImageUploadTicketReadyForReview(ticket, req)
+		}
+	}
+	return nil, ErrInvalidArgument
+}
+
+func prescriptionImageUploadTicketReadyForReview(ticket *PrescriptionImageUploadTicket, req CreatePrescriptionReviewRequest) (*PrescriptionImageUploadTicket, error) {
+	if ticket == nil {
+		return nil, ErrInvalidArgument
+	}
+	if ticket.UserID != req.UserID {
+		return nil, ErrInvalidArgument
+	}
+	if req.PrescriptionObjectKey != "" && ticket.ObjectKey != req.PrescriptionObjectKey {
+		return nil, ErrInvalidArgument
+	}
+	if ticket.ProductID != "" && req.ProductID != "" && ticket.ProductID != req.ProductID {
+		return nil, ErrInvalidArgument
+	}
+	if ticket.Status != AfterSalesUploadTicketConfirmed {
+		return nil, ErrInvalidOrderState
+	}
+	return ticket, nil
 }
 
 func (s *Store) afterSalesUploadTicketForConfirmLocked(req ConfirmAfterSalesEvidenceUploadRequest) *AfterSalesEvidenceUploadTicket {
@@ -7467,6 +15941,76 @@ func isSixDigitPaymentPassword(password string) bool {
 	return true
 }
 
+func normalizeMainlandPhone(phone string) string {
+	phone = strings.TrimSpace(phone)
+	if len(phone) != 11 || phone[0] != '1' {
+		return ""
+	}
+	for _, char := range phone {
+		if char < '0' || char > '9' {
+			return ""
+		}
+	}
+	return phone
+}
+
+func normalizePhoneAuthPurpose(purpose string) string {
+	switch strings.TrimSpace(purpose) {
+	case "register":
+		return "register"
+	default:
+		return "login"
+	}
+}
+
+func maskMainlandPhone(phone string) string {
+	if len(phone) != 11 {
+		return phone
+	}
+	return phone[:3] + "****" + phone[7:]
+}
+
+func phoneVerificationCode(phone string, purpose string, now time.Time) string {
+	if value, err := crand.Int(crand.Reader, big.NewInt(1000000)); err == nil {
+		return fmt.Sprintf("%06d", value.Int64())
+	}
+	bucket := now.UTC().Format("200601021504")
+	sum := sha256.Sum256([]byte("infinitech-phone-code:" + phone + ":" + purpose + ":" + bucket))
+	value := int(sum[0])<<16 | int(sum[1])<<8 | int(sum[2])
+	return fmt.Sprintf("%06d", value%1000000)
+}
+
+func sanitizePhoneVerificationTicket(ticket *PhoneVerificationCodeTicket, config PhoneVerificationConfig) *PhoneVerificationCodeTicket {
+	cloned := clonePhoneVerificationCodeTicket(ticket)
+	if cloned == nil {
+		return nil
+	}
+	if !config.ReturnDevCode {
+		cloned.DevCode = ""
+	}
+	return cloned
+}
+
+func hashUserPassword(password string) (string, error) {
+	password = strings.TrimSpace(password)
+	if len(password) < 6 || len(password) > 72 {
+		return "", ErrInvalidArgument
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hashed), nil
+}
+
+func verifyUserPassword(passwordHash string, password string) bool {
+	password = strings.TrimSpace(password)
+	if passwordHash == "" || password == "" {
+		return false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) == nil
+}
+
 func hashPaymentPassword(password string) string {
 	sum := sha256.Sum256([]byte("infinitech-wallet:" + password))
 	return hex.EncodeToString(sum[:])
@@ -7529,7 +16073,7 @@ func (s *Store) merchantProfileLocked(merchantID string) *MerchantProfile {
 			continue
 		}
 		qualifications = append(qualifications, *cloneMerchantQualification(item))
-		if item.Status == "approved" && item.ExpiresAt.After(now) {
+		if item.Status == QualificationStatusApproved && item.ExpiresAt.After(now) {
 			approvedByType[item.Type] = true
 		}
 	}
@@ -7651,7 +16195,13 @@ func (s *Store) cartSummaryLocked(userID string, shopID string) *CartSummary {
 		if item == nil || !item.Selected || item.Quantity <= 0 || item.UnitPriceFen <= 0 {
 			continue
 		}
-		items = append(items, *cloneCartItem(item))
+		nextItem := *cloneCartItem(item)
+		if strings.TrimSpace(nextItem.ImageURL) == "" {
+			if product := s.products[nextItem.ProductID]; product != nil {
+				nextItem.ImageURL = product.ImageURL
+			}
+		}
+		items = append(items, nextItem)
 		itemsTotal += item.UnitPriceFen * int64(item.Quantity)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -7663,9 +16213,14 @@ func (s *Store) cartSummaryLocked(userID string, shopID string) *CartSummary {
 		deliveryFee = 0
 		packagingFee = 0
 	}
+	shopName := ""
+	if shop := s.shops[shopID]; shop != nil {
+		shopName = shop.Name
+	}
 	return &CartSummary{
 		UserID:          userID,
 		ShopID:          shopID,
+		ShopName:        shopName,
 		Items:           items,
 		ItemsTotalFen:   itemsTotal,
 		DeliveryFeeFen:  deliveryFee,
@@ -7702,6 +16257,16 @@ func cartKey(userID string, shopID string) string {
 	return userID + "::" + shopID
 }
 
+func orderAddressSnapshot(address UserAddress) OrderAddress {
+	return OrderAddress{
+		ContactName:  address.ContactName,
+		ContactPhone: address.ContactPhone,
+		City:         address.City,
+		Detail:       address.Detail,
+		Tag:          address.Tag,
+	}
+}
+
 func cloneHomeModules(input []HomeModule) []HomeModule {
 	output := make([]HomeModule, len(input))
 	copy(output, input)
@@ -7715,6 +16280,14 @@ func cloneHomeCards(input []HomeCard) []HomeCard {
 }
 
 func cloneAppUser(input *AppUser) *AppUser {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func clonePhoneVerificationCodeTicket(input *PhoneVerificationCodeTicket) *PhoneVerificationCodeTicket {
 	if input == nil {
 		return nil
 	}
@@ -7873,6 +16446,1220 @@ func cloneWalletTransaction(input *WalletTransaction) *WalletTransaction {
 	return &output
 }
 
+func cloneReview(input *Review) *Review {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.ImageURLs = append([]string{}, input.ImageURLs...)
+	output.ItemRatings = cloneReviewItemRatings(input.ItemRatings)
+	output.Tags = append([]string{}, input.Tags...)
+	return &output
+}
+
+func cloneReviewItemRatings(input []ReviewItemRating) []ReviewItemRating {
+	if len(input) == 0 {
+		return nil
+	}
+	output := make([]ReviewItemRating, 0, len(input))
+	for _, item := range input {
+		cloned := item
+		cloned.Tags = append([]string{}, item.Tags...)
+		output = append(output, cloned)
+	}
+	return output
+}
+
+func cloneFeedbackTicket(input *FeedbackTicket) *FeedbackTicket {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneServiceTicket(input *ServiceTicket) *ServiceTicket {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Attachments = append([]string{}, input.Attachments...)
+	return &output
+}
+
+func cloneServiceTicketEvent(input *ServiceTicketEvent) *ServiceTicketEvent {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Attachments = append([]string{}, input.Attachments...)
+	return &output
+}
+
+func cloneServiceTicketQualityReview(input *ServiceTicketQualityReview) *ServiceTicketQualityReview {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneCirclePost(input *CirclePost) *CirclePost {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.ImageURLs = append([]string{}, input.ImageURLs...)
+	output.Tags = append([]string{}, input.Tags...)
+	return &output
+}
+
+func cloneMealMatchProfile(input *MealMatchProfile) *MealMatchProfile {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.PersonalityTraits = append([]string{}, input.PersonalityTraits...)
+	output.DietaryHabits = append([]string{}, input.DietaryHabits...)
+	return &output
+}
+
+func cloneMealMatchModerationRecord(input *MealMatchModerationRecord) *MealMatchModerationRecord {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func mealMatchCandidateFromProfiles(user MealMatchProfile, candidate MealMatchProfile, displayName string) MealMatchCandidate {
+	matchedPersonality := intersectStrings(user.PersonalityTraits, candidate.PersonalityTraits)
+	matchedDietary := intersectStrings(user.DietaryHabits, candidate.DietaryHabits)
+	score := len(matchedDietary)*60 + len(matchedPersonality)*40
+	if mealMatchSameBuilding(user, candidate) {
+		score += 20
+	} else if mealMatchSameSchool(user, candidate) {
+		score += 10
+	}
+	name := mealMatchDisplayName(candidate.UserID, displayName)
+	return MealMatchCandidate{
+		UserID:                   candidate.UserID,
+		DisplayName:              name,
+		AvatarInitial:            avatarInitial(name),
+		Gender:                   candidate.Gender,
+		DistanceText:             mealMatchDistanceText(user, candidate),
+		SchoolName:               candidate.SchoolName,
+		CampusName:               candidate.CampusName,
+		BuildingName:             mealMatchVisibleBuildingName(user, candidate),
+		SameSchool:               mealMatchSameSchool(user, candidate),
+		SameBuilding:             mealMatchSameBuilding(user, candidate),
+		PrivacyScope:             normalizeMealMatchPrivacyScope(candidate.PrivacyScope),
+		LocationPrecision:        normalizeMealMatchLocationPrecision(candidate.LocationPrecision),
+		MatchScore:               score,
+		MatchedPersonalityTraits: matchedPersonality,
+		MatchedDietaryHabits:     matchedDietary,
+		PersonalityTraits:        append([]string{}, candidate.PersonalityTraits...),
+		DietaryHabits:            append([]string{}, candidate.DietaryHabits...),
+		SafetyBadges:             mealMatchSafetyBadges(user, candidate),
+		PrivacyNotice:            mealMatchCandidatePrivacyNotice(user, candidate),
+	}
+}
+
+func intersectStrings(left []string, right []string) []string {
+	seen := map[string]bool{}
+	for _, item := range left {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			seen[item] = true
+		}
+	}
+	output := []string{}
+	for _, item := range right {
+		item = strings.TrimSpace(item)
+		if item != "" && seen[item] {
+			output = append(output, item)
+		}
+	}
+	return output
+}
+
+func mealMatchDisplayName(userID string, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	switch strings.TrimSpace(userID) {
+	case "user_buddy_lunch":
+		return "同楼午餐搭子"
+	case "user_buddy_weekend":
+		return "周末探店搭子"
+	case "user_buddy_library":
+		return "图书馆晚餐搭子"
+	default:
+		if fallback != "" && fallback != "悦享用户" {
+			return fallback
+		}
+		return "饭搭用户"
+	}
+}
+
+func mealMatchCanShowCandidate(user MealMatchProfile, candidate MealMatchProfile) bool {
+	if !mealMatchSameSchool(user, candidate) {
+		return false
+	}
+	if normalizeMealMatchPrivacyScope(user.PrivacyScope) == MealMatchPrivacySameBuilding && !mealMatchSameBuilding(user, candidate) {
+		return false
+	}
+	if normalizeMealMatchPrivacyScope(candidate.PrivacyScope) == MealMatchPrivacySameBuilding && !mealMatchSameBuilding(user, candidate) {
+		return false
+	}
+	return true
+}
+
+func mealMatchSameSchool(user MealMatchProfile, candidate MealMatchProfile) bool {
+	return strings.TrimSpace(user.SchoolID) != "" && strings.TrimSpace(user.SchoolID) == strings.TrimSpace(candidate.SchoolID)
+}
+
+func mealMatchSameBuilding(user MealMatchProfile, candidate MealMatchProfile) bool {
+	return mealMatchSameSchool(user, candidate) && strings.TrimSpace(user.BuildingID) != "" && strings.TrimSpace(user.BuildingID) == strings.TrimSpace(candidate.BuildingID)
+}
+
+func mealMatchDistanceText(user MealMatchProfile, candidate MealMatchProfile) string {
+	if mealMatchSameBuilding(user, candidate) {
+		return "同楼可约"
+	}
+	if mealMatchSameSchool(user, candidate) {
+		return "同校范围"
+	}
+	return "已隐藏位置"
+}
+
+func mealMatchVisibleBuildingName(user MealMatchProfile, candidate MealMatchProfile) string {
+	if !mealMatchSameBuilding(user, candidate) {
+		return ""
+	}
+	if normalizeMealMatchPrivacyScope(candidate.PrivacyScope) == MealMatchPrivacySameBuilding || normalizeMealMatchLocationPrecision(candidate.LocationPrecision) == MealMatchLocationBuildingOnly {
+		return candidate.BuildingName
+	}
+	return ""
+}
+
+func mealMatchSafetyBadges(user MealMatchProfile, candidate MealMatchProfile) []string {
+	badges := []string{"已签真实性承诺", "已签免责承诺", "同校校验"}
+	if mealMatchSameBuilding(user, candidate) {
+		badges = append(badges, "同楼可见")
+	}
+	return badges
+}
+
+func mealMatchProfilePrivacyNotice(profile MealMatchProfile) string {
+	if normalizeMealMatchPrivacyScope(profile.PrivacyScope) == MealMatchPrivacySameBuilding {
+		return "仅向同校且同楼用户展示，默认隐藏手机号和精确定位。"
+	}
+	return "仅向同校用户展示，默认隐藏楼栋、手机号和精确定位。"
+}
+
+func mealMatchCandidatePrivacyNotice(user MealMatchProfile, candidate MealMatchProfile) string {
+	if mealMatchSameBuilding(user, candidate) && normalizeMealMatchPrivacyScope(candidate.PrivacyScope) == MealMatchPrivacySameBuilding {
+		return "同楼匹配，仅展示楼栋标签，不公开手机号与精确定位。"
+	}
+	return "同校匹配，仅展示校区和偏好标签，不公开手机号、楼栋与精确位置。"
+}
+
+func mealMatchSchoolName(schoolID string, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	if fallback != "" {
+		return fallback
+	}
+	switch strings.TrimSpace(schoolID) {
+	case "infinitech_university":
+		return "无限科技大学"
+	case "city_college":
+		return "城市学院"
+	default:
+		return ""
+	}
+}
+
+func mealMatchCampusName(schoolID string, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	if fallback != "" {
+		return fallback
+	}
+	switch strings.TrimSpace(schoolID) {
+	case "infinitech_university":
+		return "东区"
+	case "city_college":
+		return "主校区"
+	default:
+		return ""
+	}
+}
+
+func (s *Store) mealMatchDeviceRiskLocked(userID string, deviceID string, checkedAt time.Time) MealMatchDeviceRiskCheck {
+	if checkedAt.IsZero() {
+		checkedAt = time.Now().UTC()
+	} else {
+		checkedAt = checkedAt.UTC()
+	}
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return MealMatchDeviceRiskCheck{
+			State:      MealMatchDeviceRiskReview,
+			ReasonCode: MealMatchDeviceRiskMissing,
+			Reason:     "设备识别缺失，需人工复核后才能开启饭搭推荐。",
+			CheckedAt:  checkedAt,
+		}
+	}
+	normalized := strings.ToLower(deviceID)
+	if containsAny(normalized, "blocked", "simulator_farm", "risk_device") {
+		return MealMatchDeviceRiskCheck{
+			State:      MealMatchDeviceRiskBlocked,
+			ReasonCode: MealMatchDeviceRiskKnownBlocked,
+			Reason:     "设备环境触发高风险规则，暂不可开启找饭搭。",
+			CheckedAt:  checkedAt,
+		}
+	}
+	sharedCount := 0
+	for otherUserID, profile := range s.mealMatchProfiles {
+		if profile == nil || otherUserID == userID {
+			continue
+		}
+		if strings.TrimSpace(profile.DeviceID) == deviceID && normalizeMealMatchModerationStatus(profile.ModerationStatus) != MealMatchModerationRejected {
+			sharedCount++
+		}
+	}
+	if sharedCount > 0 {
+		return MealMatchDeviceRiskCheck{
+			State:      MealMatchDeviceRiskReview,
+			ReasonCode: MealMatchDeviceRiskSharedDevice,
+			Reason:     "同一设备存在多个饭搭资料，需人工复核设备环境。",
+			CheckedAt:  checkedAt,
+		}
+	}
+	return MealMatchDeviceRiskCheck{
+		State:     MealMatchDeviceRiskPassed,
+		Reason:    "设备环境校验通过",
+		CheckedAt: checkedAt,
+	}
+}
+
+func applyMealMatchDeviceRiskToProfile(profile *MealMatchProfile, risk MealMatchDeviceRiskCheck) {
+	if profile == nil {
+		return
+	}
+	profile.DeviceRiskState = risk.State
+	profile.DeviceRiskReasonCode = risk.ReasonCode
+	profile.DeviceRiskReason = risk.Reason
+	profile.DeviceRiskCheckedAt = risk.CheckedAt
+}
+
+func mealMatchBlockKey(userID string, targetUserID string) string {
+	return "mmod_block_" + shortHash(strings.TrimSpace(userID)+"::"+strings.TrimSpace(targetUserID))
+}
+
+func (s *Store) createMealMatchProfileReviewLocked(userID string, now time.Time) *MealMatchModerationRecord {
+	s.nextMealMatchModerationID++
+	record := &MealMatchModerationRecord{
+		ID:           fmt.Sprintf("mmod_%d", s.nextMealMatchModerationID),
+		UserID:       userID,
+		TargetUserID: userID,
+		Action:       MealMatchModerationProfileReview,
+		Reason:       "profile_submitted",
+		Description:  "找饭搭资料提交后进入人工审核队列",
+		Status:       MealMatchModerationPending,
+		CreatedAt:    now,
+	}
+	s.mealMatchModeration[record.ID] = cloneMealMatchModerationRecord(record)
+	return record
+}
+
+func (s *Store) mealMatchBlockedLocked(userID string, targetUserID string) bool {
+	if record := s.mealMatchModeration[mealMatchBlockKey(userID, targetUserID)]; record != nil && record.Action == MealMatchModerationBlocked {
+		return true
+	}
+	return false
+}
+
+func mealMatchMissingIncludes(missing []string, value string) bool {
+	for _, item := range missing {
+		if strings.TrimSpace(item) == value {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeMealMatchModerationDecision(decision string) string {
+	switch strings.TrimSpace(decision) {
+	case "approve", MealMatchModerationApproved:
+		return MealMatchModerationApproved
+	case "reject", MealMatchModerationRejected:
+		return MealMatchModerationRejected
+	default:
+		return ""
+	}
+}
+
+func cloneRedPacketDetail(input *RedPacketDetail) *RedPacketDetail {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Shares = append([]RedPacketShare{}, input.Shares...)
+	if input.Risk != nil {
+		risk := *input.Risk
+		output.Risk = &risk
+	}
+	return &output
+}
+
+func cloneChatThread(input *ChatThread) *ChatThread {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneChatThreadMember(input *ChatThreadMember) *ChatThreadMember {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneChatMessage(input *ChatMessage) *ChatMessage {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneChatReadState(input *ChatReadState) *ChatReadState {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func clonePrescriptionReview(input *PrescriptionReview) *PrescriptionReview {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Steps = append([]PrescriptionReviewStep{}, input.Steps...)
+	if input.OCRResult != nil {
+		output.OCRResult = clonePrescriptionOCRResult(input.OCRResult)
+	}
+	if input.Archive != nil {
+		output.Archive = clonePrescriptionArchiveRecord(input.Archive)
+	}
+	return &output
+}
+
+func clonePrescriptionOCRResult(input *PrescriptionOCRResult) *PrescriptionOCRResult {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Warnings = append([]string{}, input.Warnings...)
+	return &output
+}
+
+func clonePrescriptionArchiveRecord(input *PrescriptionArchiveRecord) *PrescriptionArchiveRecord {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneReviewImageUploadTicket(input *ReviewImageUploadTicket) *ReviewImageUploadTicket {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func clonePrescriptionImageUploadTicket(input *PrescriptionImageUploadTicket) *PrescriptionImageUploadTicket {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneMedicineOrderDetail(input *MedicineOrderDetail) *MedicineOrderDetail {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Order = *cloneOrder(&input.Order)
+	output.Items = append([]MedicineOrderItem{}, input.Items...)
+	output.FeeRows = append([]MedicineFeeRow{}, input.FeeRows...)
+	output.Timeline = append([]MedicineTimelineItem{}, input.Timeline...)
+	return &output
+}
+
+func defaultPrescriptionReview(userID string) PrescriptionReview {
+	now := time.Now().UTC().Add(-8 * time.Minute)
+	review := PrescriptionReview{
+		ID:           "rx_preview",
+		UserID:       userID,
+		PatientName:  "张三",
+		PatientPhone: "13800000000",
+		Address:      "望京校区 3 号宿舍楼",
+		Hospital:     "校医务室",
+		ProductID:    "med_amoxicillin",
+		ProductName:  "阿莫西林胶囊",
+		PriceFen:     1880,
+		Quantity:     1,
+		ImageURL:     "prescription-preview.jpg",
+		Status:       PrescriptionReviewApproved,
+		DoctorName:   "王医生",
+		ReviewText:   "处方信息已确认，可加入购物车购买。",
+		OCRResult: &PrescriptionOCRResult{
+			Status:             PrescriptionOCRMatched,
+			Provider:           "infinitech_preview_ocr",
+			Confidence:         96,
+			MatchedProductID:   "med_amoxicillin",
+			MatchedProductName: "阿莫西林胶囊",
+			DosageText:         "0.5g 每日 3 次，遵医嘱",
+			RawText:            "张三 阿莫西林胶囊 0.5g 每日3次",
+		},
+		Archive: &PrescriptionArchiveRecord{
+			ArchiveID:     "rxa_preview",
+			ObjectKey:     "prescription-preview.jpg",
+			RetainUntil:   now.AddDate(6, 0, 0),
+			ArchivedAt:    now.Add(2 * time.Minute),
+			RetentionText: "校内处方留档 6 年",
+		},
+		CreatedAt:  now,
+		ReviewedAt: now.Add(3 * time.Minute),
+		UpdatedAt:  now.Add(3 * time.Minute),
+	}
+	review.Steps = prescriptionSteps(&review)
+	return review
+}
+
+func prescriptionOCRResult(req CreatePrescriptionReviewRequest, ticket *PrescriptionImageUploadTicket) *PrescriptionOCRResult {
+	productID := strings.TrimSpace(req.ProductID)
+	productName := strings.TrimSpace(req.ProductName)
+	if ticket != nil {
+		if productID == "" {
+			productID = ticket.ProductID
+		}
+	}
+	if productID == "" {
+		productID = "med_amoxicillin"
+	}
+	if productName == "" {
+		productName = "阿莫西林胶囊"
+	}
+	patientName := strings.TrimSpace(req.PatientName)
+	if patientName == "" {
+		patientName = "张三"
+	}
+	objectKey := strings.TrimSpace(req.PrescriptionObjectKey)
+	confidence := 92
+	status := PrescriptionOCRMatched
+	warnings := []string{}
+	if objectKey == "" && strings.TrimSpace(req.ImageURL) == "" {
+		confidence = 78
+		status = PrescriptionOCRNeedReview
+		warnings = append(warnings, "处方影像对象未绑定，需人工复核原图")
+	}
+	if strings.TrimSpace(req.PrescriptionContentSHA) == "" {
+		warnings = append(warnings, "缺少处方影像内容 hash，生产环境需由对象扫描回调补齐")
+	}
+	return &PrescriptionOCRResult{
+		Status:             status,
+		Provider:           "infinitech_rx_ocr_v1",
+		Confidence:         confidence,
+		MatchedProductID:   productID,
+		MatchedProductName: productName,
+		DosageText:         defaultPrescriptionDosageText(productID),
+		RawText:            fmt.Sprintf("%s %s %s", patientName, productName, defaultPrescriptionDosageText(productID)),
+		Warnings:           warnings,
+	}
+}
+
+func prescriptionArchiveRecord(reviewID string, objectKey string, contentSHA string, now time.Time) *PrescriptionArchiveRecord {
+	reviewID = strings.TrimSpace(reviewID)
+	if reviewID == "" {
+		reviewID = "rx_pending"
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return &PrescriptionArchiveRecord{
+		ArchiveID:     "rxa_" + shortHash(reviewID),
+		ObjectKey:     strings.TrimSpace(objectKey),
+		ContentSHA:    strings.TrimSpace(contentSHA),
+		RetainUntil:   now.AddDate(6, 0, 0),
+		ArchivedAt:    now.Add(2 * time.Minute),
+		RetentionText: "校内处方留档 6 年",
+	}
+}
+
+func defaultPrescriptionDosageText(productID string) string {
+	switch strings.TrimSpace(productID) {
+	case "med_amoxicillin":
+		return "0.5g 每日 3 次，遵医嘱"
+	case "med_cooling_patch":
+		return "外用，按需贴敷"
+	default:
+		return "按处方与校医指导使用"
+	}
+}
+
+func prescriptionSteps(review *PrescriptionReview) []PrescriptionReviewStep {
+	now := time.Now().UTC()
+	if review != nil && !review.CreatedAt.IsZero() {
+		now = review.CreatedAt
+	}
+	approved := review != nil && review.Status == PrescriptionReviewApproved
+	reviewedAt := now.Add(3 * time.Minute)
+	if review != nil && !review.ReviewedAt.IsZero() {
+		reviewedAt = review.ReviewedAt
+	}
+	pharmacistStatus := ServiceTicketEventActive
+	orderStatus := ServiceTicketEventPending
+	ocrStatus := ServiceTicketEventDone
+	if review != nil && review.OCRResult != nil && review.OCRResult.Status == PrescriptionOCRNeedReview {
+		ocrStatus = ServiceTicketEventActive
+	}
+	if approved {
+		pharmacistStatus = ServiceTicketEventDone
+		orderStatus = ServiceTicketEventActive
+	}
+	if review != nil && review.Status == PrescriptionReviewRejected {
+		pharmacistStatus = ServiceTicketEventDone
+		orderStatus = ServiceTicketEventPending
+	}
+	return []PrescriptionReviewStep{
+		{Title: "处方上传", Subtitle: "照片清晰度与格式校验", Status: ServiceTicketEventDone, At: now},
+		{Title: "OCR 识别", Subtitle: "识别用药人、药品、剂量与影像 hash", Status: ocrStatus, At: now.Add(time.Minute)},
+		{Title: "药师复核", Subtitle: "药品、剂量、有效期检查", Status: pharmacistStatus, At: reviewedAt},
+		{Title: "订单履约", Subtitle: "审核通过后进入药房备货", Status: orderStatus, At: reviewedAt.Add(time.Minute)},
+	}
+}
+
+func normalizedMedicineOrderItems(input []MedicineOrderItemRequest) []MedicineOrderItem {
+	items := make([]MedicineOrderItem, 0, len(input))
+	for _, item := range input {
+		item.ProductID = strings.TrimSpace(item.ProductID)
+		item.Name = strings.TrimSpace(item.Name)
+		item.Category = strings.TrimSpace(item.Category)
+		item.ImageURL = strings.TrimSpace(item.ImageURL)
+		if item.Name == "" || item.PriceFen <= 0 {
+			continue
+		}
+		if item.ProductID == "" {
+			item.ProductID = "med_custom"
+		}
+		if item.Quantity <= 0 {
+			item.Quantity = 1
+		}
+		if item.ImageURL == "" {
+			item.ImageURL = medicineProductImageURL(item.ProductID)
+		}
+		items = append(items, MedicineOrderItem{
+			ProductID:            item.ProductID,
+			Name:                 item.Name,
+			Category:             item.Category,
+			ImageURL:             item.ImageURL,
+			PriceFen:             item.PriceFen,
+			Quantity:             item.Quantity,
+			RequiresPrescription: item.RequiresPrescription,
+		})
+	}
+	return items
+}
+
+func defaultMedicineProducts() []MedicineProduct {
+	return []MedicineProduct{
+		{ID: "med_cooling_patch", Name: "退热贴", Subtitle: "医用退热贴 · 适用于发热物理降温", Category: "感冒发热", ImageURL: "/assets/generated/medicine-cooling-patch.jpg", PriceFen: 1290, StockCount: 26, SelectedQuantity: 1},
+		{ID: "med_amoxicillin", Name: "阿莫西林胶囊", Subtitle: "处方药 · 凭处方与校医审核购买", Category: "处方药", ImageURL: "/assets/generated/medicine-capsules.jpg", PriceFen: 1880, StockCount: 12, RequiresPrescription: true},
+		{ID: "med_swab", Name: "碘伏棉签", Subtitle: "外伤消毒 · 独立包装", Category: "外伤消毒", ImageURL: "/assets/generated/medicine-first-aid.jpg", PriceFen: 690, StockCount: 38},
+		{ID: "med_bandage", Name: "创可贴", Subtitle: "防水透气 · 10 片装", Category: "医用耗材", ImageURL: "/assets/generated/medicine-first-aid.jpg", PriceFen: 550, StockCount: 52},
+	}
+}
+
+func medicineProductImageURL(productID string) string {
+	switch strings.TrimSpace(productID) {
+	case "med_cooling_patch":
+		return "/assets/generated/medicine-cooling-patch.jpg"
+	case "med_amoxicillin":
+		return "/assets/generated/medicine-capsules.jpg"
+	case "med_swab", "med_bandage":
+		return "/assets/generated/medicine-first-aid.jpg"
+	default:
+		return "/assets/generated/medicine-first-aid.jpg"
+	}
+}
+
+func defaultMedicineStock() map[string]int {
+	stock := map[string]int{}
+	for _, product := range defaultMedicineProducts() {
+		stock[product.ID] = product.StockCount
+	}
+	return stock
+}
+
+func (s *Store) ensureMedicineStockLocked() {
+	if s.medicineStock == nil {
+		s.medicineStock = defaultMedicineStock()
+		return
+	}
+	for productID, stock := range defaultMedicineStock() {
+		if _, ok := s.medicineStock[productID]; !ok {
+			s.medicineStock[productID] = stock
+		}
+	}
+}
+
+func (s *Store) lockMedicineStockLocked(items []MedicineOrderItem) error {
+	s.ensureMedicineStockLocked()
+	trackedStock := defaultMedicineStock()
+	for _, item := range items {
+		if _, ok := trackedStock[item.ProductID]; !ok {
+			continue
+		}
+		quantity := item.Quantity
+		if quantity <= 0 {
+			quantity = 1
+		}
+		if s.medicineStock[item.ProductID] < quantity {
+			return ErrInsufficientStock
+		}
+	}
+	for index := range items {
+		if _, ok := trackedStock[items[index].ProductID]; !ok {
+			continue
+		}
+		quantity := items[index].Quantity
+		if quantity <= 0 {
+			quantity = 1
+		}
+		s.medicineStock[items[index].ProductID] -= quantity
+		remaining := s.medicineStock[items[index].ProductID]
+		if remaining < 0 {
+			remaining = 0
+		}
+		items[index].StockLocked = true
+		items[index].StockRemaining = remaining
+	}
+	return nil
+}
+
+func defaultMedicineOrderItems() []MedicineOrderItem {
+	return []MedicineOrderItem{
+		{ProductID: "med_cooling_patch", Name: "退热贴", Category: "校医务室", ImageURL: medicineProductImageURL("med_cooling_patch"), PriceFen: 1290, Quantity: 1},
+		{ProductID: "med_amoxicillin", Name: "阿莫西林胶囊", Category: "处方药", ImageURL: medicineProductImageURL("med_amoxicillin"), PriceFen: 1880, Quantity: 1, RequiresPrescription: true, PrescriptionApproved: true},
+		{ProductID: "med_swab", Name: "碘伏棉签", Category: "外伤消毒", ImageURL: medicineProductImageURL("med_swab"), PriceFen: 690, Quantity: 1},
+	}
+}
+
+func medicineItemsTotalFen(items []MedicineOrderItem) int64 {
+	var total int64
+	for _, item := range items {
+		quantity := item.Quantity
+		if quantity <= 0 {
+			quantity = 1
+		}
+		total += item.PriceFen * int64(quantity)
+	}
+	return total
+}
+
+func (s *Store) medicineDetailForOrderLocked(order *Order, req MedicineOrderRequest, items []MedicineOrderItem, prescriptionStatus string, doctorName string) *MedicineOrderDetail {
+	if order == nil {
+		return nil
+	}
+	address := strings.TrimSpace(req.Address)
+	if address == "" {
+		address = "望京校区 3 号宿舍楼 508"
+	}
+	contactName := strings.TrimSpace(req.ContactName)
+	if contactName == "" {
+		contactName = "张三"
+	}
+	contactPhone := strings.TrimSpace(req.ContactPhone)
+	if contactPhone == "" {
+		contactPhone = "13800000000"
+	}
+	clinicName := strings.TrimSpace(req.ClinicName)
+	if clinicName == "" {
+		clinicName = "校医务室"
+	}
+	if prescriptionStatus == "" && req.PrescriptionID != "" {
+		prescriptionStatus = PrescriptionReviewApproved
+	}
+	if doctorName == "" && prescriptionStatus == PrescriptionReviewApproved {
+		doctorName = "王医生"
+	}
+	return &MedicineOrderDetail{
+		Order:              *cloneOrder(order),
+		Address:            address,
+		ContactName:        contactName,
+		ContactPhone:       contactPhone,
+		ClinicName:         clinicName,
+		ClinicLocation:     "综合楼一层",
+		DeliveryText:       "校内骑手配送",
+		PrescriptionID:     req.PrescriptionID,
+		PrescriptionStatus: prescriptionStatus,
+		DoctorName:         doctorName,
+		Advice:             "请按校医指导用药；如症状加重请及时就医。",
+		Items:              append([]MedicineOrderItem{}, items...),
+		FeeRows: []MedicineFeeRow{
+			{Title: "商品金额", AmountFen: order.ItemsTotalFen},
+			{Title: "配送费", AmountFen: order.DeliveryFeeFen},
+			{Title: "实付", AmountFen: order.AmountFen},
+		},
+		Timeline: medicineTimelineForOrder(order),
+	}
+}
+
+func medicineTimelineForOrder(order *Order) []MedicineTimelineItem {
+	if order == nil {
+		return nil
+	}
+	created := order.CreatedAt
+	if created.IsZero() {
+		created = time.Now().UTC()
+	}
+	return []MedicineTimelineItem{
+		{Title: "订单已提交", Status: ServiceTicketEventDone, Time: created.Format("15:04"), At: created},
+		{Title: "校医出药", Status: ServiceTicketEventDone, Time: created.Add(4 * time.Minute).Format("15:04"), At: created.Add(4 * time.Minute)},
+		{Title: "骑手已取药", Status: ServiceTicketEventActive, Time: created.Add(12 * time.Minute).Format("15:04"), At: created.Add(12 * time.Minute)},
+		{Title: "送达完成", Subtitle: "待完成", Status: ServiceTicketEventPending, At: created.Add(32 * time.Minute)},
+	}
+}
+
+func cloneWalletWithdrawRequest(input *WalletWithdrawRequest) *WalletWithdrawRequest {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneUserCoupon(input *UserCoupon) *UserCoupon {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func clonePointsTransaction(input *PointsTransaction) *PointsTransaction {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneErrandOrderDetail(input *ErrandOrderDetail) *ErrandOrderDetail {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.Order = *cloneOrder(&input.Order)
+	output.FeeRows = append([]ErrandFeeRow{}, input.FeeRows...)
+	output.Timeline = append([]ErrandTimelineItem{}, input.Timeline...)
+	return &output
+}
+
+func (s *Store) nicknameForUserLocked(userID string) string {
+	if user := s.users[userID]; user != nil && strings.TrimSpace(user.Nickname) != "" {
+		return strings.TrimSpace(user.Nickname)
+	}
+	if userID == "user_1" {
+		return "张三"
+	}
+	return "悦享用户"
+}
+
+func (s *Store) phoneForUserLocked(userID string) string {
+	if user := s.users[userID]; user != nil && strings.TrimSpace(user.Phone) != "" {
+		return strings.TrimSpace(user.Phone)
+	}
+	for phone, boundUserID := range s.phoneBindings {
+		if boundUserID == userID {
+			return phone
+		}
+	}
+	return "13800000000"
+}
+
+func avatarInitial(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "悦"
+	}
+	runes := []rune(name)
+	if len(runes) > 2 {
+		return string(runes[:2])
+	}
+	return name
+}
+
+func (s *Store) walletBalanceForOverviewLocked(userID string) int64 {
+	if account := s.wallets[userID]; account != nil {
+		return account.Balance
+	}
+	if userID == "user_1" {
+		return 12850
+	}
+	return 0
+}
+
+func (s *Store) pendingReceivableFenForUserLocked(userID string) int64 {
+	if userID == "" {
+		return 0
+	}
+	return 1200
+}
+
+func (s *Store) paymentPasswordStatusForUserLocked(userID string) string {
+	if s.paymentPasswordHash[userID] != "" || userID == "user_1" {
+		return WalletPaymentPasswordSet
+	}
+	return WalletPaymentPasswordUnset
+}
+
+func (s *Store) redPacketCountForUserLocked(userID string) int {
+	count := 0
+	for _, detail := range s.redPackets {
+		if detail == nil {
+			continue
+		}
+		if detail.Packet.SenderID == userID {
+			count++
+			continue
+		}
+		for _, share := range detail.Shares {
+			if share.UserID == userID {
+				count++
+				break
+			}
+		}
+	}
+	if count == 0 && userID == "user_1" {
+		return 3
+	}
+	return count
+}
+
+func (s *Store) userCouponsForUserLocked(userID string) []UserCoupon {
+	couponsByID := map[string]UserCoupon{}
+	for _, coupon := range defaultUserCoupons(userID) {
+		couponCopy := coupon
+		couponsByID[couponCopy.ID] = couponCopy
+	}
+	for _, coupon := range s.userCoupons {
+		if coupon != nil && coupon.UserID == userID {
+			couponCopy := *cloneUserCoupon(coupon)
+			couponsByID[couponCopy.ID] = couponCopy
+		}
+	}
+	coupons := make([]UserCoupon, 0, len(couponsByID))
+	for _, coupon := range couponsByID {
+		coupons = append(coupons, coupon)
+	}
+	sort.SliceStable(coupons, func(i, j int) bool {
+		return coupons[i].CreatedAt.After(coupons[j].CreatedAt)
+	})
+	return coupons
+}
+
+func (s *Store) walletTransactionsForUserLocked(userID string) []WalletTransaction {
+	transactions := make([]WalletTransaction, 0)
+	for _, transaction := range s.walletIdempotency {
+		if transaction != nil && transaction.UserID == userID {
+			transactions = append(transactions, *cloneWalletTransaction(transaction))
+		}
+	}
+	sort.SliceStable(transactions, func(i, j int) bool {
+		return transactions[i].CreatedAt.After(transactions[j].CreatedAt)
+	})
+	return transactions
+}
+
+func defaultWalletTransactions(userID string) []WalletTransaction {
+	now := time.Now().UTC()
+	return []WalletTransaction{
+		{ID: "wtx_preview_refund", UserID: userID, Type: "refund", AmountFen: 1800, PaymentMethod: RefundDestinationBalance, Status: "success", CreatedAt: now.Add(-35 * time.Minute)},
+		{ID: "wtx_preview_pay", UserID: userID, Type: "payment", AmountFen: -5598, PaymentMethod: PaymentBalance, Status: "success", CreatedAt: now.Add(-82 * time.Minute)},
+		{ID: "wtx_preview_red_packet", UserID: userID, Type: "red_packet", AmountFen: 666, PaymentMethod: PaymentBalance, Status: "success", CreatedAt: now.Add(-16 * time.Hour)},
+		{ID: "wtx_preview_withdraw", UserID: userID, Type: "withdraw", AmountFen: -5000, PaymentMethod: "wechat_change", Status: "processing", CreatedAt: now.Add(-25 * time.Hour)},
+		{ID: "wtx_preview_credit", UserID: userID, Type: "credit", AmountFen: 10000, PaymentMethod: PaymentWechat, Status: "success", CreatedAt: now.Add(-72 * time.Hour)},
+	}
+}
+
+func defaultUserCoupons(userID string) []UserCoupon {
+	now := time.Now().UTC()
+	return []UserCoupon{
+		{ID: "coupon_platform_15", UserID: userID, Kind: "platform", Title: "平台外卖通用券", Subtitle: "蓝海餐厅、晴川咖啡等可用", Scope: "外卖", Source: "平台券", Status: "available", ButtonText: "去使用", AccentColor: "#007aff", AmountFen: 1500, ThresholdFen: 5000, ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now.Add(-72 * time.Hour)},
+		{ID: "coupon_groupbuy_20", UserID: userID, Kind: "groupbuy", Title: "到店团购立减券", Subtitle: "周末探店可用", Scope: "团购", Source: "团购券", Status: "available", ButtonText: "去使用", AccentColor: "#ff3b30", AmountFen: 2000, ThresholdFen: 0, ExpiresAt: now.Add(7 * 24 * time.Hour), CreatedAt: now.Add(-24 * time.Hour)},
+		{ID: "coupon_medicine_5", UserID: userID, Kind: "medicine", Title: "安心药房夜间券", Subtitle: "买药频道可用", Scope: "买药", Source: "买药券", Status: "available", ButtonText: "去使用", AccentColor: "#16a34a", AmountFen: 500, ThresholdFen: 2500, ExpiresAt: now.Add(5 * 24 * time.Hour), CreatedAt: now.Add(-12 * time.Hour)},
+	}
+}
+
+func merchantGroupCouponID(userID string) string {
+	return "coupon_group_8_" + strings.TrimSpace(userID)
+}
+
+func merchantGroupCoupon(userID string, now time.Time) *UserCoupon {
+	return &UserCoupon{
+		ID:           merchantGroupCouponID(userID),
+		UserID:       userID,
+		Kind:         "merchant",
+		Title:        "蓝海餐厅商户群券",
+		Subtitle:     "进群领取 · 外卖专享",
+		Scope:        "外卖",
+		Source:       "商户群券",
+		Status:       "available",
+		ButtonText:   "去使用",
+		AccentColor:  "#ff5a1f",
+		AmountFen:    800,
+		ThresholdFen: 3000,
+		ExpiresAt:    now.Add(8 * time.Hour),
+		CreatedAt:    now,
+	}
+}
+
+func (s *Store) claimMerchantGroupCouponLocked(userID string, code string) (*UserCoupon, bool, error) {
+	if strings.TrimSpace(code) != chatThreadSelfServePolicy("merchant_blue_sea").CouponCode {
+		return nil, false, nil
+	}
+	if s.chatThreadMemberLocked("merchant_blue_sea", "user", userID) == nil {
+		return nil, true, fmt.Errorf("%w: group membership required", ErrInvalidArgument)
+	}
+	if existing := s.userCoupons[merchantGroupCouponID(userID)]; existing != nil {
+		return cloneUserCoupon(existing), true, nil
+	}
+	coupon := merchantGroupCoupon(userID, time.Now().UTC())
+	s.userCoupons[coupon.ID] = cloneUserCoupon(coupon)
+	return cloneUserCoupon(coupon), true, nil
+}
+
+func (s *Store) pointsBalanceForUserLocked(userID string) int {
+	total := 0
+	for _, transaction := range s.pointsTransactions[userID] {
+		if transaction != nil {
+			total += transaction.Points
+		}
+	}
+	if total == 0 && userID == "user_1" {
+		return 2680
+	}
+	return total
+}
+
+func (s *Store) pointsSummaryLocked(userID string) *PointsSummary {
+	transactions := make([]PointsTransaction, 0)
+	for _, transaction := range s.pointsTransactions[userID] {
+		if transaction != nil {
+			transactions = append(transactions, *clonePointsTransaction(transaction))
+		}
+	}
+	sort.SliceStable(transactions, func(i, j int) bool {
+		return transactions[i].CreatedAt.After(transactions[j].CreatedAt)
+	})
+	if len(transactions) == 0 && userID == "user_1" {
+		transactions = append(transactions, seedPointTransactionsForUser(userID)...)
+	}
+	return &PointsSummary{
+		UserID:          userID,
+		Nickname:        s.nicknameForUserLocked(userID),
+		MembershipLevel: MembershipSilver,
+		LevelName:       "美食达人",
+		Verified:        true,
+		Points:          s.pointsBalanceForUserLocked(userID),
+		GrowthValue:     2680,
+		NextLevelGrowth: 1320,
+		Benefits: []PointsBenefit{
+			{Icon: "券", Title: "专属优惠券", Status: "已解锁", Unlocked: true},
+			{Icon: "抵", Title: "积分抵扣", Status: "已解锁", Unlocked: true},
+			{Icon: "礼", Title: "生日礼", Status: "V3 解锁"},
+			{Icon: "客", Title: "优先客服", Status: "V3 解锁"},
+		},
+		Tasks: []PointsTask{
+			{ID: "order", Title: "完成订单", Subtitle: "每完成一笔订单", Reward: 30, ActionText: "去下单", Route: "/pages/index/index"},
+			{ID: "review", Title: "评价订单", Subtitle: "每完成一笔评价", Reward: 10, ActionText: "去评价", Route: "/pages/order/list/index"},
+			{ID: "invite", Title: "邀请好友", Subtitle: "好友下单后可得奖励", Reward: 100, ActionText: "去邀请", Route: "/pages/invite-friends/index"},
+			{ID: "checkin", Title: "每日签到", Subtitle: "连续签到积分更多", Reward: 5, ActionText: "签到"},
+		},
+		Rewards: []PointsReward{
+			{ID: "coupon_5", Title: "兑 ¥5 优惠券", Subtitle: "满 30 元可用", Points: 500, AmountFen: 500, AccentColor: "#007aff", RedeemText: "兑换", ThresholdFen: 3000},
+			{ID: "delivery_12", Title: "兑换配送券", Subtitle: "满 20 元可用", Points: 1200, AmountFen: 300, AccentColor: "#ff7a00", RedeemText: "兑换", ThresholdFen: 2000},
+		},
+		Transactions: transactions,
+	}
+}
+
+func seedPointTransactionsForUser(userID string) []PointsTransaction {
+	now := time.Now().UTC()
+	return []PointsTransaction{
+		{ID: "pt_seed_order", UserID: userID, Type: PointsTransactionEarn, Title: "订单完成奖励", Points: 30, SourceID: "order_seed", CreatedAt: now.Add(-2 * time.Hour)},
+		{ID: "pt_seed_review", UserID: userID, Type: PointsTransactionEarn, Title: "评价订单奖励", Points: 10, SourceID: "review_seed", CreatedAt: now.Add(-24 * time.Hour)},
+		{ID: "pt_seed_redeem", UserID: userID, Type: PointsTransactionRedeem, Title: "兑换优惠券", Points: -500, SourceID: "reward_seed", CreatedAt: now.Add(-72 * time.Hour)},
+		{ID: "pt_seed_invite", UserID: userID, Type: PointsTransactionEarn, Title: "邀请好友奖励", Points: 100, SourceID: "invite_seed", CreatedAt: now.Add(-120 * time.Hour)},
+	}
+}
+
+func inviteCodeForUser(userID string) string {
+	if userID == "user_1" {
+		return "YXES-8K29"
+	}
+	hash := strings.ToUpper(shortHash(userID))
+	return "YXES-" + hash[:4]
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func buttonTextForSearchType(resultType string) string {
+	switch resultType {
+	case "medicine":
+		return "去买药"
+	case "errand":
+		return "去下单"
+	case "groupbuy":
+		return "去购买"
+	case "product":
+		return "加入购物车"
+	default:
+		return "去使用"
+	}
+}
+
+func filterSearchResults(results []SearchResult, keyword string, category string) []SearchResult {
+	filtered := make([]SearchResult, 0, len(results))
+	for _, result := range results {
+		if category != "" && category != "all" && result.Type != category {
+			continue
+		}
+		if keyword != "" && !strings.Contains(result.Title+result.Subtitle+result.Badge, keyword) {
+			continue
+		}
+		filtered = append(filtered, result)
+	}
+	return filtered
+}
+
+func searchSuggestionsFromResults(results []SearchResult) []string {
+	suggestions := make([]string, 0, 6)
+	seen := map[string]struct{}{}
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || len(suggestions) >= 6 {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		suggestions = append(suggestions, value)
+	}
+	for _, result := range results {
+		add(result.Title)
+		add(result.Badge)
+		if len(suggestions) >= 6 {
+			break
+		}
+	}
+	return suggestions
+}
+
+func isErrandOrderType(orderType string) bool {
+	switch orderType {
+	case OrderTypeErrandBuy, OrderTypeErrandDeliver, OrderTypeErrandPickup, OrderTypeErrandDo:
+		return true
+	default:
+		return false
+	}
+}
+
+func errandServiceTitle(orderType string) string {
+	switch orderType {
+	case OrderTypeErrandBuy:
+		return "帮买"
+	case OrderTypeErrandDeliver:
+		return "帮送"
+	case OrderTypeErrandDo:
+		return "帮办"
+	default:
+		return "帮取"
+	}
+}
+
+func (s *Store) errandDetailForOrderLocked(order *Order, req ErrandOrderRequest) *ErrandOrderDetail {
+	now := order.CreatedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	baseFee := int64(1000)
+	distanceFee := int64(400)
+	serviceFee := int64(200)
+	coupon := req.CouponAmountFen
+	if coupon == 0 {
+		coupon = 300
+	}
+	return &ErrandOrderDetail{
+		Order:           *cloneOrder(order),
+		ServiceType:     order.Type,
+		ServiceTitle:    errandServiceTitle(order.Type),
+		PickupAddress:   defaultString(req.PickupAddress, "望京SOHO B座 快递柜"),
+		DeliveryAddress: defaultString(req.DeliveryAddress, "望京SOHO A座 1208"),
+		ContactName:     defaultString(req.ContactName, "张三"),
+		ContactPhone:    defaultString(req.ContactPhone, "13800000000"),
+		ItemType:        defaultString(req.ItemType, "小件包裹"),
+		Description:     defaultString(req.Description, "取 3 号柜快递，验证码已备注"),
+		ImageURL:        defaultString(req.ImageURL, errandImageURL()),
+		WeightText:      defaultString(req.WeightText, "2kg 内"),
+		PickupTime:      defaultString(req.PickupTime, "立即取送"),
+		EstimateText:    "预计 14:25 送达",
+		MapStatus:       "骑手正在前往取件地址",
+		Rider:           ErrandRider{ID: "rider_zhang", Name: "张师傅", RatingText: "4.9", Vehicle: "电动车", DistanceText: "距取件地 600m"},
+		FeeRows: []ErrandFeeRow{
+			{Title: "起步价", AmountFen: baseFee},
+			{Title: "距离费", AmountFen: distanceFee},
+			{Title: "服务费", AmountFen: serviceFee},
+			{Title: "优惠券", AmountFen: -coupon},
+		},
+		Timeline: []ErrandTimelineItem{
+			{Title: "订单已创建", Status: "done", Time: "14:02", At: now},
+			{Title: "骑手已接单", Status: "done", Time: "14:04", At: now.Add(2 * time.Minute)},
+			{Title: "前往取件", Subtitle: "骑手正在前往取件地址", Status: "active", Time: "进行中", At: now.Add(4 * time.Minute)},
+			{Title: "已取件", Subtitle: "待骑手取件", Status: "pending"},
+			{Title: "送达完成", Subtitle: "请确认收货并评价", Status: "pending"},
+		},
+	}
+}
+
+func errandImageURL() string {
+	return "/assets/generated/errand-parcel.jpg"
+}
+
+func defaultString(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(value)
+}
+
 func cloneRefundTransaction(input *RefundTransaction) *RefundTransaction {
 	if input == nil {
 		return nil
@@ -7941,6 +17728,40 @@ func cloneOutboxEvent(input *OutboxEvent) *OutboxEvent {
 	return &output
 }
 
+func clonePlatformNotification(input *PlatformNotification) *PlatformNotification {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func clonePlatformNotificationDelivery(input *PlatformNotificationDelivery) *PlatformNotificationDelivery {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	return &output
+}
+
+func cloneNotificationPreference(input *NotificationPreference) *NotificationPreference {
+	if input == nil {
+		return nil
+	}
+	output := *input
+	output.EnabledChannels = append([]string{}, input.EnabledChannels...)
+	output.DisabledChannels = append([]string{}, input.DisabledChannels...)
+	output.QuietHours = cloneNotificationQuietHours(input.QuietHours)
+	return &output
+}
+
+func cloneNotificationQuietHours(input NotificationQuietHours) NotificationQuietHours {
+	output := input
+	output.Channels = append([]string{}, input.Channels...)
+	output.ExemptTypes = append([]string{}, input.ExemptTypes...)
+	return output
+}
+
 func cloneAuditLog(input *AuditLog) *AuditLog {
 	if input == nil {
 		return nil
@@ -7978,6 +17799,207 @@ func cloneAny(value any) any {
 	}
 }
 
+func seedUserCoupons() map[string]*UserCoupon {
+	coupons := defaultUserCoupons("user_1")
+	output := make(map[string]*UserCoupon, len(coupons))
+	for index := range coupons {
+		coupon := coupons[index]
+		output[coupon.ID] = cloneUserCoupon(&coupon)
+	}
+	return output
+}
+
+func seedPointsTransactions() map[string][]*PointsTransaction {
+	transactions := seedPointTransactionsForUser("user_1")
+	output := map[string][]*PointsTransaction{"user_1": {}}
+	for index := range transactions {
+		transaction := transactions[index]
+		output["user_1"] = append(output["user_1"], clonePointsTransaction(&transaction))
+	}
+	output["user_1"] = append(output["user_1"], &PointsTransaction{
+		ID:        "pt_seed_base",
+		UserID:    "user_1",
+		Type:      PointsTransactionEarn,
+		Title:     "会员成长值结转",
+		Points:    3040,
+		SourceID:  "membership_seed",
+		CreatedAt: time.Now().UTC().Add(-30 * 24 * time.Hour),
+	})
+	return output
+}
+
+func seedCirclePosts() map[string]*CirclePost {
+	now := time.Now().UTC()
+	return map[string]*CirclePost{
+		"cpost_seed_1": {
+			ID:           "cpost_seed_1",
+			AuthorUserID: "user_1",
+			AuthorName:   "小林",
+			CircleID:     "nearby",
+			Type:         CirclePostFoodInvite,
+			Title:        "午饭拼单有人吗",
+			Content:      "蓝海餐厅满减差一份，12:20 前下单。",
+			Status:       CirclePostPublished,
+			Tags:         []string{"附近 500m", "拼单"},
+			DistanceText: "附近 500m",
+			LikeCount:    8,
+			CommentCount: 3,
+			CreatedAt:    now.Add(-18 * time.Minute),
+		},
+		"cpost_seed_2": {
+			ID:           "cpost_seed_2",
+			AuthorUserID: "official",
+			AuthorName:   "悦享e食官方群",
+			CircleID:     "official",
+			Type:         CirclePostText,
+			Title:        "新用户入群默认静音",
+			Content:      "重要通知会通过站内信保留，不会打扰夜间休息。",
+			Status:       CirclePostPublished,
+			Tags:         []string{"官方"},
+			LikeCount:    23,
+			CommentCount: 5,
+			CreatedAt:    now.Add(-42 * time.Minute),
+		},
+		"cpost_seed_3": {
+			ID:           "cpost_seed_3",
+			AuthorUserID: "merchant_1",
+			AuthorName:   "蓝海餐厅商户群",
+			CircleID:     "merchant_blue_sea",
+			Type:         CirclePostText,
+			Title:        "群内团购券限时领取",
+			Content:      "加入商户群后可领取指定优惠券，今晚 20:00 前可用。",
+			Status:       CirclePostPublished,
+			Tags:         []string{"商户群", "团购券"},
+			LikeCount:    16,
+			CommentCount: 2,
+			CreatedAt:    now.Add(-76 * time.Minute),
+		},
+	}
+}
+
+func seedMealMatchProfiles() map[string]*MealMatchProfile {
+	checkedAt := time.Now().UTC().Add(-24 * time.Hour)
+	return map[string]*MealMatchProfile{
+		"user_buddy_lunch": {
+			UserID:                         "user_buddy_lunch",
+			Gender:                         "female",
+			SchoolID:                       "infinitech_university",
+			SchoolName:                     "无限科技大学",
+			CampusName:                     "东区",
+			BuildingID:                     "east_canteen",
+			BuildingName:                   "东区食堂",
+			PrivacyScope:                   MealMatchPrivacySameBuilding,
+			LocationPrecision:              MealMatchLocationBuildingOnly,
+			IdentityTruthSigned:            true,
+			PlatformLiabilityReleaseSigned: true,
+			QuestionnaireCompleted:         true,
+			PersonalityTraits:              []string{"细心", "守时", "安静"},
+			DietaryHabits:                  []string{"清淡", "不浪费", "咖啡"},
+			DeviceID:                       "seed_device_lunch",
+			DeviceRiskState:                MealMatchDeviceRiskPassed,
+			DeviceRiskReason:               "种子设备已通过校验",
+			DeviceRiskCheckedAt:            checkedAt,
+			ModerationStatus:               MealMatchModerationApproved,
+			ModerationReason:               "种子资料已通过审核",
+		},
+		"user_buddy_weekend": {
+			UserID:                         "user_buddy_weekend",
+			Gender:                         "male",
+			SchoolID:                       "city_college",
+			SchoolName:                     "城市学院",
+			CampusName:                     "主校区",
+			BuildingID:                     "west_gate",
+			BuildingName:                   "西门生活区",
+			PrivacyScope:                   MealMatchPrivacySameSchool,
+			LocationPrecision:              MealMatchLocationCampusOnly,
+			IdentityTruthSigned:            true,
+			PlatformLiabilityReleaseSigned: true,
+			QuestionnaireCompleted:         true,
+			PersonalityTraits:              []string{"外向", "守时"},
+			DietaryHabits:                  []string{"火锅", "烤肉", "不浪费"},
+			DeviceID:                       "seed_device_weekend",
+			DeviceRiskState:                MealMatchDeviceRiskPassed,
+			DeviceRiskReason:               "种子设备已通过校验",
+			DeviceRiskCheckedAt:            checkedAt,
+			ModerationStatus:               MealMatchModerationApproved,
+			ModerationReason:               "种子资料已通过审核",
+		},
+		"user_buddy_library": {
+			UserID:                         "user_buddy_library",
+			Gender:                         "female",
+			SchoolID:                       "infinitech_university",
+			SchoolName:                     "无限科技大学",
+			CampusName:                     "东区",
+			BuildingID:                     "east_canteen",
+			BuildingName:                   "东区食堂",
+			PrivacyScope:                   MealMatchPrivacySameBuilding,
+			LocationPrecision:              MealMatchLocationBuildingOnly,
+			IdentityTruthSigned:            true,
+			PlatformLiabilityReleaseSigned: true,
+			QuestionnaireCompleted:         true,
+			PersonalityTraits:              []string{"安静", "计划感"},
+			DietaryHabits:                  []string{"清淡", "面食"},
+			DeviceID:                       "seed_device_library",
+			DeviceRiskState:                MealMatchDeviceRiskPassed,
+			DeviceRiskReason:               "种子设备已通过校验",
+			DeviceRiskCheckedAt:            checkedAt,
+			ModerationStatus:               MealMatchModerationApproved,
+			ModerationReason:               "种子资料已通过审核",
+		},
+	}
+}
+
+func seedChatMessages() map[string]*ChatMessage {
+	now := time.Now().UTC()
+	return map[string]*ChatMessage{
+		"msg_seed_official_1": {
+			ID:          "msg_seed_official_1",
+			ThreadID:    "official",
+			SenderID:    "official",
+			Sender:      "系统",
+			Content:     "新用户入群默认静默，重要通知站内信保留。",
+			MessageType: "text",
+			CreatedAt:   now.Add(-20 * time.Minute),
+		},
+		"msg_seed_merchant_1": {
+			ID:          "msg_seed_merchant_1",
+			ThreadID:    "merchant_blue_sea",
+			SenderID:    "merchant_1",
+			Sender:      "蓝海餐厅",
+			Content:     "今晚 20:00 前可领商户群券，下单可叠加平台满减。",
+			MessageType: "text",
+			CreatedAt:   now.Add(-52 * time.Minute),
+		},
+		"msg_seed_merchant_2": {
+			ID:          "msg_seed_merchant_2",
+			ThreadID:    "merchant_blue_sea",
+			SenderID:    "user_group_xiaolin",
+			Sender:      "小林",
+			Content:     "午饭拼单还差一份，有人一起吗？",
+			MessageType: "text",
+			CreatedAt:   now.Add(-46 * time.Minute),
+		},
+		"msg_seed_merchant_3": {
+			ID:          "msg_seed_merchant_3",
+			ThreadID:    "merchant_blue_sea",
+			SenderID:    "user_group_ajie",
+			Sender:      "阿杰",
+			Content:     "我也拼一份，12:20 前下单可以吗？",
+			MessageType: "text",
+			CreatedAt:   now.Add(-44 * time.Minute),
+		},
+		"msg_seed_rider_1": {
+			ID:          "msg_seed_rider_1",
+			ThreadID:    "rider_zhang",
+			SenderID:    "rider_1",
+			Sender:      "骑手 张师傅",
+			Content:     "餐品已送达，记得给本次配送评价。",
+			MessageType: "text",
+			CreatedAt:   now.Add(-26 * time.Hour),
+		},
+	}
+}
+
 func seedShops() map[string]*Shop {
 	return map[string]*Shop{
 		"shop_1": {
@@ -7990,7 +18012,7 @@ func seedShops() map[string]*Shop {
 			Status:         ShopStatusActive,
 			Capabilities:   []string{ShopCapabilityTakeout, ShopCapabilityGroupbuy},
 			Qualifications: []string{QualificationBusinessLicense, QualificationHealthCertificate},
-			CoverURL:       "/assets/mock/blue-sea-cover.jpg",
+			CoverURL:       "/assets/generated/shop-detail-cover.jpg",
 			LogoURL:        "/assets/brand/logo.svg",
 			Announcement:   "主打简餐和团购套餐，当前为 2.0 闭环样例店铺。",
 		},
@@ -8018,14 +18040,14 @@ func seedMerchantQualifications() map[string][]*MerchantQualification {
 				Type:      QualificationBusinessLicense,
 				FileURL:   "/assets/mock/business-license.jpg",
 				ExpiresAt: expiresAt,
-				Status:    "approved",
+				Status:    QualificationStatusApproved,
 			},
 			{
 				ID:        "mq_merchant_1_health",
 				Type:      QualificationHealthCertificate,
 				FileURL:   "/assets/mock/health-certificate.jpg",
 				ExpiresAt: expiresAt,
-				Status:    "approved",
+				Status:    QualificationStatusApproved,
 			},
 		},
 	}
@@ -8161,7 +18183,7 @@ func seedProducts() map[string]*MerchantProduct {
 			ID:             "prod_beef_rice",
 			ShopID:         "shop_1",
 			Name:           "招牌牛肉饭",
-			ImageURL:       "/assets/mock/beef-rice.jpg",
+			ImageURL:       "/assets/generated/product-beef-rice.jpg",
 			Description:    "牛肉、米饭、时蔬，适合作为外卖闭环样例。",
 			IngredientList: []string{"牛肉", "米饭", "青菜"},
 			PriceFen:       2599,
@@ -8172,7 +18194,7 @@ func seedProducts() map[string]*MerchantProduct {
 			ID:             "prod_soup",
 			ShopID:         "shop_1",
 			Name:           "每日例汤",
-			ImageURL:       "/assets/mock/soup.jpg",
+			ImageURL:       "/assets/generated/product-lemon-tea.jpg",
 			Description:    "随餐热汤。",
 			IngredientList: []string{"汤底", "蔬菜"},
 			PriceFen:       599,
@@ -8188,7 +18210,7 @@ func seedGroupbuyDeals() map[string]*MerchantProduct {
 			ID:             "deal_two_person_set",
 			ShopID:         "shop_1",
 			Name:           "双人工作餐团购券",
-			ImageURL:       "/assets/mock/groupbuy-set.jpg",
+			ImageURL:       "/assets/generated/home-featured-dish.jpg",
 			Description:    "到店扫码核销，含两份主食和两份例汤。",
 			IngredientList: []string{"主食", "例汤", "到店核销"},
 			PriceFen:       3999,

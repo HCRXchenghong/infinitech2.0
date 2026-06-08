@@ -6,7 +6,12 @@ export const defaultRelayTopics = [
   "dispatch.assigned",
   "dispatch.timeout",
   "dispatch.status_changed",
-  "audit.retention_alerts"
+  "merchant.qualification_reviewed",
+  "audit.retention_alerts",
+  "notification.delivery_failed_alerts",
+  "notification.delivery_retries",
+  "notification.preferences_changed",
+  "message.sent"
 ];
 export const defaultPollIntervalMs = 5000;
 export const defaultBatchLimit = 100;
@@ -92,6 +97,57 @@ export function createKafkaRestPublisher(options = {}) {
         throw new Error(text || `kafka rest publish failed: ${response.status}`);
       }
       return true;
+    }
+  };
+}
+
+export function createRealtimeGatewayPublisher(options = {}) {
+  const realtimeGatewayUrl = String(options.realtimeGatewayUrl || process.env.REALTIME_GATEWAY_URL || "").replace(/\/+$/, "");
+  const token = String(options.token || process.env.REALTIME_INTERNAL_TOKEN || "").trim();
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (!realtimeGatewayUrl) {
+    throw new Error("REALTIME_GATEWAY_URL is required for realtime gateway publisher");
+  }
+  if (typeof fetchImpl !== "function") {
+    throw new Error("fetch implementation is required");
+  }
+  return {
+    async publish(message = {}) {
+      const headers = {
+        "Content-Type": "application/json"
+      };
+      if (token) {
+        headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+      }
+      const response = await fetchImpl(`${realtimeGatewayUrl}/internal/realtime/publish`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          topic: message.topic,
+          key: message.key,
+          payload: message.payload || {},
+          event: message.event || {}
+        })
+      });
+      const text = typeof response.text === "function" ? await response.text() : "";
+      const body = text ? JSON.parse(text) : {};
+      if (!response.ok || body.success === false) {
+        throw new Error(body.message || `realtime gateway publish failed: ${response.status}`);
+      }
+      return body.data || true;
+    }
+  };
+}
+
+export function createTopicRoutingPublisher(routes = {}, fallbackPublisher) {
+  if (!fallbackPublisher || typeof fallbackPublisher.publish !== "function") {
+    throw new Error("fallback publisher is required");
+  }
+  const normalizedRoutes = new Map(Object.entries(routes).filter(([, publisher]) => publisher && typeof publisher.publish === "function"));
+  return {
+    async publish(message = {}) {
+      const publisher = normalizedRoutes.get(String(message.topic || "").trim()) || fallbackPublisher;
+      return publisher.publish(message);
     }
   };
 }
@@ -411,7 +467,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     stopping = true;
   });
   const client = createOutboxApiClient();
-  const publisher = process.env.KAFKA_REST_URL ? createKafkaRestPublisher() : createConsolePublisher();
+  const basePublisher = process.env.KAFKA_REST_URL ? createKafkaRestPublisher() : createConsolePublisher();
+  const publisher = process.env.REALTIME_GATEWAY_URL
+    ? createTopicRoutingPublisher({ "message.sent": createRealtimeGatewayPublisher() }, basePublisher)
+    : basePublisher;
   runRelayLoop({
     client,
     publisher,

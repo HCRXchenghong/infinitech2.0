@@ -1,0 +1,207 @@
+.invite-page {
+  min-height: 100vh;
+  padding: 28rpx 36rpx 60rpx;
+  background: #f3f6f9;
+  box-sizing: border-box;
+}
+
+.plain-nav {
+  display: grid;
+  grid-template-columns: 72rpx 1fr 120rpx;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top) + 20rpx) 0 40rpx;
+}
+
+.nav-back {
+  color: #111827;
+  font-size: 56rpx;
+  line-height: 50rpx;
+}
+
+.nav-title {
+  color: #111827;
+  font-size: 36rpx;
+  font-weight: 900;
+  text-align: center;
+}
+
+.nav-action {
+  color: #007aff;
+  font-size: 24rpx;
+  text-align: right;
+}
+
+.hero-card,
+.invite-card {
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(15, 23, 42, 0.05);
+}
+
+.hero-card {
+  display: grid;
+  grid-template-columns: 178rpx 1fr;
+  gap: 24rpx;
+  align-items: center;
+  min-height: 256rpx;
+  padding: 34rpx;
+}
+
+.people-art {
+  width: 148rpx;
+  height: 148rpx;
+  border-radius: 42rpx;
+  color: #007aff;
+  background: linear-gradient(135deg, #eaf4ff, #cfe7ff);
+  text-align: center;
+  line-height: 148rpx;
+  font-size: 62rpx;
+  font-weight: 900;
+}
+
+.hero-title {
+  display: block;
+  color: #111827;
+  font-size: 42rpx;
+  font-weight: 900;
+}
+
+.hero-subtitle {
+  display: block;
+  margin-top: 18rpx;
+  color: #667085;
+  font-size: 28rpx;
+  line-height: 1.45;
+}
+
+.gift-badge {
+  display: inline-block;
+  margin-top: 22rpx;
+  padding: 8rpx 22rpx;
+  border-radius: 24rpx;
+  color: #ff6b00;
+  background: #fff3e3;
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.invite-card {
+  margin-top: 34rpx;
+  padding: 34rpx;
+}
+
+.label {
+  display: block;
+  color: #667085;
+  font-size: 30rpx;
+}
+
+.code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28rpx;
+  margin-top: 34rpx;
+  padding-bottom: 34rpx;
+  border-bottom: 1rpx solid #edf1f5;
+}
+
+.code {
+  color: #0b0f19;
+  font-size: 56rpx;
+  font-weight: 900;
+  letter-spacing: 2rpx;
+}
+
+.copy-button {
+  width: 122rpx;
+  height: 66rpx;
+  border-radius: 12rpx;
+  color: #007aff;
+  background: #ffffff;
+  border: 2rpx solid #007aff;
+  font-size: 30rpx;
+  line-height: 66rpx;
+}
+
+.copy-button::after,
+.share-button::after {
+  border: none;
+}
+
+.record-link,
+.poster-link {
+  margin-top: 32rpx;
+  color: #007aff;
+  font-size: 30rpx;
+}
+
+.action-card {
+  text-align: center;
+}
+
+.share-button {
+  height: 92rpx;
+  border-radius: 14rpx;
+  color: #ffffff;
+  background: #007aff;
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 92rpx;
+}
+
+.record-row {
+  display: grid;
+  grid-template-columns: 58rpx 1fr auto;
+  gap: 18rpx;
+  align-items: center;
+  padding: 22rpx 0;
+  border-bottom: 1rpx solid #edf1f5;
+}
+
+.record-row:last-child {
+  border-bottom: none;
+}
+
+.friend-avatar {
+  width: 54rpx;
+  height: 54rpx;
+  border-radius: 27rpx;
+  color: #ffffff;
+  background: #007aff;
+  text-align: center;
+  line-height: 54rpx;
+  font-size: 20rpx;
+  overflow: hidden;
+}
+
+.friend-name,
+.record-status {
+  display: block;
+}
+
+.friend-name {
+  color: #111827;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.record-status {
+  margin-top: 4rpx;
+  color: #667085;
+  font-size: 24rpx;
+}
+
+.record-reward {
+  color: #ff6b00;
+  font-size: 26rpx;
+  font-weight: 900;
+}
+
+.risk-tip {
+  display: block;
+  margin-top: 42rpx;
+  color: #667085;
+  font-size: 26rpx;
+  text-align: center;
+}

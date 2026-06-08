@@ -1,0 +1,8 @@
+{
+  "navigationStyle": "custom",
+  "navigationBarTitleText": "选择位置",
+  "navigationBarBackgroundColor": "#eaf5ff",
+  "navigationBarTextStyle": "black",
+  "backgroundColor": "#eaf5ff",
+  "backgroundTextStyle": "dark"
+}

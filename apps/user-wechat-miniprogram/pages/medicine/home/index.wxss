@@ -1,0 +1,410 @@
+.medicine-page {
+  min-height: 100vh;
+  padding: 28rpx 28rpx 160rpx;
+  background: #f3f6f9;
+  box-sizing: border-box;
+}
+
+.plain-nav {
+  display: grid;
+  grid-template-columns: 72rpx 1fr 120rpx;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top) + 20rpx) 0 26rpx;
+}
+
+.nav-back {
+  color: #111827;
+  font-size: 56rpx;
+  line-height: 50rpx;
+}
+
+.nav-title {
+  color: #111827;
+  font-size: 36rpx;
+  font-weight: 900;
+  text-align: center;
+}
+
+.nav-action {
+  color: #007aff;
+  font-size: 24rpx;
+  text-align: right;
+}
+
+.clinic-card,
+.advice-row,
+.search-bar,
+.category-row,
+.ai-row,
+.product-card {
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(15, 23, 42, 0.05);
+}
+
+.clinic-card {
+  display: grid;
+  grid-template-columns: 96rpx 1fr 160rpx;
+  gap: 20rpx;
+  padding: 30rpx;
+}
+
+.clinic-icon {
+  width: 78rpx;
+  height: 78rpx;
+  border-radius: 39rpx;
+  color: #ffffff;
+  background: #16a34a;
+  text-align: center;
+  line-height: 78rpx;
+  font-size: 44rpx;
+  font-weight: 900;
+}
+
+.clinic-title {
+  display: block;
+  color: #111827;
+  font-size: 38rpx;
+  font-weight: 900;
+}
+
+.clinic-subtitle,
+.delivery-text {
+  display: block;
+  margin-top: 10rpx;
+  color: #667085;
+  font-size: 26rpx;
+}
+
+.clinic-tags {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+
+.clinic-tags text {
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  color: #16a34a;
+  border: 1rpx solid #b7ead0;
+  font-size: 24rpx;
+}
+
+.medicine-box {
+  align-self: center;
+  width: 146rpx;
+  height: 126rpx;
+  border-radius: 28rpx;
+  color: #007aff;
+  background: #eaf4ff;
+  text-align: center;
+  line-height: 126rpx;
+  font-size: 54rpx;
+  font-weight: 900;
+}
+
+.clinic-cover {
+  align-self: center;
+  width: 160rpx;
+  height: 132rpx;
+  border-radius: 22rpx;
+  object-fit: cover;
+  box-shadow: 0 12rpx 26rpx rgba(22, 163, 74, 0.15);
+}
+
+.clinic-actions {
+  grid-column: 1 / 4;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 24rpx;
+  padding-top: 22rpx;
+  border-top: 1rpx solid #edf1f5;
+  text-align: center;
+  color: #111827;
+  font-size: 28rpx;
+}
+
+.clinic-actions view {
+  border-right: 1rpx solid #edf1f5;
+}
+
+.clinic-actions view:last-child {
+  border-right: none;
+}
+
+.advice-row,
+.ai-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18rpx;
+  padding: 20rpx 24rpx;
+  color: #166534;
+  background: #effdf5;
+  border: 1rpx solid #d1f5dd;
+  font-size: 26rpx;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  height: 72rpx;
+  margin-top: 22rpx;
+  padding: 0 28rpx;
+  color: #98a2b3;
+  font-size: 30rpx;
+}
+
+.category-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  margin-top: 20rpx;
+  text-align: center;
+}
+
+.category {
+  position: relative;
+  padding: 20rpx 0 24rpx;
+  color: #374151;
+  font-size: 27rpx;
+}
+
+.category.active {
+  color: #007aff;
+  font-weight: 900;
+}
+
+.category.active::after {
+  content: "";
+  position: absolute;
+  bottom: 8rpx;
+  left: 50%;
+  width: 54rpx;
+  height: 6rpx;
+  border-radius: 3rpx;
+  background: #007aff;
+  transform: translateX(-50%);
+}
+
+.ai-row {
+  color: #0057c2;
+  background: #eef6ff;
+  border-color: #d7eaff;
+}
+
+.ai-row text:first-child {
+  color: #007aff;
+  font-weight: 900;
+}
+
+.product-card {
+  margin-top: 18rpx;
+  padding: 28rpx 24rpx 12rpx;
+}
+
+.card-title {
+  display: block;
+  color: #111827;
+  font-size: 34rpx;
+  font-weight: 900;
+  margin-bottom: 12rpx;
+}
+
+.medicine-item {
+  display: grid;
+  grid-template-columns: 142rpx 1fr 152rpx;
+  gap: 22rpx;
+  align-items: center;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #edf1f5;
+}
+
+.medicine-item:last-child {
+  border-bottom: none;
+}
+
+.product-thumb {
+  width: 132rpx;
+  height: 132rpx;
+  border-radius: 16rpx;
+  color: #007aff;
+  background: #eef6ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 24rpx;
+  font-weight: 900;
+  overflow: hidden;
+}
+
+.product-image {
+  display: block;
+  width: 132rpx;
+  height: 132rpx;
+}
+
+.product-main {
+  min-width: 0;
+}
+
+.product-title {
+  display: block;
+  color: #111827;
+  font-size: 32rpx;
+  font-weight: 900;
+}
+
+.product-subtitle {
+  display: block;
+  margin-top: 8rpx;
+  color: #667085;
+  font-size: 25rpx;
+  line-height: 1.4;
+}
+
+.product-tags {
+  display: flex;
+  gap: 10rpx;
+  margin-top: 10rpx;
+}
+
+.product-tags text {
+  padding: 4rpx 10rpx;
+  border-radius: 6rpx;
+  color: #16a34a;
+  border: 1rpx solid #b7ead0;
+  font-size: 22rpx;
+}
+
+.product-tags text:last-child {
+  color: #ff4d00;
+  border-color: #ffd6c2;
+}
+
+.price {
+  display: block;
+  margin-top: 12rpx;
+  color: #ff3b30;
+  font-size: 34rpx;
+  font-weight: 900;
+}
+
+.product-action {
+  text-align: right;
+}
+
+.stock,
+.prescription-text {
+  display: block;
+  margin-bottom: 12rpx;
+  color: #667085;
+  font-size: 24rpx;
+}
+
+.prescription-text {
+  color: #ff4d00;
+}
+
+.add-button,
+.prescription-button {
+  margin-left: auto;
+  padding: 0;
+  border-radius: 16rpx;
+}
+
+.add-button {
+  width: 58rpx;
+  height: 58rpx;
+  color: #ffffff;
+  background: #007aff;
+  font-size: 40rpx;
+  line-height: 54rpx;
+}
+
+.prescription-button {
+  width: 138rpx;
+  height: 58rpx;
+  color: #ff4d00;
+  background: #ffffff;
+  border: 2rpx solid #ff4d00;
+  font-size: 24rpx;
+  line-height: 58rpx;
+}
+
+.add-button::after,
+.prescription-button::after,
+.checkout-button::after {
+  border: none;
+}
+
+.cart-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: 80rpx 1fr auto 220rpx;
+  gap: 18rpx;
+  align-items: center;
+  padding: 16rpx 28rpx calc(16rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 -8rpx 22rpx rgba(15, 23, 42, 0.08);
+}
+
+.cart-icon {
+  position: relative;
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 36rpx;
+  color: #ffffff;
+  background: #007aff;
+  text-align: center;
+  line-height: 72rpx;
+  font-weight: 900;
+}
+
+.cart-icon text {
+  position: absolute;
+  right: -8rpx;
+  top: -8rpx;
+  min-width: 30rpx;
+  height: 30rpx;
+  border-radius: 15rpx;
+  background: #ff3b30;
+  font-size: 20rpx;
+  line-height: 30rpx;
+}
+
+.cart-main text {
+  display: block;
+}
+
+.cart-main text:first-child {
+  color: #111827;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.cart-main text:last-child {
+  margin-top: 4rpx;
+  color: #667085;
+  font-size: 24rpx;
+}
+
+.cart-amount {
+  color: #ff3b30;
+  font-size: 32rpx;
+  font-weight: 900;
+}
+
+.checkout-button {
+  height: 72rpx;
+  border-radius: 16rpx;
+  color: #ffffff;
+  background: #007aff;
+  font-size: 30rpx;
+  line-height: 72rpx;
+}

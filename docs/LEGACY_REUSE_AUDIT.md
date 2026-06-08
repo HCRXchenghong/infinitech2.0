@@ -10,10 +10,10 @@
 旧版 README 显示它是一个本地生活 monorepo，包含：
 
 - `admin-vue`：管理端 Web、官网、邀请页、下载页、运行时设置、客服工作台。
-- `user-vue`：用户端 uni-app/小程序风格工程。
+- `user-vue`：用户端 跨端/小程序风格工程。
 - `app-mobile`：用户端 App 形态。
-- `merchant-app`：商户端 uni-app。
-- `rider-app`：骑手端 uni-app。
+- `merchant-app`：旧版商户端跨端页面，可作为 Flutter/Dart 重建参考。
+- `rider-app`：旧版骑手端跨端页面，可作为 Flutter/Dart 重建参考。
 - `backend/go`：核心业务 API。
 - `backend/bff`：聚合层。
 - `socket-server`：Socket.IO 实时网关、聊天、通知、RTC 信令。
@@ -73,8 +73,8 @@
 | --- | --- | --- |
 | `app-mobile/static/images/logo.svg` | 品牌 logo | 已复制，作为统一品牌源 |
 | `user-vue` / `app-mobile` | 用户端视觉、页面信息架构 | 原生微信小程序重写，视觉参考 |
-| `merchant-app` | 商户端页面和交互 | 可迁移到 2.0 `merchant-uni` |
-| `rider-app` | 抢单大厅、任务、钱包、接单设置 | 可迁移到 2.0 `rider-uni` |
+| `merchant-app` | 商户端页面和交互 | 可迁移到 2.0 `merchant-flutter` |
+| `rider-app` | 抢单大厅、任务、钱包、接单设置 | 可迁移到 2.0 `rider-flutter` |
 | `admin-vue` | 后台模块、邀请页、客服、RTC 管理 | 可复用 UI 和业务信息架构 |
 | `backend/go` | 订单、钱包、支付、团购、买药、消息、RTC、邀请 | 作为领域模型参考，代码择优迁移 |
 | `backend/bff` | 前端聚合层思路 | 可保留 BFF 边界 |
@@ -85,7 +85,7 @@
 
 ## 5. 不建议复用的部分
 
-- 旧版用户端 uni-app 代码不能作为用户端主线，因为 2.0 要先做原生微信小程序。
+- 旧版用户端跨端工程代码不能作为用户端主线，因为 2.0 要先做原生微信小程序。
 - `admin-win`、`admin-mac` 暂不纳入首发，避免桌面壳增加维护面。
 - 支付宝 sidecar、银行 payout sidecar 暂不首发，先聚焦微信支付和余额。
 - 旧版根目录过多端并列，2.0 需要先定义清楚 `apps/services/packages/infra`。
@@ -130,7 +130,7 @@
 
 - 从旧版提取设计 tokens、图标、页面结构。
 - 原生小程序重写用户端。
-- 商户端和骑手端从旧版 uni-app 逐模块迁移。
+- 商户端和骑手端用 Flutter/Dart 重建，旧版跨端工程只作为页面结构和交互参考。
 - 管理端从旧版 `admin-vue` 迁移核心模块。
 
 第三步：

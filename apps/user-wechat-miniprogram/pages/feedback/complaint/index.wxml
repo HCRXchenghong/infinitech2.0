@@ -1,0 +1,78 @@
+<view class="feedback-page">
+  <view class="blue-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">投诉建议</text>
+    <text class="nav-action" bindtap="handleRecords">记录</text>
+  </view>
+
+  <view class="intro-card">
+    <view class="intro-icon">!</view>
+    <view>
+      <text class="intro-title">我们会认真处理你的反馈</text>
+      <text class="intro-meta">涉及订单的问题会优先同步给客服工单</text>
+      <text class="intro-time">预计 24 小时内回复</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">反馈类型</text>
+    <view class="chip-row">
+      <view class="{{item === selectedType ? 'chip active' : 'chip'}}" wx:for="{{types}}" wx:key="*this" data-type="{{item}}" bindtap="handleTypeTap">{{item}}</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">关联订单</text>
+    <view class="order-row">
+      <view class="food-thumb">饭</view>
+      <view>
+        <text>订单 #DD240518001</text>
+        <text>蓝海餐厅 · 招牌牛肉饭等 3 件</text>
+        <text>实付 ¥46.90</text>
+      </view>
+      <view>配送中 ›</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">问题说明</text>
+    <textarea maxlength="300" placeholder="请描述问题经过、期望处理方式，例如延误补偿、退款或商家改进建议" value="{{content}}" bindinput="handleContentInput"></textarea>
+    <view class="severity-row">
+      <text>影响程度</text>
+      <view>
+        <button class="{{item === severity ? 'active' : ''}}" wx:for="{{severities}}" wx:key="*this" data-level="{{item}}" bindtap="handleSeverityTap">{{item}}</button>
+      </view>
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">联系方式</text>
+    <view class="contact-row">
+      <text>手机号</text>
+      <input value="{{contact}}" bindinput="handleContactInput" />
+      <text>更换 ›</text>
+    </view>
+    <view class="contact-row">
+      <text>通知方式</text>
+      <text>{{notify}}</text>
+      <text>短信</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">上传凭证</text>
+    <view class="evidence-row">
+      <view wx:for="{{evidence}}" wx:key="*this">{{item}}</view>
+    </view>
+  </view>
+
+  <view class="guard-card">
+    <text>平台仅用于核实问题，不会向商家展示完整手机号</text>
+    <text>恶意投诉或虚假材料可能影响账号信用</text>
+  </view>
+
+  <view class="bottom-actions">
+    <button class="ghost">保存草稿</button>
+    <button loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">提交反馈</button>
+  </view>
+</view>

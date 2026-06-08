@@ -15,7 +15,9 @@ test("runtime config exposes all client kinds and brand", () => {
 
 test("home modules expose circle and keep social as configurable disabled module", () => {
   const modules = defaultHomeModules();
-  assert.deepEqual(modules.filter((item) => item.enabled).map((item) => item.key), ["takeout", "groupbuy", "medicine", "courier", "circle"]);
+  const enabled = modules.filter((item) => item.enabled);
+  assert.deepEqual(enabled.map((item) => item.key), ["takeout", "groupbuy", "medicine", "courier", "circle", "meal-match", "coupons", "points"]);
+  assert.ok(enabled.every((item) => item.icon_url?.startsWith("/assets/generated/category-")));
   assert.equal(modules.find((item) => item.key === "charity").enabled, false);
   assert.equal(modules.find((item) => item.key === "social").enabled, false);
 });
@@ -39,6 +41,44 @@ test("bff server answers runtime endpoint", async () => {
   assert.equal(body.data.apiBaseUrl, "http://api");
   assert.equal(cards.success, true);
   assert.equal(cards.data[0].type, "product");
+});
+
+test("bff proxies public search catalog route with query intact", async () => {
+  const upstream = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/api/search?keyword=%E7%89%9B%E8%82%89%E9%A5%AD&category=product") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          keyword: "牛肉饭",
+          category: "product",
+          suggestions: ["招牌牛肉饭"],
+          results: [{ id: "prod_beef_rice", type: "product", title: "招牌牛肉饭" }],
+          authorization: req.headers.authorization || ""
+        }
+      }));
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: false }));
+  });
+  upstream.listen(0);
+  await once(upstream, "listening");
+
+  const server = createBffServer({ env: { API_BASE_URL: `http://127.0.0.1:${upstream.address().port}` } });
+  server.listen(0);
+  await once(server, "listening");
+  const body = await getJSON(`http://127.0.0.1:${server.address().port}/api/search?keyword=%E7%89%9B%E8%82%89%E9%A5%AD&category=product`);
+
+  server.close();
+  upstream.close();
+
+  assert.equal(body.success, true);
+  assert.equal(body.data.keyword, "牛肉饭");
+  assert.equal(body.data.category, "product");
+  assert.equal(body.data.authorization, "");
+  assert.equal(body.data.results[0].id, "prod_beef_rice");
+  assert.deepEqual(body.data.suggestions, ["招牌牛肉饭"]);
 });
 
 test("bff allows configured browser origins for admin api preflight and proxy responses", async () => {
@@ -98,11 +138,255 @@ test("bff allows configured browser origins for admin api preflight and proxy re
   assert.equal(blocked.headers["access-control-allow-origin"], undefined);
 });
 
+test("bff proxies prescription image upload routes", async () => {
+  const upstream = http.createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/api/prescriptions/upload-ticket") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            ticket_id: "rxu_1",
+            object_key: "prescriptions/user/sig/prescription.jpg",
+            upload_url: "https://object-storage.infinitech.local/upload/prescriptions/user/sig/prescription.jpg",
+            public_url: "https://cdn.infinitech.local/prescriptions/user/sig/prescription.jpg",
+            method: "PUT",
+            request: JSON.parse(body),
+            authorization: req.headers.authorization
+          }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/prescriptions/upload-confirm") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            id: "rxu_1",
+            status: "confirmed",
+            object_key: JSON.parse(body).object_key,
+            authorization: req.headers.authorization
+          }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/object-storage/upload-callback") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            id: "rxu_1",
+            status: "uploaded",
+            scan_status: "pending",
+            object_key: JSON.parse(body).object_key
+          }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/object-storage/scan-result") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            id: "rxu_1",
+            status: "uploaded",
+            scan_status: JSON.parse(body).scan_status,
+            scan_result: "clean",
+            object_key: JSON.parse(body).object_key
+          }
+        }));
+      });
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: false }));
+  });
+  upstream.listen(0);
+  await once(upstream, "listening");
+  const server = createBffServer({ env: { API_BASE_URL: `http://127.0.0.1:${upstream.address().port}` } });
+  server.listen(0);
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const ticket = await postJSON(`${baseUrl}/api/prescriptions/upload-ticket`, "Bearer user:user_1", { product_id: "med_amoxicillin", file_name: "prescription.jpg", content_type: "image/jpeg", size_bytes: 2048 });
+  const uploaded = await postJSON(`${baseUrl}/api/object-storage/upload-callback`, "", { ticket_id: "rxu_1", object_key: ticket.data.object_key, content_type: "image/jpeg", size_bytes: 2048, content_sha: "sha256:rx" });
+  const scanned = await postJSON(`${baseUrl}/api/object-storage/scan-result`, "", { ticket_id: "rxu_1", object_key: ticket.data.object_key, scan_status: "passed" });
+  const confirmed = await postJSON(`${baseUrl}/api/prescriptions/upload-confirm`, "Bearer user:user_1", { ticket_id: "rxu_1", object_key: ticket.data.object_key, content_type: "image/jpeg", size_bytes: 2048 });
+
+  server.close();
+  upstream.close();
+
+  assert.equal(ticket.data.authorization, "Bearer user:user_1");
+  assert.equal(ticket.data.request.file_name, "prescription.jpg");
+  assert.equal(uploaded.data.scan_status, "pending");
+  assert.equal(scanned.data.scan_status, "passed");
+  assert.equal(confirmed.data.status, "confirmed");
+  assert.equal(confirmed.data.object_key, "prescriptions/user/sig/prescription.jpg");
+});
+
+test("bff proxies prescription review workbench routes", async () => {
+  const upstream = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/api/admin/prescriptions?status=approved") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: [{ id: "rx_1", authorization: req.headers.authorization }] }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/prescriptions/rx_1/review") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            id: "rx_1",
+            status: JSON.parse(body).decision,
+            authorization: req.headers.authorization
+          }
+        }));
+      });
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: false }));
+  });
+  upstream.listen(0);
+  await once(upstream, "listening");
+  const server = createBffServer({ env: { API_BASE_URL: `http://127.0.0.1:${upstream.address().port}` } });
+  server.listen(0);
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const queue = await getJSON(`${baseUrl}/api/admin/prescriptions?status=approved`, "Bearer support_admin:support_1");
+  const reviewed = await postJSON(`${baseUrl}/api/admin/prescriptions/rx_1/review`, "Bearer support_admin:support_1", { decision: "rejected" });
+
+  server.close();
+  upstream.close();
+
+  assert.equal(queue.data[0].authorization, "Bearer support_admin:support_1");
+  assert.equal(reviewed.data.status, "rejected");
+  assert.equal(reviewed.data.authorization, "Bearer support_admin:support_1");
+});
+
+test("bff proxies chat sync and read routes", async () => {
+  const upstream = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/api/messages/merchant_blue_sea/sync?since_id=msg_1&mark_read=true") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          thread_id: "merchant_blue_sea",
+          messages: [{ id: "msg_2", content: "离线消息", authorization: req.headers.authorization }],
+          unread_count: 0,
+          next_cursor: "msg_2"
+        }
+      }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/messages/merchant_blue_sea/read") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: { thread_id: "merchant_blue_sea", unread_count: 0, body: JSON.parse(body), authorization: req.headers.authorization }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/messages/merchant_blue_sea") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: { id: "msg_3", risk_state: "passed", body: JSON.parse(body), authorization: req.headers.authorization }
+        }));
+      });
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: false }));
+  });
+  upstream.listen(0);
+  await once(upstream, "listening");
+  const server = createBffServer({ env: { API_BASE_URL: `http://127.0.0.1:${upstream.address().port}` } });
+  server.listen(0);
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const sync = await getJSON(`${baseUrl}/api/messages/merchant_blue_sea/sync?since_id=msg_1&mark_read=true`, "Bearer user:user_1");
+  const read = await postJSON(`${baseUrl}/api/messages/merchant_blue_sea/read`, "Bearer user:user_1", { last_message_id: "msg_2" });
+  const sent = await postJSON(`${baseUrl}/api/messages/merchant_blue_sea`, "Bearer user:user_1", { content: "请帮我催一下商家" });
+
+  server.close();
+  upstream.close();
+
+  assert.equal(sync.data.next_cursor, "msg_2");
+  assert.equal(sync.data.messages[0].authorization, "Bearer user:user_1");
+  assert.equal(read.data.body.last_message_id, "msg_2");
+  assert.equal(read.data.authorization, "Bearer user:user_1");
+  assert.equal(sent.data.risk_state, "passed");
+  assert.equal(sent.data.body.content, "请帮我催一下商家");
+  assert.equal(sent.data.authorization, "Bearer user:user_1");
+});
+
 test("bff proxies user-facing api routes with authorization", async () => {
   const upstream = http.createServer((req, res) => {
     if (req.method === "POST" && req.url === "/api/auth/wechat-mini/login") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: true, data: { access_token: "signed.token", token_type: "Bearer" } }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/auth/phone/code") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, data: { ...JSON.parse(body), dev_code: "135790" } }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/auth/phone/login") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { access_token: "phone.login.token", provider: "phone" } }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/auth/phone/register") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { access_token: "phone.register.token", provider: "phone" } }));
       return;
     }
     if (req.method === "POST" && req.url === "/api/auth/logout") {
@@ -436,6 +720,58 @@ test("bff proxies user-facing api routes with authorization", async () => {
       });
       return;
     }
+    if (req.method === "GET" && req.url === "/api/admin/merchant-qualifications?status=pending_review&limit=1") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          status: "pending_review",
+          counts: { total: 1, pending_review: 1, approved: 0, rejected: 0, expired: 0 },
+          qualifications: [{
+            qualification: { id: "mq_merchant_1_health", type: "health_certificate", status: "pending_review" },
+            merchant: { id: "merchant_1", display_name: "蓝湾轻食" },
+            recommended_operation: { key: "merchant-qualification-review" },
+            authorization: req.headers.authorization
+          }]
+        }
+      }));
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/admin/merchant-qualifications/mq_merchant_1_health?audit_limit=5") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          qualification: { id: "mq_merchant_1_health", type: "health_certificate", status: "pending_review" },
+          merchant: { id: "merchant_1", display_name: "蓝湾轻食" },
+          checklist: ["核验文件主体、证照编号和商户账号主体一致"],
+          recommended_operation: { key: "merchant-qualification-review" },
+          authorization: req.headers.authorization
+        }
+      }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/merchant-qualifications/mq_merchant_1_health/review") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            profile: { account: { id: "merchant_1" }, missing_qualifications: [], can_accept_orders: true },
+            qualification: { id: "mq_merchant_1_health", status: "approved", decision: JSON.parse(body).decision },
+            audit_log: { id: "aud_merchant_qualification_review_1", action: "admin.merchant_qualification.reviewed" },
+            outbox_event: { id: "obe_merchant_qualification_review_1", topic: "merchant.qualification_reviewed", event_type: "merchant.qualification.reviewed" },
+            request: JSON.parse(body),
+            authorization: req.headers.authorization
+          }
+        }));
+      });
+      return;
+    }
     if (req.method === "GET" && req.url === "/api/admin/object-storage/cleanup-candidates?limit=1&grace_seconds=60") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
@@ -531,6 +867,34 @@ test("bff proxies user-facing api routes with authorization", async () => {
           status: "pending",
           authorization: req.headers.authorization
         }]
+      }));
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/admin/outbox/events/obe_1?now=2026-05-22T12:00:30Z&audit_limit=5") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          generated_at: "2026-05-22T12:00:30Z",
+          event: {
+            id: "obe_1",
+            topic: "order.paid",
+            aggregate_type: "order",
+            aggregate_id: "ord_1",
+            status: "failed",
+            attempts: 1,
+            last_error: "relay down"
+          },
+          incident_code: "outbox.retry_backoff",
+          incident_severity: "warning",
+          ready: false,
+          blocked: true,
+          payload_summary: [{ key: "order_id", value: "ord_1" }],
+          related_targets: [{ target_type: "order", target_id: "ord_1", source: "aggregate", operation_key: "audit-logs" }],
+          recommended_operation: { key: "outbox-replay-event", title: "恢复单个 Outbox", values: { event_id: "obe_1" } },
+          recent_audits: [{ id: "aud_outbox_failed_1", action: "admin.outbox.failed" }],
+          authorization: req.headers.authorization
+        }
       }));
       return;
     }
@@ -824,6 +1188,28 @@ test("bff proxies user-facing api routes with authorization", async () => {
       });
       return;
     }
+    if (req.method === "GET" && req.url === "/api/user/notification-preferences?notification_type=after_sales.updated&limit=10") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: [{ id: "ntfp_user_1", preference_key: "user:user_1:after_sales.updated", target_role: "user", target_id: "user_1", authorization: req.headers.authorization }]
+      }));
+      return;
+    }
+    if (req.method === "PUT" && req.url === "/api/user/notification-preferences") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: { id: "ntfp_user_1", preference_key: "user:user_1:after_sales.updated", authorization: req.headers.authorization, body }
+        }));
+      });
+      return;
+    }
     if (req.method === "GET" && req.url === "/api/orders") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: true, data: [{ id: "ord_1", status: "dispatching" }] }));
@@ -982,6 +1368,221 @@ test("bff proxies user-facing api routes with authorization", async () => {
           supplemental_materials: [{ id: "material_1", type: "storefront_photo" }],
           authorization: req.headers.authorization
         }
+      }));
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/merchant/notifications?status=unread&limit=10") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: [{ id: "ntf_1", target_role: "merchant", target_id: "merchant_1", status: "unread", source_event_id: "obe_mq_1", authorization: req.headers.authorization }]
+      }));
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/merchant/notification-preferences?notification_type=order.status_changed&limit=10") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: [{ id: "ntfp_merchant_1", preference_key: "merchant:merchant_1:order.status_changed", target_role: "merchant", target_id: "merchant_1", authorization: req.headers.authorization }]
+      }));
+      return;
+    }
+    if (req.method === "PUT" && req.url === "/api/merchant/notification-preferences") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: { id: "ntfp_merchant_1", preference_key: "merchant:merchant_1:order.status_changed", authorization: req.headers.authorization, body }
+        }));
+      });
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/admin/notifications?target_role=merchant&target_id=merchant_1&status=unread&source_topic=merchant.qualification_reviewed&limit=10") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: [{ id: "ntf_1", target_role: "merchant", target_id: "merchant_1", status: "unread", source_topic: "merchant.qualification_reviewed", authorization: req.headers.authorization }]
+      }));
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/admin/notification-deliveries?target_role=merchant&target_id=merchant_1&status=failed&limit=10") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: [{ id: "ntfd_1", notification_id: "ntf_1", target_role: "merchant", target_id: "merchant_1", status: "failed", error_code: "invalid_openid", authorization: req.headers.authorization }]
+      }));
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/admin/notification-preferences?target_role=merchant&target_id=merchant_1&notification_type=merchant.qualification_reviewed&limit=10") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: [{ id: "ntfp_1", preference_key: "merchant:merchant_1:merchant.qualification_reviewed", target_role: "merchant", target_id: "merchant_1", notification_type: "merchant.qualification_reviewed", authorization: req.headers.authorization }]
+      }));
+      return;
+    }
+    if (req.method === "PUT" && req.url === "/api/admin/notification-preferences") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            preference: { id: "ntfp_1", preference_key: "merchant:merchant_1:merchant.qualification_reviewed", authorization: req.headers.authorization, body },
+            audit_log: { id: "aud_notification_preference_1", action: "admin.notification_preferences.saved" }
+          }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/notification-preferences/batch") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            batch: { batch_id: "ntfp_batch_1", saved: 2, preference_keys: ["merchant:merchant_1:merchant.qualification_reviewed", "merchant:merchant_1:order.status_changed"], authorization: req.headers.authorization, body },
+            audit_log: { id: "aud_notification_preference_batch_1", action: "admin.notification_preferences.batch_saved" }
+          }
+        }));
+      });
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/admin/notification-preferences/change-requests?status=pending_approval&limit=5") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: { items: [{ id: "ntfp_change_1", status: "pending_approval", authorization: req.headers.authorization }], pending_count: 1 }
+      }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/notification-preferences/change-requests") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: { id: "ntfp_change_1", status: "pending_approval", authorization: req.headers.authorization, body }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/notification-preferences/change-requests/ntfp_change_1/review") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: { change_request: { id: "ntfp_change_1", status: "approved", authorization: req.headers.authorization, body }, auto_applied: false }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/notification-preferences/change-requests/ntfp_change_1/apply") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: { change_request: { id: "ntfp_change_1", status: "applied", authorization: req.headers.authorization, skipped_count: 1 }, batch: { batch_id: "ntfp_batch_approval_1", saved: 1, body }, audit_log: { action: "admin.notification_preferences.change_applied" } }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/notification-deliveries/failure-alerts/emit") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            emission: { status: "emitted", failed_count: 1, topic: "notification.delivery_failed_alerts", outbox_event_id: "obe_notification_failure_1", authorization: req.headers.authorization, body },
+            outbox_event: { id: "obe_notification_failure_1", topic: "notification.delivery_failed_alerts" }
+          }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/notification-deliveries/retries/schedule") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            schedule: { status: "scheduled", scheduled_count: 1, topic: "notification.delivery_retries", retry_after_seconds: 300, outbox_event_id: "obe_notification_retry_1", authorization: req.headers.authorization, body },
+            outbox_event: { id: "obe_notification_retry_1", topic: "notification.delivery_retries" }
+          }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/notification-deliveries/quiet-window-retries/schedule") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            schedule: { status: "scheduled", scheduled_count: 1, delivery_status: "queued", error_code: "notification_quiet_window", topic: "notification.delivery_retries", outbox_event_id: "obe_notification_quiet_retry_1", authorization: req.headers.authorization, body },
+            outbox_event: { id: "obe_notification_quiet_retry_1", topic: "notification.delivery_retries" }
+          }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/notifications/provider-callback") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            delivery: { id: "ntfd_provider_callback_1", status: "delivered", provider_message_id: JSON.parse(body).provider_message_id },
+            authorization: req.headers.authorization || "",
+            body
+          }
+        }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/merchant/notifications/ntf_1/read") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: { id: "ntf_1", status: "read", authorization: req.headers.authorization }
       }));
       return;
     }
@@ -1245,12 +1846,16 @@ test("bff proxies user-facing api routes with authorization", async () => {
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
   const login = await postJSON(`${baseUrl}/api/auth/wechat-mini/login`, "", { code: "wx_code_1" });
+  const phoneCode = await postJSON(`${baseUrl}/api/auth/phone/code`, "", { phone: "13900003333", purpose: "login" });
+  const phoneLogin = await postJSON(`${baseUrl}/api/auth/phone/login`, "", { phone: "13900003333", code: "135790", mode: "code" });
+  const phoneRegister = await postJSON(`${baseUrl}/api/auth/phone/register`, "", { phone: "13900003334", code: "135790", password: "Pass123", accepted_agreement: true });
   const logout = await postJSON(`${baseUrl}/api/auth/logout`, "Bearer signed.token", {});
   const adminRiderInvite = await postJSON(`${baseUrl}/api/admin/rider-invites`, "Bearer admin:admin_1", { type: "station_manager", station_id: "station_2" });
   const refundSettings = await getJSON(`${baseUrl}/api/admin/refund-settings`, "Bearer admin:admin_1");
   const savedRefundSettings = await putJSON(`${baseUrl}/api/admin/refund-settings`, "Bearer admin:admin_1", { default_refund_strategy: "balance_first" });
   const compensatedOrder = await postJSON(`${baseUrl}/api/admin/orders/ord_1/state/compensate`, "Bearer admin:admin_1", { now: "2026-05-22T12:00:00Z" });
   const outboxEvents = await getJSON(`${baseUrl}/api/admin/outbox/events?topic=order.paid&limit=1`, "Bearer admin:admin_1");
+  const outboxEventDetail = await getJSON(`${baseUrl}/api/admin/outbox/events/obe_1?now=2026-05-22T12:00:30Z&audit_limit=5`, "Bearer admin:admin_1");
   const claimedOutbox = await postJSON(`${baseUrl}/api/admin/outbox/events/claim`, "Bearer admin:admin_1", { topic: "order.paid", limit: 1, lease_owner: "relay-bff", lease_seconds: 60, now: "2026-05-22T12:00:00Z" });
   const renewedOutboxLease = await postJSON(`${baseUrl}/api/admin/outbox/events/obe_1/lease/renew`, "Bearer admin:admin_1", { lease_owner: "relay-bff", lease_seconds: 60, now: "2026-05-22T12:00:30Z" });
   const failedOutbox = await postJSON(`${baseUrl}/api/admin/outbox/events/obe_1/failed`, "Bearer admin:admin_1", { error: "relay down", retry_after_seconds: 120, max_attempts: 10 });
@@ -1267,6 +1872,8 @@ test("bff proxies user-facing api routes with authorization", async () => {
   const shops = await getJSON(`${baseUrl}/api/shops`);
   const groupbuyDeals = await getJSON(`${baseUrl}/api/shops/shop_1/groupbuy-deals`);
   const cart = await postJSON(`${baseUrl}/api/cart/items`, "Bearer user:user_1", { shop_id: "shop_1", product_id: "prod_beef_rice", quantity: 1 });
+  const userNotificationPreferences = await getJSON(`${baseUrl}/api/user/notification-preferences?notification_type=after_sales.updated&limit=10`, "Bearer user:user_1");
+  const savedUserNotificationPreference = await putJSON(`${baseUrl}/api/user/notification-preferences`, "Bearer user:user_1", { notification_type: "after_sales.updated", disabled_channels: ["sms"] });
   const orders = await getJSON(`${baseUrl}/api/orders`, "Bearer user:user_1");
   const refundedOrder = await postJSON(`${baseUrl}/api/orders/ord_1/refund`, "Bearer admin:admin_1", { reason: "商品售罄", idempotency_key: "refund_ord_1" });
   const userAfterSales = await getJSON(`${baseUrl}/api/after-sales`, "Bearer user:user_1");
@@ -1294,11 +1901,31 @@ test("bff proxies user-facing api routes with authorization", async () => {
   const adminRBACReview = await postJSON(`${baseUrl}/api/admin/rbac/change-requests/rbac_change_1/review`, "Bearer admin:admin_2", { decision: "approve", reason: "least privilege approved" });
   const adminRBACApply = await postJSON(`${baseUrl}/api/admin/rbac/change-requests/rbac_change_1/apply`, "Bearer admin:admin_2", { reason: "apply approved runtime policy" });
   const adminRBACRollback = await postJSON(`${baseUrl}/api/admin/rbac/change-requests/rbac_change_1/rollback`, "Bearer admin:admin_3", { reason: "rollback runtime policy" });
+  const adminMerchantQualifications = await getJSON(`${baseUrl}/api/admin/merchant-qualifications?status=pending_review&limit=1`, "Bearer admin:ops_1");
+  const adminMerchantQualificationDetail = await getJSON(`${baseUrl}/api/admin/merchant-qualifications/mq_merchant_1_health?audit_limit=5`, "Bearer admin:ops_1");
+  const adminMerchantQualificationReview = await postJSON(`${baseUrl}/api/admin/merchant-qualifications/mq_merchant_1_health/review`, "Bearer admin:ops_1", { merchant_id: "merchant_1", decision: "approve", reason: "qualification verified" });
+  const adminNotifications = await getJSON(`${baseUrl}/api/admin/notifications?target_role=merchant&target_id=merchant_1&status=unread&source_topic=merchant.qualification_reviewed&limit=10`, "Bearer admin:support_1");
+  const adminNotificationDeliveries = await getJSON(`${baseUrl}/api/admin/notification-deliveries?target_role=merchant&target_id=merchant_1&status=failed&limit=10`, "Bearer admin:support_1");
+  const adminNotificationPreferences = await getJSON(`${baseUrl}/api/admin/notification-preferences?target_role=merchant&target_id=merchant_1&notification_type=merchant.qualification_reviewed&limit=10`, "Bearer admin:support_1");
+  const savedAdminNotificationPreference = await putJSON(`${baseUrl}/api/admin/notification-preferences`, "Bearer admin:ops_1", { target_role: "merchant", target_id: "merchant_1", notification_type: "merchant.qualification_reviewed", disabled_channels: ["sms"] });
+  const savedAdminNotificationPreferenceBatch = await postJSON(`${baseUrl}/api/admin/notification-preferences/batch`, "Bearer admin:ops_1", { reason: "bulk notification policy rollout", preferences: [{ target_role: "merchant", target_id: "merchant_1", notification_type: "merchant.qualification_reviewed", disabled_channels: ["sms"] }, { target_role: "merchant", target_id: "merchant_1", notification_type: "order.status_changed", disabled_channels: ["push"] }] });
+  const adminNotificationPreferenceChanges = await getJSON(`${baseUrl}/api/admin/notification-preferences/change-requests?status=pending_approval&limit=5`, "Bearer admin:support_1");
+  const adminNotificationPreferenceChange = await postJSON(`${baseUrl}/api/admin/notification-preferences/change-requests`, "Bearer admin:ops_1", { reason: "approval needed", rollout: { mode: "target_ids", target_ids: ["merchant_1"], max_targets: 10 }, preferences: [{ target_role: "merchant", target_id: "merchant_1", notification_type: "order.status_changed", disabled_channels: ["sms"] }, { target_role: "user", target_id: "user_1", notification_type: "after_sales.updated", disabled_channels: ["push"] }] });
+  const adminNotificationPreferenceReview = await postJSON(`${baseUrl}/api/admin/notification-preferences/change-requests/ntfp_change_1/review`, "Bearer admin:ops_2", { decision: "approve", reason: "reviewed" });
+  const adminNotificationPreferenceApply = await postJSON(`${baseUrl}/api/admin/notification-preferences/change-requests/ntfp_change_1/apply`, "Bearer admin:ops_2", { reason: "apply approved policy" });
+  const adminNotificationFailureAlert = await postJSON(`${baseUrl}/api/admin/notification-deliveries/failure-alerts/emit`, "Bearer admin:ops_1", { target_role: "merchant", target_id: "merchant_1", channel: "wechat_subscribe", limit: 10 });
+  const adminNotificationRetrySchedule = await postJSON(`${baseUrl}/api/admin/notification-deliveries/retries/schedule`, "Bearer admin:ops_1", { target_role: "merchant", target_id: "merchant_1", channel: "wechat_subscribe", provider: "wechat_subscribe", limit: 10, retry_after_seconds: 300 });
+  const adminNotificationQuietRetrySchedule = await postJSON(`${baseUrl}/api/admin/notification-deliveries/quiet-window-retries/schedule`, "Bearer admin:ops_1", { channel: "push", provider: "push", limit: 10, now: "2026-05-25T12:10:00Z" });
+  const notificationProviderCallback = await postJSON(`${baseUrl}/api/notifications/provider-callback`, "", { notification_id: "ntf_1", channel: "wechat_subscribe", provider: "wechat_subscribe", status: "delivered", provider_message_id: "wx_msg_1", callback_at: "2026-05-25T12:09:00Z", signature: "signed" });
   const objectCleanupCandidates = await getJSON(`${baseUrl}/api/admin/object-storage/cleanup-candidates?limit=1&grace_seconds=60`, "Bearer admin:admin_1");
   const objectCleanupStats = await getJSON(`${baseUrl}/api/admin/object-storage/cleanup-stats?grace_seconds=60`, "Bearer admin:admin_1");
   const failedObjectCleanup = await postJSON(`${baseUrl}/api/admin/object-storage/cleanup-failed`, "Bearer admin:admin_1", { ticket_id: "aset_1", object_key: "after-sales/asr_1/sig/evidence.jpg", reason: "expired_unconfirmed", error: "delete denied" });
   const completedObjectCleanup = await postJSON(`${baseUrl}/api/admin/object-storage/cleanup-complete`, "Bearer admin:admin_1", { ticket_id: "aset_1", object_key: "after-sales/asr_1/sig/evidence.jpg", reason: "expired_unconfirmed" });
   const merchantProfile = await getJSON(`${baseUrl}/api/merchant/me`, "Bearer merchant:merchant_1");
+  const merchantNotifications = await getJSON(`${baseUrl}/api/merchant/notifications?status=unread&limit=10`, "Bearer merchant:merchant_1");
+  const merchantNotificationPreferences = await getJSON(`${baseUrl}/api/merchant/notification-preferences?notification_type=order.status_changed&limit=10`, "Bearer merchant:merchant_1");
+  const savedMerchantNotificationPreference = await putJSON(`${baseUrl}/api/merchant/notification-preferences`, "Bearer merchant:merchant_1", { notification_type: "order.status_changed", disabled_channels: ["push"] });
+  const readMerchantNotification = await postJSON(`${baseUrl}/api/merchant/notifications/ntf_1/read`, "Bearer merchant:merchant_1", { read_at: "2026-05-25T12:01:00Z" });
   const savedMerchantQualification = await postJSON(`${baseUrl}/api/merchant/qualifications`, "Bearer merchant:merchant_1", { type: "health_certificate", file_url: "https://cdn.test/health.jpg", expires_at: "2027-05-22T00:00:00Z" });
   const merchantStaff = await getJSON(`${baseUrl}/api/merchant/staff`, "Bearer merchant:merchant_1");
   const savedMerchantStaff = await postJSON(`${baseUrl}/api/merchant/staff`, "Bearer merchant:merchant_1", { shop_id: "shop_1", name: "李四", phone: "13900000000", health_certificate_url: "https://cdn.test/staff.jpg", health_certificate_expires_at: "2027-05-22T00:00:00Z" });
@@ -1340,6 +1967,9 @@ test("bff proxies user-facing api routes with authorization", async () => {
   upstream.close();
 
   assert.equal(login.data.access_token, "signed.token");
+  assert.equal(phoneCode.data.dev_code, "135790");
+  assert.equal(phoneLogin.data.access_token, "phone.login.token");
+  assert.equal(phoneRegister.data.access_token, "phone.register.token");
   assert.equal(logout.data.revoked, true);
   assert.equal(logout.data.authorization, "Bearer signed.token");
   assert.equal(adminRiderInvite.data.authorization, "Bearer admin:admin_1");
@@ -1354,6 +1984,9 @@ test("bff proxies user-facing api routes with authorization", async () => {
   assert.equal(compensatedOrder.data.request.now, "2026-05-22T12:00:00Z");
   assert.equal(outboxEvents.data[0].authorization, "Bearer admin:admin_1");
   assert.equal(outboxEvents.data[0].topic, "order.paid");
+  assert.equal(outboxEventDetail.data.authorization, "Bearer admin:admin_1");
+  assert.equal(outboxEventDetail.data.incident_code, "outbox.retry_backoff");
+  assert.equal(outboxEventDetail.data.recommended_operation.key, "outbox-replay-event");
   assert.equal(claimedOutbox.data.authorization, "Bearer admin:admin_1");
   assert.equal(claimedOutbox.data.claimed, 1);
 	  assert.equal(claimedOutbox.data.events[0].lease_owner, "relay-bff");
@@ -1406,6 +2039,10 @@ test("bff proxies user-facing api routes with authorization", async () => {
   assert.equal(groupbuyDeals.data[0].id, "deal_two_person_set");
   assert.equal(cart.data.authorization, "Bearer user:user_1");
   assert.equal(cart.data.body.product_id, "prod_beef_rice");
+  assert.equal(userNotificationPreferences.data[0].authorization, "Bearer user:user_1");
+  assert.equal(userNotificationPreferences.data[0].preference_key, "user:user_1:after_sales.updated");
+  assert.equal(savedUserNotificationPreference.data.authorization, "Bearer user:user_1");
+  assert.match(savedUserNotificationPreference.data.body, /after_sales\.updated/);
   assert.equal(orders.data[0].id, "ord_1");
   assert.equal(refundedOrder.data.refund.status, "success");
   assert.equal(refundedOrder.data.order.status, "refunded");
@@ -1468,6 +2105,51 @@ test("bff proxies user-facing api routes with authorization", async () => {
   assert.equal(adminRBACRollback.data.change_request.status, "rolled_back");
   assert.equal(adminRBACRollback.data.runtime_applied, true);
   assert.equal(adminRBACRollback.data.rolled_back, true);
+  assert.equal(adminMerchantQualifications.data.qualifications[0].authorization, "Bearer admin:ops_1");
+  assert.equal(adminMerchantQualifications.data.qualifications[0].recommended_operation.key, "merchant-qualification-review");
+  assert.equal(adminMerchantQualificationDetail.data.authorization, "Bearer admin:ops_1");
+  assert.equal(adminMerchantQualificationDetail.data.recommended_operation.key, "merchant-qualification-review");
+  assert.equal(adminMerchantQualificationReview.data.authorization, "Bearer admin:ops_1");
+  assert.equal(adminMerchantQualificationReview.data.qualification.status, "approved");
+  assert.equal(adminMerchantQualificationReview.data.outbox_event.topic, "merchant.qualification_reviewed");
+  assert.equal(adminNotifications.data[0].authorization, "Bearer admin:support_1");
+  assert.equal(adminNotifications.data[0].source_topic, "merchant.qualification_reviewed");
+  assert.equal(adminNotificationDeliveries.data[0].authorization, "Bearer admin:support_1");
+  assert.equal(adminNotificationDeliveries.data[0].error_code, "invalid_openid");
+  assert.equal(adminNotificationPreferences.data[0].authorization, "Bearer admin:support_1");
+  assert.equal(adminNotificationPreferences.data[0].preference_key, "merchant:merchant_1:merchant.qualification_reviewed");
+  assert.equal(savedAdminNotificationPreference.data.preference.authorization, "Bearer admin:ops_1");
+  assert.match(savedAdminNotificationPreference.data.preference.body, /disabled_channels/);
+  assert.equal(savedAdminNotificationPreferenceBatch.data.batch.authorization, "Bearer admin:ops_1");
+  assert.equal(savedAdminNotificationPreferenceBatch.data.batch.saved, 2);
+  assert.match(savedAdminNotificationPreferenceBatch.data.batch.body, /order\.status_changed/);
+  assert.equal(adminNotificationPreferenceChanges.data.items[0].authorization, "Bearer admin:support_1");
+  assert.equal(adminNotificationPreferenceChange.data.authorization, "Bearer admin:ops_1");
+  assert.match(adminNotificationPreferenceChange.data.body, /approval needed/);
+  assert.match(adminNotificationPreferenceChange.data.body, /target_ids/);
+  assert.equal(adminNotificationPreferenceReview.data.change_request.status, "approved");
+  assert.equal(adminNotificationPreferenceApply.data.change_request.status, "applied");
+  assert.equal(adminNotificationPreferenceApply.data.batch.saved, 1);
+  assert.equal(adminNotificationPreferenceApply.data.change_request.skipped_count, 1);
+  assert.equal(adminNotificationFailureAlert.data.emission.authorization, "Bearer admin:ops_1");
+  assert.equal(adminNotificationFailureAlert.data.emission.failed_count, 1);
+  assert.match(adminNotificationFailureAlert.data.emission.body, /wechat_subscribe/);
+  assert.equal(adminNotificationRetrySchedule.data.schedule.authorization, "Bearer admin:ops_1");
+  assert.equal(adminNotificationRetrySchedule.data.schedule.scheduled_count, 1);
+  assert.match(adminNotificationRetrySchedule.data.schedule.body, /retry_after_seconds/);
+  assert.equal(adminNotificationQuietRetrySchedule.data.schedule.authorization, "Bearer admin:ops_1");
+  assert.equal(adminNotificationQuietRetrySchedule.data.schedule.delivery_status, "queued");
+  assert.match(adminNotificationQuietRetrySchedule.data.schedule.body, /push/);
+  assert.equal(notificationProviderCallback.data.delivery.provider_message_id, "wx_msg_1");
+  assert.equal(JSON.parse(notificationProviderCallback.data.body).signature, "signed");
+  assert.equal(merchantNotifications.data[0].authorization, "Bearer merchant:merchant_1");
+  assert.equal(merchantNotifications.data[0].status, "unread");
+  assert.equal(merchantNotificationPreferences.data[0].authorization, "Bearer merchant:merchant_1");
+  assert.equal(merchantNotificationPreferences.data[0].preference_key, "merchant:merchant_1:order.status_changed");
+  assert.equal(savedMerchantNotificationPreference.data.authorization, "Bearer merchant:merchant_1");
+  assert.match(savedMerchantNotificationPreference.data.body, /push/);
+  assert.equal(readMerchantNotification.data.authorization, "Bearer merchant:merchant_1");
+  assert.equal(readMerchantNotification.data.status, "read");
   assert.equal(objectCleanupCandidates.data[0].authorization, "Bearer admin:admin_1");
   assert.equal(objectCleanupCandidates.data[0].reason, "expired_unconfirmed");
   assert.equal(objectCleanupStats.data.authorization, "Bearer admin:admin_1");
@@ -1523,6 +2205,212 @@ test("bff proxies user-facing api routes with authorization", async () => {
   assert.equal(savedStationTaskConfig.data.daily_task_duration_minutes, 420);
   assert.equal(riderPerformance.data[0].level, "A");
   assert.equal(prepay.data.prepay.out_trade_no, "wx_ord_1");
+});
+
+test("bff proxies meal match candidates and safety actions", async () => {
+  const upstream = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/api/meal-match/candidates") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+	        success: true,
+	        data: {
+	          privacy_scope: "same_building",
+	          device_risk_state: "passed",
+	          candidates: [{ user_id: "user_buddy_lunch", match_score: 160, same_school: true, same_building: true, privacy_scope: "same_building", authorization: req.headers.authorization }]
+	        }
+	      }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/meal-match/reports") {
+      res.writeHead(201, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { id: "mmod_1", action: "reported", authorization: req.headers.authorization } }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/meal-match/blocks") {
+      res.writeHead(201, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { id: "mmod_block_1", action: "blocked", authorization: req.headers.authorization } }));
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/admin/meal-match/moderation?status=pending_review&action=reported") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          records: [{ id: "mmod_1", action: "reported", status: "pending_review", authorization: req.headers.authorization }],
+          count: 1
+        }
+      }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/meal-match/moderation/mmod_1/review") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            id: "mmod_1",
+            action: "reported",
+            status: JSON.parse(body).decision === "approve" ? "approved" : "rejected",
+            authorization: req.headers.authorization
+          }
+        }));
+      });
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: false }));
+  });
+  upstream.listen(0);
+  await once(upstream, "listening");
+
+  const server = createBffServer({ env: { API_BASE_URL: `http://127.0.0.1:${upstream.address().port}` } });
+  server.listen(0);
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const candidates = await getJSON(`${baseUrl}/api/meal-match/candidates`, "Bearer user:user_1");
+  const report = await postJSON(`${baseUrl}/api/meal-match/reports`, "Bearer user:user_1", { target_user_id: "user_buddy_lunch", reason: "unsafe_or_fake_profile" });
+  const block = await postJSON(`${baseUrl}/api/meal-match/blocks`, "Bearer user:user_1", { target_user_id: "user_buddy_lunch" });
+  const queue = await getJSON(`${baseUrl}/api/admin/meal-match/moderation?status=pending_review&action=reported`, "Bearer support_admin:support_1");
+  const review = await postJSON(`${baseUrl}/api/admin/meal-match/moderation/mmod_1/review`, "Bearer support_admin:support_1", { decision: "approve", review_note: "举报成立" });
+
+  server.close();
+  upstream.close();
+
+	  assert.equal(candidates.data.candidates[0].authorization, "Bearer user:user_1");
+	  assert.equal(candidates.data.privacy_scope, "same_building");
+	  assert.equal(candidates.data.device_risk_state, "passed");
+	  assert.equal(candidates.data.candidates[0].same_school, true);
+	  assert.equal(report.data.action, "reported");
+  assert.equal(block.data.action, "blocked");
+  assert.equal(queue.data.records[0].authorization, "Bearer support_admin:support_1");
+  assert.equal(review.data.status, "approved");
+});
+
+test("bff proxies red packet expiry refund admin action", async () => {
+  const upstream = http.createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/api/admin/red-packets/expire") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            count: 1,
+            now: JSON.parse(body).now,
+            authorization: req.headers.authorization
+          }
+        }));
+      });
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: false }));
+  });
+  upstream.listen(0);
+  await once(upstream, "listening");
+
+  const server = createBffServer({ env: { API_BASE_URL: `http://127.0.0.1:${upstream.address().port}` } });
+  server.listen(0);
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const body = await postJSON(`${baseUrl}/api/admin/red-packets/expire`, "Bearer admin:admin_1", { now: "2026-05-28T10:00:01Z" });
+
+  server.close();
+  upstream.close();
+
+  assert.equal(body.data.count, 1);
+  assert.equal(body.data.authorization, "Bearer admin:admin_1");
+});
+
+test("bff proxies service ticket workbench and closure actions", async () => {
+  const upstream = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/api/admin/service-tickets?limit=5") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: [{ id: "st_1", authorization: req.headers.authorization }] }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/service-tickets/st_1/assign") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { ticket: { id: "st_1", assigned_support_id: "support_1" }, authorization: req.headers.authorization } }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/service-tickets/st_1/resolve") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { ticket: { id: "st_1", status: "waiting_confirm" }, authorization: req.headers.authorization } }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/service-tickets/st_1/escalate") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { ticket: { id: "st_1", sla_status: "escalated" }, authorization: req.headers.authorization } }));
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/admin/service-ticket-quality-reviews?support_id=support_1&limit=5") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: [{ id: "stq_1", support_id: "support_1", authorization: req.headers.authorization }] }));
+      return;
+    }
+    if (req.method === "GET" && req.url === "/api/admin/service-ticket-performance?support_id=support_1&limit=5") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: [{ support_id: "support_1", quality_review_count: 1, authorization: req.headers.authorization }] }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/admin/service-tickets/st_1/quality-review") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { id: "stq_1", result: "needs_coaching", authorization: req.headers.authorization } }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/service-tickets/st_1/close") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { ticket: { id: "st_1", status: "closed" }, authorization: req.headers.authorization } }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/service-tickets/st_1/follow-up") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { ticket: { id: "st_1", follow_up_rating: 5 }, authorization: req.headers.authorization } }));
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: false }));
+  });
+  upstream.listen(0);
+  await once(upstream, "listening");
+
+  const server = createBffServer({ env: { API_BASE_URL: `http://127.0.0.1:${upstream.address().port}` } });
+  server.listen(0);
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const tickets = await getJSON(`${baseUrl}/api/admin/service-tickets?limit=5`, "Bearer support_admin:support_1");
+  const assigned = await postJSON(`${baseUrl}/api/admin/service-tickets/st_1/assign`, "Bearer support_admin:support_1", { support_name: "客服小悦" });
+  const escalated = await postJSON(`${baseUrl}/api/admin/service-tickets/st_1/escalate`, "Bearer support_admin:support_1", { reason: "超过 10 分钟未更新" });
+  const qualityReview = await postJSON(`${baseUrl}/api/admin/service-tickets/st_1/quality-review`, "Bearer support_admin:support_1", { score: 74, notes: "需辅导" });
+  const qualityReviews = await getJSON(`${baseUrl}/api/admin/service-ticket-quality-reviews?support_id=support_1&limit=5`, "Bearer support_admin:support_1");
+  const performance = await getJSON(`${baseUrl}/api/admin/service-ticket-performance?support_id=support_1&limit=5`, "Bearer support_admin:support_1");
+  const resolved = await postJSON(`${baseUrl}/api/admin/service-tickets/st_1/resolve`, "Bearer support_admin:support_1", { solution: "已发放补偿券" });
+  const closed = await postJSON(`${baseUrl}/api/service-tickets/st_1/close`, "Bearer user:user_1", { reason: "接受方案" });
+  const followUp = await postJSON(`${baseUrl}/api/service-tickets/st_1/follow-up`, "Bearer user:user_1", { rating: 5 });
+
+  server.close();
+  upstream.close();
+
+  assert.equal(tickets.data[0].authorization, "Bearer support_admin:support_1");
+  assert.equal(assigned.data.ticket.assigned_support_id, "support_1");
+  assert.equal(escalated.data.ticket.sla_status, "escalated");
+  assert.equal(qualityReview.data.result, "needs_coaching");
+  assert.equal(qualityReviews.data[0].authorization, "Bearer support_admin:support_1");
+  assert.equal(performance.data[0].quality_review_count, 1);
+  assert.equal(resolved.data.ticket.status, "waiting_confirm");
+  assert.equal(closed.data.ticket.status, "closed");
+  assert.equal(followUp.data.ticket.follow_up_rating, 5);
 });
 
 function getJSON(url, authorization = "") {

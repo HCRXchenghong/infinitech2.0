@@ -1,38 +1,64 @@
 <view class="page">
-  <view class="shop-card">
-    <text class="shop-name">{{shopName}}</text>
-    <text class="shop-note">购物车按店铺隔离，结算时校验地址、库存和资质状态。</text>
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleCloseTap">‹</view>
+    <text class="nav-title">购物车</text>
+    <text class="nav-action" bindtap="handleClearTap">清空</text>
   </view>
-
-  <view wx:for="{{items}}" wx:key="id" class="cart-item">
-    <view class="check-dot {{item.selected ? 'checked' : ''}}"></view>
-    <view class="item-main">
-      <text class="item-name">{{item.name}}</text>
-      <text class="item-meta">数量 {{item.quantity}}</text>
-    </view>
-    <text class="price">¥{{item.price}}</text>
+  <view class="mock-shop">
+    <view class="mock-hero"></view>
+    <view class="mock-row"></view>
+    <view class="mock-row short"></view>
   </view>
+  <view class="mask" bindtap="handleCloseTap"></view>
 
-  <view class="summary">
-    <view class="summary-row">
-      <text>商品小计</text>
-      <text>¥{{summary.itemsTotal}}</text>
+  <view class="drawer">
+    <view class="drawer-head">
+      <view>
+        <text class="drawer-title">购物车</text>
+        <text class="shop-note">{{shopName}}</text>
+      </view>
+      <view class="drawer-actions">
+        <text bindtap="handleClearTap">清空</text>
+        <text bindtap="handleCloseTap">关闭</text>
+      </view>
     </view>
-    <view class="summary-row">
-      <text>配送费</text>
-      <text>¥{{summary.deliveryFee}}</text>
-    </view>
-    <view class="summary-row">
-      <text>打包费</text>
-      <text>¥{{summary.packagingFee}}</text>
-    </view>
-  </view>
 
-  <view class="bottom-bar">
-    <view>
-      <text class="payable">¥{{summary.payable}}</text>
-      <text class="bottom-note">退款默认回平台余额，后台可配置策略。</text>
+    <view wx:if="{{items.length === 0}}" class="empty-state">
+      <text class="empty-title">购物车还是空的</text>
+      <text class="empty-copy">回店铺页加几样热销单品，再回来一起结算。</text>
     </view>
-    <button class="checkout-button" bindtap="handleCheckoutTap">去结算</button>
+
+    <view wx:for="{{items}}" wx:key="id" class="cart-item">
+      <view class="check-dot {{item.selected ? 'checked' : ''}}"></view>
+      <view class="thumb">
+        <image wx:if="{{item.imageUrl}}" class="thumb-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+        <text wx:else>{{item.thumb}}</text>
+      </view>
+      <view class="item-main">
+        <text class="item-name">{{item.name}}</text>
+        <text class="item-meta">数量 {{item.quantity}}</text>
+      </view>
+      <view class="item-side">
+        <text class="price">¥{{item.price}}</text>
+        <view class="stepper">
+          <text class="stepper-button" data-id="{{item.id}}" data-delta="{{-1}}" bindtap="handleQuantityTap">-</text>
+          <text>{{item.quantity}}</text>
+          <text class="stepper-button primary" data-id="{{item.id}}" data-delta="{{1}}" bindtap="handleQuantityTap">+</text>
+        </view>
+      </view>
+    </view>
+
+    <text class="discount-note">{{discountNote}}</text>
+
+    <view class="bottom-bar">
+      <view class="all-check">
+        <view class="check-dot {{checkedAll ? 'checked' : ''}}"></view>
+        <text>{{checkedAll ? '已全选' : '待勾选'}}</text>
+      </view>
+      <view class="amount-wrap">
+        <text class="payable">¥{{summary.payable}}</text>
+      </view>
+      <button class="checkout-button" disabled="{{items.length === 0 || loading || updating}}" loading="{{updating}}" bindtap="handleCheckoutTap">去结算</button>
+    </view>
   </view>
 </view>

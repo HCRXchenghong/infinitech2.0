@@ -1,0 +1,104 @@
+<view class="location-page">
+  <view class="plain-nav location-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">选择位置</text>
+    <text class="nav-action" bindtap="handleManualPick">地图</text>
+  </view>
+
+  <view class="search-row">
+    <view class="search-box">
+      <text class="search-icon">⌕</text>
+      <input
+        class="search-input"
+        placeholder="搜索地点、小区、写字楼、学校"
+        value="{{keyword}}"
+        confirm-type="search"
+        bindinput="handleKeywordInput"
+        bindconfirm="handleSearchTap"
+      />
+      <text wx:if="{{keyword}}" class="clear-icon" bindtap="handleClearKeyword">×</text>
+    </view>
+    <view class="search-button" bindtap="handleSearchTap">搜索</view>
+  </view>
+
+  <view class="current-card {{selectedId === 'current' ? 'selected' : ''}}" bindtap="handleCurrentTap">
+    <view class="pin-mark">
+      <view class="pin-dot"></view>
+    </view>
+    <view class="current-main">
+      <view class="current-head">
+        <text class="current-label">当前位置</text>
+        <text class="selected-tag" wx:if="{{selectedId === 'current'}}">已选</text>
+      </view>
+      <text class="current-title">{{currentLocation.name}}</text>
+      <text class="current-subtitle">{{currentLocation.address}}</text>
+    </view>
+    <view class="relocate-button" catchtap="handleRelocate">{{locating ? '定位中' : '重新定位'}}</view>
+  </view>
+
+  <view class="map-card" bindtap="handleManualPick">
+    <view class="map-grid map-grid-a"></view>
+    <view class="map-grid map-grid-b"></view>
+    <view class="map-grid map-grid-c"></view>
+    <view class="map-road map-road-a"></view>
+    <view class="map-road map-road-b"></view>
+    <view class="map-pin">
+      <view class="map-pin-core"></view>
+    </view>
+    <text class="map-tip">点击使用微信地图精确选点</text>
+  </view>
+
+  <view class="section-card">
+    <view class="section-head">
+      <text class="section-title">已保存地址</text>
+      <text class="section-more" bindtap="handleAddAddress">管理 ›</text>
+    </view>
+    <view wx:if="{{loadingAddresses}}" class="empty-row">正在同步后端地址...</view>
+    <view wx:elif="{{visiblePlaces.length === 0}}" class="empty-row">{{emptyText}}</view>
+    <view
+      wx:for="{{visiblePlaces}}"
+      wx:key="id"
+      class="place-row {{selectedId === item.id ? 'selected' : ''}}"
+      data-id="{{item.id}}"
+      bindtap="handlePlaceTap"
+    >
+      <view class="place-icon">位</view>
+      <view class="place-main">
+        <view class="place-title-row">
+          <text class="place-title">{{item.name}}</text>
+          <text class="distance">{{item.distanceText}}</text>
+        </view>
+        <text class="place-address">{{item.address}}</text>
+      </view>
+      <text class="row-arrow">›</text>
+    </view>
+  </view>
+
+  <view wx:if="{{frequentPlaces.length > 0}}" class="frequent-section">
+    <view class="section-head">
+      <text class="section-title">常用地址</text>
+      <text class="section-more" bindtap="handleAddAddress">管理 ›</text>
+    </view>
+    <view class="frequent-grid">
+      <view
+        wx:for="{{frequentPlaces}}"
+        wx:key="id"
+        class="frequent-card {{selectedId === item.id ? 'selected' : ''}}"
+        data-id="{{item.id}}"
+        bindtap="handleFrequentTap"
+      >
+        <view class="frequent-icon">{{item.tag}}</view>
+        <view class="frequent-main">
+          <text class="frequent-title">{{item.distanceText}}</text>
+          <text class="frequent-name">{{item.name}}</text>
+          <text class="frequent-address">{{item.address}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="bottom-bar">
+    <view class="bottom-text" bindtap="handleAddAddress">新增详细地址</view>
+    <button class="confirm-button" bindtap="handleConfirm">确认当前位置</button>
+  </view>
+</view>

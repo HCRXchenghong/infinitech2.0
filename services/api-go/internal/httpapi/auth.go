@@ -37,12 +37,19 @@ const (
 	AdminScopeDispatchRead       = "dispatch:read"
 	AdminScopeDispatchWrite      = "dispatch:write"
 	AdminScopeInviteWrite        = "invite:write"
+	AdminScopeMealMatchRead      = "meal_match:read"
+	AdminScopeMealMatchReview    = "meal_match:review"
+	AdminScopeMerchantReview     = "merchant:qualification_review"
+	AdminScopeNotificationRead   = "notification:read"
+	AdminScopeNotificationWrite  = "notification:write"
 	AdminScopeObjectCleanupRead  = "object_cleanup:read"
 	AdminScopeObjectCleanupWrite = "object_cleanup:write"
 	AdminScopeOperationsRead     = "operations:read"
 	AdminScopeOrderCompensate    = "order:compensate"
 	AdminScopeOutboxRead         = "outbox:read"
 	AdminScopeOutboxWrite        = "outbox:write"
+	AdminScopePrescriptionRead   = "prescription:read"
+	AdminScopePrescriptionReview = "prescription:review"
 	AdminScopeRefundRead         = "refund:read"
 	AdminScopeRefundWrite        = "refund:write"
 	AdminScopeRBACRead           = "rbac:read"
@@ -115,8 +122,20 @@ func (p Principal) CanManageAuditLogs() bool {
 	return p.HasAdminScope(AdminScopeAuditWrite)
 }
 
+func (p Principal) CanWriteNotifications() bool {
+	return p.HasAdminScope(AdminScopeNotificationWrite)
+}
+
+func (p Principal) CanReadNotifications() bool {
+	return p.HasAdminScope(AdminScopeNotificationRead) || p.HasAdminScope(AdminScopeNotificationWrite)
+}
+
 func (p Principal) CanManageInvites() bool {
 	return p.HasAdminScope(AdminScopeInviteWrite)
+}
+
+func (p Principal) CanReviewMerchantQualifications() bool {
+	return p.HasAdminScope(AdminScopeMerchantReview)
 }
 
 func (p Principal) CanReadRefundSettings() bool {
@@ -165,6 +184,22 @@ func (p Principal) CanReadOutbox() bool {
 
 func (p Principal) CanManageOutbox() bool {
 	return p.HasAdminScope(AdminScopeOutboxWrite)
+}
+
+func (p Principal) CanReadPrescriptions() bool {
+	return p.HasAdminScope(AdminScopePrescriptionRead) || p.HasAdminScope(AdminScopePrescriptionReview)
+}
+
+func (p Principal) CanReviewPrescriptions() bool {
+	return p.HasAdminScope(AdminScopePrescriptionReview)
+}
+
+func (p Principal) CanReadMealMatchModeration() bool {
+	return p.HasAdminScope(AdminScopeMealMatchRead) || p.HasAdminScope(AdminScopeMealMatchReview)
+}
+
+func (p Principal) CanReviewMealMatchModeration() bool {
+	return p.HasAdminScope(AdminScopeMealMatchReview)
 }
 
 func (p Principal) CanCompensateOrders() bool {
@@ -393,12 +428,19 @@ var adminRoleScopes = map[string]map[string]struct{}{
 		AdminScopeAfterSalesReview,
 		AdminScopeDispatchRead,
 		AdminScopeInviteWrite,
+		AdminScopeMealMatchRead,
+		AdminScopeMealMatchReview,
+		AdminScopeMerchantReview,
+		AdminScopeNotificationRead,
+		AdminScopeNotificationWrite,
 		AdminScopeObjectCleanupRead,
 		AdminScopeObjectCleanupWrite,
 		AdminScopeOperationsRead,
 		AdminScopeOrderCompensate,
 		AdminScopeOutboxRead,
 		AdminScopeOutboxWrite,
+		AdminScopePrescriptionRead,
+		AdminScopePrescriptionReview,
 		AdminScopeRBACRead,
 		AdminScopeRiderRead,
 	),
@@ -420,7 +462,12 @@ var adminRoleScopes = map[string]map[string]struct{}{
 	RoleSupportAdmin: scopeSet(
 		AdminScopeAfterSalesEvent,
 		AdminScopeAfterSalesRead,
+		AdminScopeMealMatchRead,
+		AdminScopeMealMatchReview,
+		AdminScopeNotificationRead,
 		AdminScopeOperationsRead,
+		AdminScopePrescriptionRead,
+		AdminScopePrescriptionReview,
 		AdminScopeRBACRead,
 	),
 	RoleSecurityAuditor: scopeSet(
@@ -527,12 +574,19 @@ var adminScopePolicyCatalog = []AdminScopePolicy{
 	{Key: AdminScopeDispatchRead, Category: "dispatch", Description: "Read dispatch events, station riders and station order queues.", RiskLevel: "medium"},
 	{Key: AdminScopeDispatchWrite, Category: "dispatch", Description: "Run auto assign, timeout reassignment, manual assignment and station task writes.", RiskLevel: "high"},
 	{Key: AdminScopeInviteWrite, Category: "onboarding", Description: "Create merchant, station manager and rider onboarding invites.", RiskLevel: "high"},
+	{Key: AdminScopeMealMatchRead, Category: "community", Description: "Read meal-match profile review and report moderation queues.", RiskLevel: "medium"},
+	{Key: AdminScopeMealMatchReview, Category: "community", Description: "Approve or reject meal-match profile reviews and report moderation records.", RiskLevel: "high"},
+	{Key: AdminScopeMerchantReview, Category: "onboarding", Description: "Review merchant business-license and health-certificate qualifications.", RiskLevel: "high"},
+	{Key: AdminScopeNotificationRead, Category: "notifications", Description: "Read notification ledger records for merchant support and delivery dispute handling.", RiskLevel: "medium"},
+	{Key: AdminScopeNotificationWrite, Category: "notifications", Description: "Record downstream notification deliveries, in-app messages and notification preference rules.", RiskLevel: "high"},
 	{Key: AdminScopeObjectCleanupRead, Category: "storage", Description: "Read object cleanup candidates and cleanup statistics.", RiskLevel: "medium"},
 	{Key: AdminScopeObjectCleanupWrite, Category: "storage", Description: "Mark object cleanup completion and failure results.", RiskLevel: "high"},
 	{Key: AdminScopeOperationsRead, Category: "operations", Description: "Read the admin operations snapshot.", RiskLevel: "medium"},
 	{Key: AdminScopeOrderCompensate, Category: "orders", Description: "Run order state compensation for drift recovery.", RiskLevel: "critical"},
 	{Key: AdminScopeOutboxRead, Category: "events", Description: "Read outbox events, stats and relay health.", RiskLevel: "medium"},
 	{Key: AdminScopeOutboxWrite, Category: "events", Description: "Claim, renew, publish, fail and replay outbox events.", RiskLevel: "critical"},
+	{Key: AdminScopePrescriptionRead, Category: "medicine", Description: "Read prescription OCR and pharmacist review queues.", RiskLevel: "medium"},
+	{Key: AdminScopePrescriptionReview, Category: "medicine", Description: "Approve or reject prescription pharmacist reviews.", RiskLevel: "high"},
 	{Key: AdminScopeRefundRead, Category: "finance", Description: "Read refund settings and refund policy metadata.", RiskLevel: "medium"},
 	{Key: AdminScopeRefundWrite, Category: "finance", Description: "Change refund settings and execute admin refunds.", RiskLevel: "critical"},
 	{Key: AdminScopeRBACRead, Category: "security", Description: "Read the backoffice RBAC policy matrix.", RiskLevel: "medium"},

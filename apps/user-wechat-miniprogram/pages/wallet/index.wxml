@@ -1,0 +1,68 @@
+<view class="wallet-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">钱包</text>
+    <text class="nav-action">{{statusText}}</text>
+  </view>
+
+  <view class="balance-card">
+    <view class="balance-copy">
+      <text class="balance-label">账户余额</text>
+      <text class="balance-amount">¥{{balance}}</text>
+      <text class="balance-subtitle">可用于余额支付、红包发送和退款入账</text>
+      <text class="safe-badge">✓ {{paymentStatus}}</text>
+    </view>
+    <view class="wallet-art">钱</view>
+    <view class="wallet-actions">
+      <button class="wallet-btn primary" bindtap="handleCredit">充值</button>
+      <button class="wallet-btn ghost" bindtap="handleWithdraw">提现</button>
+    </view>
+  </view>
+
+  <view class="wallet-card stat-card">
+    <view class="wallet-stat" wx:for="{{assetStats}}" wx:key="title">
+      <text class="wallet-stat-icon">{{item.icon}}</text>
+      <text class="wallet-stat-title">{{item.title}}</text>
+      <text class="wallet-stat-value">{{item.value}}</text>
+    </view>
+  </view>
+
+  <view class="safe-row" bindtap="handlePaymentPassword">
+    <text class="safe-icon">盾</text>
+    <text>余额变动均生成流水，提现需通过风控校验</text>
+    <text class="safe-link">查看支付安全说明 ›</text>
+  </view>
+
+  <view class="wallet-card">
+    <text class="card-title">最近账单</text>
+    <view class="filter-row">
+      <text class="filter-chip {{item.active}}" wx:for="{{filters}}" wx:key="id" data-id="{{item.id}}" bindtap="handleFilterTap">{{item.title}}</text>
+    </view>
+    <view class="bill-row" wx:for="{{records}}" wx:key="id">
+      <text class="bill-icon {{item.typeClass}}">{{item.icon}}</text>
+      <view class="bill-main">
+        <text class="bill-title">{{item.title}}</text>
+        <text class="bill-subtitle">{{item.subtitle}}</text>
+      </view>
+      <view class="bill-right">
+        <text class="bill-amount {{item.typeClass}}">{{item.amount}}</text>
+        <text wx:if="{{item.statusText}}" class="bill-status">{{item.statusText}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="wallet-card action-list">
+    <view class="action-row" bindtap="handlePaymentPassword">
+      <text>支付密码</text>
+      <text>›</text>
+    </view>
+    <view class="action-row" bindtap="handleWithdraw">
+      <text>提现记录</text>
+      <text>›</text>
+    </view>
+    <view class="action-row" bindtap="handleBillTap">
+      <text>账单导出</text>
+      <text>›</text>
+    </view>
+  </view>
+</view>

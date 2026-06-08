@@ -1,21 +1,94 @@
 {
   "pages": [
     "pages/index/index",
+    "pages/welcome/welcome/index",
+    "pages/auth/login/index",
+    "pages/auth/register/index",
+    "pages/search/index",
+    "pages/location/select/index",
     "pages/shop/list/index",
     "pages/shop/detail/index",
     "pages/cart/index",
     "pages/order/confirm/index",
     "pages/order/list/index",
     "pages/order/detail/index",
+    "pages/order/review/index",
+    "pages/after-sales/index",
+    "pages/notification-preferences/index",
+    "pages/messages/index",
+    "pages/messages/merchant-group/index",
+    "pages/messages/group-settings/index",
+    "pages/customer-service/chat/index",
+    "pages/service-ticket/detail/index",
+    "pages/profile/index",
     "pages/wallet/payment-password/index",
+    "pages/wallet/index",
+    "pages/coupons/index",
+    "pages/member-points/index",
+    "pages/invite-friends/index",
     "pages/address/list/index",
     "pages/circle/index",
-    "pages/meal-match/index"
+    "pages/meal-match/index",
+    "pages/medicine/home/index",
+    "pages/medicine/order-confirm/index",
+    "pages/medicine/order-detail/index",
+    "pages/errand/home/index",
+    "pages/errand/order-detail/index",
+    "pages/red-packet/send/index",
+    "pages/red-packet/detail/index",
+    "pages/feedback/complaint/index",
+    "pages/feedback/records/index",
+    "pages/prescription/upload/index",
+    "pages/prescription/review-result/index"
   ],
   "window": {
-    "navigationBarTitleText": "Infinitech",
+    "navigationStyle": "default",
+    "navigationBarTitleText": "悦享e食",
     "navigationBarBackgroundColor": "#ffffff",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#f3f4f6"
-  }
+  },
+  "tabBar": {
+    "custom": false,
+    "color": "#8d99aa",
+    "selectedColor": "#159cff",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "assets/generated/tabbar/tabbar-home.png",
+        "selectedIconPath": "assets/generated/tabbar/tabbar-home-active.png"
+      },
+      {
+        "pagePath": "pages/order/list/index",
+        "text": "订单",
+        "iconPath": "assets/generated/tabbar/tabbar-orders.png",
+        "selectedIconPath": "assets/generated/tabbar/tabbar-orders-active.png"
+      },
+      {
+        "pagePath": "pages/messages/index",
+        "text": "消息",
+        "iconPath": "assets/generated/tabbar/tabbar-messages.png",
+        "selectedIconPath": "assets/generated/tabbar/tabbar-messages-active.png"
+      },
+      {
+        "pagePath": "pages/profile/index",
+        "text": "我的",
+        "iconPath": "assets/generated/tabbar/tabbar-profile.png",
+        "selectedIconPath": "assets/generated/tabbar/tabbar-profile-active.png"
+      }
+    ]
+  },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于展示当前位置、匹配附近商家和配送服务"
+    }
+  },
+  "requiredPrivateInfos": [
+    "getLocation",
+    "chooseLocation"
+  ],
+  "lazyCodeLoading": "requiredComponents"
 }

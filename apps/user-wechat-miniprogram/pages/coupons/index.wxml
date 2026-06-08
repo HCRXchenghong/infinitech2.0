@@ -1,0 +1,81 @@
+<view class="coupon-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">红包优惠</text>
+    <text class="nav-action">{{statusText}}</text>
+  </view>
+
+  <view class="summary-card">
+    <view class="summary-left">
+      <text class="summary-title">我的优惠</text>
+      <view class="summary-stats">
+        <view>
+          <text>可用券</text>
+          <text>{{availableCount}}</text>
+        </view>
+        <view>
+          <text>红包</text>
+          <text>{{redPacketCount}}</text>
+        </view>
+        <view>
+          <text>即将过期</text>
+          <text>{{expiringCount}}</text>
+        </view>
+      </view>
+      <view class="redeem-row" bindtap="handleRedeemCode">兑 换 优 惠 码 ›</view>
+    </view>
+    <view class="coupon-art">券</view>
+  </view>
+
+  <view class="group-benefit-card">
+    <view class="group-benefit-copy">
+      <text class="group-benefit-title">蓝海餐厅商户群券</text>
+      <text class="group-benefit-summary">{{groupCouponEntry.summary}}</text>
+    </view>
+    <button class="group-benefit-button {{groupCouponEntry.claimed ? 'claimed' : ''}}" bindtap="handleGroupCouponAction">{{groupCouponEntry.buttonText}}</button>
+  </view>
+
+  <view class="tabs">
+    <text class="tab {{item.active}}" wx:for="{{tabs}}" wx:key="id" data-id="{{item.id}}" bindtap="handleTabTap">{{item.title}}</text>
+  </view>
+
+  <view class="filter-row">
+    <text class="filter {{item.active}}" wx:for="{{filters}}" wx:key="id" data-id="{{item.id}}" bindtap="handleFilterTap">{{item.title}}</text>
+  </view>
+
+  <view class="ticket-card {{item.accentClass}}" wx:for="{{coupons}}" wx:key="id">
+    <view class="ticket-left">
+      <text class="ticket-amount">{{item.amount}}</text>
+      <text class="ticket-threshold">{{item.threshold}}</text>
+      <text class="ticket-source">{{item.source}}</text>
+    </view>
+    <view class="ticket-main">
+      <text class="ticket-title">{{item.title}}</text>
+      <text class="ticket-subtitle">{{item.subtitle}}</text>
+      <text class="ticket-expire">◷ {{item.expireText}}</text>
+    </view>
+    <button class="ticket-button" data-route="{{item.route}}" bindtap="handleUseTap">{{item.buttonText}}</button>
+  </view>
+
+  <view class="notice-row" bindtap="handleUseTap" data-route="/pages/wallet/index">
+    <text class="notice-icon">包</text>
+    <text>商户群红包可进入钱包查看余额流水</text>
+    <text class="notice-link">查看红包记录 ›</text>
+  </view>
+
+  <view class="rule-card">
+    <text class="rule-title">使用说明</text>
+    <view class="rule-row">
+      <text>配</text>
+      <text>优惠金额不抵扣配送费和包装费</text>
+    </view>
+    <view class="rule-row">
+      <text>退</text>
+      <text>退款后优惠券按规则退回</text>
+    </view>
+    <view class="rule-row">
+      <text>结</text>
+      <text>商户券成本与平台补贴分开结算</text>
+    </view>
+  </view>
+</view>

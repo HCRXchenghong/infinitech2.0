@@ -1,0 +1,69 @@
+<view class="rx-result-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">处方审核结果</text>
+    <text class="nav-action"></text>
+  </view>
+
+  <view class="result-hero">
+    <view class="check-icon">✓</view>
+    <view>
+      <text class="result-title">{{status}}</text>
+      <text class="result-meta">{{statusText}}</text>
+      <text class="result-time">审核时间 {{reviewedAt}}</text>
+    </view>
+    <view class="watermark">✓</view>
+  </view>
+
+  <view class="product-card">
+    <view class="medicine-box">药</view>
+    <view>
+      <text class="medicine-name">{{product.name}}</text>
+      <view class="tag-row"><text>处方药</text><text>已审核</text></view>
+      <text class="medicine-price">¥{{product.price}}</text>
+      <text class="medicine-note">按校医建议使用</text>
+    </view>
+    <view class="quantity">− <text>{{product.quantity}}</text> +</view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">处方信息</text>
+    <view class="info-row"><text>处方照片</text><text>已上传 ›</text></view>
+    <view class="info-row"><text>用药人</text><text>{{patientName}}</text></view>
+    <view class="info-row"><text>OCR 识别</text><text>{{ocr.status}} · {{ocr.confidence}}%</text></view>
+    <view class="info-row"><text>识别剂量</text><text>{{ocr.dosage}}</text></view>
+    <view class="info-row"><text>药师复核</text><text>{{product.doctor}}</text></view>
+    <view class="info-row"><text>留档编号</text><text>{{archive.id}}</text></view>
+    <view class="info-row link"><text>{{archive.retention}}</text><text>›</text></view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">审核节点</text>
+    <view class="step-row {{item.status}}" wx:for="{{steps}}" wx:key="title">
+      <view class="step-dot"></view>
+      <view>
+        <text>{{item.title}}</text>
+        <text>{{item.subtitle}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="delivery-card">
+    <view class="delivery-icon">骑</view>
+    <view>
+      <text>骑手配送至校内地址</text>
+      <text>望京校区 3 号宿舍楼 · 预计 20-30 分钟</text>
+    </view>
+  </view>
+
+  <view class="contact-card">
+    <text>仍有疑问？</text>
+    <button>在线联系校医</button>
+    <button>电话联系</button>
+  </view>
+
+  <view class="bottom-actions">
+    <button class="ghost" bindtap="handleBackList">返回药品列表</button>
+    <button bindtap="handleContinue">加入购物车 ¥{{product.price}}</button>
+  </view>
+</view>

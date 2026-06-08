@@ -1,0 +1,45 @@
+<view class="mp-page messages-page">
+  <view class="mp-nav">
+    <view class="nav-spacer"></view>
+    <text class="mp-title">消息</text>
+    <text class="mp-action"></text>
+  </view>
+
+  <view class="message-search">
+    <text class="search-icon">⌕</text>
+    <input
+      class="search-input"
+      placeholder="搜索商家、骑手、群聊、客服"
+      value="{{keyword}}"
+      confirm-type="search"
+      bindinput="handleKeywordInput"
+    />
+    <text wx:if="{{keyword}}" class="clear-icon" bindtap="handleClearKeyword">×</text>
+  </view>
+
+  <view class="conversation-card">
+    <view
+      class="conversation-row"
+      wx:for="{{visibleRows}}"
+      wx:key="key"
+      data-route="{{item.route}}"
+      bindtap="handleRowTap"
+    >
+      <view class="row-icon-shell {{item.tone}}">
+        <image class="row-icon" src="{{item.iconPath}}" mode="aspectFit" />
+      </view>
+      <view class="row-main">
+        <view class="row-title-line">
+          <text class="row-title">{{item.title}}</text>
+          <text wx:if="{{item.muted}}" class="mute-tag">免打扰</text>
+        </view>
+        <text class="row-preview">{{item.subtitle}}</text>
+      </view>
+      <view class="row-side">
+        <text class="row-time">{{item.time}}</text>
+        <text wx:if="{{item.badge}}" class="unread-badge">{{item.badge}}</text>
+        <view wx:elif="{{item.unreadDot}}" class="unread-dot"></view>
+      </view>
+    </view>
+  </view>
+</view>

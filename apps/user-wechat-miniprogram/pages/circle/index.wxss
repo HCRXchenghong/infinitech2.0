@@ -1,37 +1,109 @@
 .page {
   min-height: 100vh;
-  padding: 32rpx;
+  padding: 28rpx 28rpx 40rpx;
   box-sizing: border-box;
   background: #f3f4f6;
 }
 
 .tabs {
   display: flex;
-  gap: 16rpx;
+  gap: 12rpx;
+  margin-bottom: 18rpx;
 }
 
 .tab {
-  padding: 14rpx 24rpx;
+  flex: 1;
+  padding: 14rpx 0;
   border-radius: 999rpx;
-  color: #007ccc;
-  background: #e0f2fe;
-  font-size: 26rpx;
+  color: #6b7280;
+  background: #ffffff;
+  text-align: center;
+  font-size: 24rpx;
   font-weight: 600;
 }
 
-.post {
-  margin-top: 24rpx;
-  padding: 28rpx;
-  border: 1rpx solid #dbeafe;
+.tab.active {
+  color: #ffffff;
+  background: #009bf5;
+}
+
+.publish-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  padding: 22rpx;
   border-radius: 16rpx;
   background: #ffffff;
+  box-shadow: 0 8rpx 22rpx rgba(15, 23, 42, 0.04);
+}
+
+.publish-placeholder {
+  color: #9ca3af;
+  font-size: 26rpx;
+}
+
+.publish-button {
+  width: 132rpx;
+  height: 64rpx;
+  line-height: 64rpx;
+  border-radius: 999rpx;
+  background: #009bf5;
+  color: #ffffff;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.post {
+  margin-top: 18rpx;
+  padding: 28rpx;
+  border-radius: 16rpx;
+  background: #ffffff;
+  box-shadow: 0 8rpx 22rpx rgba(15, 23, 42, 0.04);
+}
+
+.post-head {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+}
+
+.avatar {
+  width: 68rpx;
+  height: 68rpx;
+  border-radius: 34rpx;
+  background: #e0f2fe;
+  color: #009bf5;
+  text-align: center;
+  line-height: 68rpx;
+  font-weight: 900;
+}
+
+.post-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.author {
+  display: block;
+  color: #111827;
+  font-size: 27rpx;
+  font-weight: 800;
+}
+
+.tag {
+  display: block;
+  margin-top: 4rpx;
+  color: #009bf5;
+  font-size: 22rpx;
 }
 
 .post-title {
   display: block;
+  margin-top: 22rpx;
   color: #111827;
   font-size: 32rpx;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .post-content {
@@ -40,4 +112,26 @@
   color: #6b7280;
   font-size: 26rpx;
   line-height: 1.5;
+}
+
+.post-actions {
+  display: flex;
+  gap: 26rpx;
+  margin-top: 20rpx;
+  color: #6b7280;
+  font-size: 23rpx;
+}
+
+.float-button {
+  position: fixed;
+  right: 34rpx;
+  bottom: 48rpx;
+  width: 88rpx;
+  height: 88rpx;
+  line-height: 84rpx;
+  border-radius: 44rpx;
+  background: #009bf5;
+  color: #ffffff;
+  font-size: 48rpx;
+  box-shadow: 0 12rpx 26rpx rgba(0, 155, 245, 0.3);
 }

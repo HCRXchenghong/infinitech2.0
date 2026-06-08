@@ -1,0 +1,89 @@
+<view class="detail-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">跑腿订单详情</text>
+    <text class="nav-action">{{status}}</text>
+  </view>
+
+  <view class="status-card">
+    <view class="status-icon">
+      <image wx:if="{{imageUrl}}" class="status-image" src="{{imageUrl}}" mode="aspectFill"></image>
+      <text wx:else>单</text>
+    </view>
+    <view>
+      <text class="status-title">{{status}}</text>
+      <text class="status-subtitle">跑腿单号 {{orderNo}}  ⧉</text>
+      <text class="estimate">{{estimateText}}</text>
+    </view>
+    <view class="service-badge">{{serviceTitle}}</view>
+  </view>
+
+  <view class="map-card">
+    <text class="map-status">{{mapStatus}}</text>
+    <view class="map-line">
+      <view class="map-pin pickup">取</view>
+      <view class="dash"></view>
+      <view class="rider-dot">骑</view>
+      <view class="dash"></view>
+      <view class="map-pin delivery">送</view>
+    </view>
+    <view class="address-row">
+      <text>{{pickupAddress}}</text>
+      <text>{{deliveryAddress}}</text>
+    </view>
+  </view>
+
+  <view class="rider-card">
+    <view class="rider-avatar">骑</view>
+    <view class="rider-main">
+      <text class="rider-name">骑手 {{rider.name}} <text class="rating">★ {{rider.ratingText}}</text></text>
+      <text class="rider-subtitle">{{rider.vehicle}} · {{rider.distanceText}}</text>
+    </view>
+    <view class="rider-action" bindtap="handleContactRider">电话</view>
+    <view class="rider-action" bindtap="handleContactRider">消息</view>
+  </view>
+
+  <view class="detail-card">
+    <text class="card-title">订单进度</text>
+    <view class="timeline-row {{item.statusClass}}" wx:for="{{timeline}}" wx:key="title">
+      <view class="timeline-dot"></view>
+      <view class="timeline-main">
+        <text class="timeline-title">{{item.title}}</text>
+        <text wx:if="{{item.subtitle}}" class="timeline-subtitle">{{item.subtitle}}</text>
+      </view>
+      <text class="timeline-time">{{item.time}}</text>
+    </view>
+  </view>
+
+  <view class="detail-card">
+    <text class="card-title">取送信息</text>
+    <view class="info-row" wx:for="{{infoRows}}" wx:key="title">
+      <text class="info-icon">{{item.icon}}</text>
+      <text class="info-title">{{item.title}}</text>
+      <text class="info-value">{{item.value}} ›</text>
+    </view>
+  </view>
+
+  <view class="two-col">
+    <view class="mini-card">
+      <text class="card-title">费用明细</text>
+      <view class="fee-row" wx:for="{{feeRows}}" wx:key="title">
+        <text>{{item.title}}</text>
+        <text class="{{item.strong}}">{{item.value}}</text>
+      </view>
+    </view>
+    <view class="mini-card">
+      <text class="card-title">温馨提示</text>
+      <view class="tip-row" wx:for="{{tips}}" wx:key="*this">
+        <text>盾</text>
+        <text>{{item}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="bottom-bar">
+    <button class="ghost-button" bindtap="handleCancel">取消订单</button>
+    <button class="ghost-button" bindtap="handleReminder">催一下</button>
+    <button class="primary-button" bindtap="handleContactRider">联系骑手</button>
+  </view>
+</view>

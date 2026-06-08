@@ -1,0 +1,266 @@
+.records-page {
+  min-height: 100vh;
+  padding: 0 28rpx 60rpx;
+  background: #f3f6f9;
+  box-sizing: border-box;
+}
+
+.blue-nav {
+  display: grid;
+  grid-template-columns: 72rpx 1fr 150rpx;
+  align-items: center;
+  margin: 0 -28rpx;
+  padding: calc(env(safe-area-inset-top) + 18rpx) 28rpx 24rpx;
+  color: #ffffff;
+  background: linear-gradient(90deg, #007aff, #00a5ff);
+}
+
+.nav-back {
+  color: #ffffff;
+  font-size: 58rpx;
+  line-height: 52rpx;
+}
+
+.nav-title {
+  font-size: 38rpx;
+  font-weight: 900;
+  text-align: center;
+}
+
+.nav-action {
+  font-size: 27rpx;
+  text-align: right;
+}
+
+.stats-card,
+.record-card,
+.help-card {
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(15, 23, 42, 0.05);
+}
+
+.stats-card {
+  margin-top: 28rpx;
+  padding: 30rpx;
+}
+
+.stats-title {
+  display: block;
+  color: #111827;
+  font-size: 34rpx;
+  font-weight: 900;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 24rpx;
+  text-align: center;
+}
+
+.stats-grid view {
+  border-right: 1rpx solid #e5e7eb;
+}
+
+.stats-grid view:last-child {
+  border-right: none;
+}
+
+.stats-grid text {
+  display: block;
+  color: #667085;
+  font-size: 26rpx;
+}
+
+.stats-grid text:last-child {
+  margin-top: 10rpx;
+  color: #111827;
+  font-size: 44rpx;
+  font-weight: 900;
+}
+
+.stats-grid view:nth-child(2) text:last-child {
+  color: #ff4d00;
+}
+
+.stats-grid view:nth-child(3) text:last-child {
+  color: #10b981;
+}
+
+.stats-note {
+  display: block;
+  margin-top: 24rpx;
+  color: #8a8f98;
+  font-size: 25rpx;
+  text-align: center;
+}
+
+.tab-row {
+  white-space: nowrap;
+  margin: 22rpx -28rpx 0;
+  padding-left: 28rpx;
+}
+
+.tab {
+  display: inline-flex;
+  height: 62rpx;
+  align-items: center;
+  justify-content: center;
+  min-width: 126rpx;
+  margin-right: 18rpx;
+  padding: 0 22rpx;
+  border-radius: 31rpx;
+  color: #374151;
+  background: #ffffff;
+  border: 1rpx solid #e5e7eb;
+  font-size: 28rpx;
+}
+
+.tab.active {
+  color: #ffffff;
+  background: #007aff;
+  border-color: #007aff;
+  font-weight: 900;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr 136rpx;
+  gap: 18rpx;
+  margin-top: 20rpx;
+}
+
+.search-box,
+.search-row button {
+  height: 68rpx;
+  border-radius: 12rpx;
+  background: #ffffff;
+  color: #98a2b3;
+  line-height: 68rpx;
+  font-size: 28rpx;
+  box-shadow: 0 8rpx 22rpx rgba(15, 23, 42, 0.04);
+}
+
+.search-box {
+  padding-left: 32rpx;
+}
+
+.search-row button {
+  color: #111827;
+  padding: 0;
+}
+
+.record-card {
+  display: grid;
+  grid-template-columns: 86rpx 1fr;
+  gap: 22rpx;
+  margin-top: 18rpx;
+  padding: 24rpx;
+}
+
+.record-icon {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 36rpx;
+  color: #ffffff;
+  background: #ff6b2b;
+  text-align: center;
+  line-height: 72rpx;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.record-card:nth-of-type(2n) .record-icon {
+  background: #007aff;
+}
+
+.record-card:nth-of-type(3n) .record-icon {
+  background: #10b981;
+}
+
+.record-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18rpx;
+}
+
+.record-title-row text:first-child {
+  color: #111827;
+  font-size: 31rpx;
+  font-weight: 900;
+}
+
+.record-title-row text:last-child {
+  color: #ff4d00;
+  font-size: 28rpx;
+  white-space: nowrap;
+}
+
+.record-meta {
+  display: block;
+  margin-top: 10rpx;
+  color: #667085;
+  font-size: 25rpx;
+  line-height: 1.45;
+}
+
+.record-footer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 18rpx;
+}
+
+.record-footer > text {
+  color: #98a2b3;
+  font-size: 25rpx;
+}
+
+.record-footer view {
+  display: flex;
+  gap: 16rpx;
+}
+
+.record-footer button,
+.help-card button {
+  height: 56rpx;
+  min-width: 122rpx;
+  border-radius: 10rpx;
+  color: #007aff;
+  background: #ffffff;
+  border: 1rpx solid #007aff;
+  line-height: 56rpx;
+  font-size: 26rpx;
+  padding: 0 18rpx;
+}
+
+.help-card {
+  display: grid;
+  grid-template-columns: 1fr 126rpx 126rpx;
+  gap: 18rpx;
+  align-items: center;
+  margin-top: 22rpx;
+  padding: 24rpx;
+}
+
+.help-card text {
+  display: block;
+}
+
+.help-card text:first-child {
+  color: #111827;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.help-card text:last-child {
+  margin-top: 8rpx;
+  color: #667085;
+  font-size: 24rpx;
+}
+
+button::after {
+  border: none;
+}

@@ -78,7 +78,7 @@
   - `services/api-go/internal/platform/contracts.go`
   - `PLATFORM_MASTER_PLAN.md`
   - `docs/architecture/system-architecture.md`
-  - `apps/merchant-uni/README.md`
+  - `apps/merchant-flutter/README.md`
 
 ### DONE-20260521-008 骑手站长、派单窗口与保证金规则落地
 
@@ -91,7 +91,7 @@
   - `services/api-go/internal/platform/contracts.go`
   - `PLATFORM_MASTER_PLAN.md`
   - `docs/architecture/system-architecture.md`
-  - `apps/rider-uni/README.md`
+  - `apps/rider-flutter/README.md`
 
 ### DONE-20260521-009 骑手绩效、商户商品、退款和群聊红包模型落地
 
@@ -106,8 +106,8 @@
   - `PLATFORM_MASTER_PLAN.md`
   - `docs/architecture/system-architecture.md`
   - `apps/user-wechat-miniprogram/README.md`
-  - `apps/merchant-uni/README.md`
-  - `apps/rider-uni/README.md`
+  - `apps/merchant-flutter/README.md`
+  - `apps/rider-flutter/README.md`
   - `apps/admin-web/README.md`
 
 ### DONE-20260521-010 圈子、饭搭、优惠券和首页卡片模型落地
@@ -143,7 +143,7 @@
   - `packages/admin-core/src/index.mjs`
   - `services/api-go/internal/platform/contracts.go`
   - `apps/user-wechat-miniprogram/README.md`
-  - `apps/rider-uni/README.md`
+  - `apps/rider-flutter/README.md`
   - `apps/admin-web/README.md`
 
 ### DONE-20260521-012 用户外卖下单闭环首批实现
@@ -286,7 +286,7 @@
 ### DONE-20260521-019 商户接单/出餐状态机推进
 
 - 日期：2026-05-21
-- 结果：已把外卖/买药类店铺订单从“支付成功直接进入骑手调度”调整为“商户待接单 -> 备餐中 -> 出餐后进入骑手调度”；骑手在商户出餐前不能抢单；商户订单列表、接单、出餐接口已接入 BFF；商户端 uni-app 已补经营概况和订单处理首版页面。
+- 结果：已把外卖/买药类店铺订单从“支付成功直接进入骑手调度”调整为“商户待接单 -> 备餐中 -> 出餐后进入骑手调度”；骑手在商户出餐前不能抢单；商户订单列表、接单、出餐接口已接入 BFF；商户端 Flutter 已补经营概况和订单处理首版页面。
 - 验收证据：
   - `cd services/api-go && go test ./...`
   - `npm run test --workspace @infinitech/bff`
@@ -300,15 +300,15 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/server.mjs`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/merchant-uni/pages.json`
-  - `apps/merchant-uni/utils/api.js`
-  - `apps/merchant-uni/pages/index/index.vue`
-  - `apps/merchant-uni/pages/orders/index.vue`
+  - `apps/merchant-flutter/lib/router.dart`
+  - `apps/merchant-flutter/lib/api/merchant_api.dart`
+  - `apps/merchant-flutter/lib/features/home/merchant_home_page.dart`
+  - `apps/merchant-flutter/lib/features/orders/merchant_orders_page.dart`
 
 ### DONE-20260521-020 商户商品管理闭环推进
 
 - 日期：2026-05-21
-- 结果：已补商户商品列表、创建/编辑、上架/售罄/下架接口；商户只能管理自己店铺商品；用户端公开商品列表只展示上架商品，售罄/下架会从公开列表隐藏；BFF 已代理商户商品接口；商户端 uni-app 已新增商品管理页。
+- 结果：已补商户商品列表、创建/编辑、上架/售罄/下架接口；商户只能管理自己店铺商品；用户端公开商品列表只展示上架商品，售罄/下架会从公开列表隐藏；BFF 已代理商户商品接口；商户端 Flutter 已新增商品管理页。
 - 验收证据：
   - `cd services/api-go && go test ./...`
   - `npm run test --workspace @infinitech/bff`
@@ -322,10 +322,10 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/server.mjs`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/merchant-uni/pages.json`
-  - `apps/merchant-uni/utils/api.js`
-  - `apps/merchant-uni/pages/index/index.vue`
-  - `apps/merchant-uni/pages/products/index.vue`
+  - `apps/merchant-flutter/lib/router.dart`
+  - `apps/merchant-flutter/lib/api/merchant_api.dart`
+  - `apps/merchant-flutter/lib/features/home/merchant_home_page.dart`
+  - `apps/merchant-flutter/lib/features/products/merchant_products_page.dart`
 
 ### DONE-20260521-021 店铺接单门槛统一判断
 
@@ -343,7 +343,7 @@
 ### DONE-20260521-022 团购下单发券与扫码核销闭环推进
 
 - 日期：2026-05-21
-- 结果：已补店铺团购套餐公开列表、团购下单、支付成功后自动发券、用户团购券列表、商户扫码核销团购券；核销必须使用 `qr_scan`，必须由本店商户执行，重复核销会被拒绝；BFF 已代理团购相关接口；用户小程序店铺页接入团购套餐和购买入口；商户端 uni-app 已新增团购核销页。
+- 结果：已补店铺团购套餐公开列表、团购下单、支付成功后自动发券、用户团购券列表、商户扫码核销团购券；核销必须使用 `qr_scan`，必须由本店商户执行，重复核销会被拒绝；BFF 已代理团购相关接口；用户小程序店铺页接入团购套餐和购买入口；商户端 Flutter 已新增团购核销页。
 - 验收证据：
   - `cd services/api-go && go test ./...`
   - `npm run test --workspace @infinitech/bff`
@@ -361,10 +361,10 @@
   - `apps/user-wechat-miniprogram/utils/api.ts`
   - `apps/user-wechat-miniprogram/pages/shop/detail/index.ts`
   - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxml`
-  - `apps/merchant-uni/pages.json`
-  - `apps/merchant-uni/utils/api.js`
-  - `apps/merchant-uni/pages/index/index.vue`
-  - `apps/merchant-uni/pages/groupbuy/index.vue`
+  - `apps/merchant-flutter/lib/router.dart`
+  - `apps/merchant-flutter/lib/api/merchant_api.dart`
+  - `apps/merchant-flutter/lib/features/home/merchant_home_page.dart`
+  - `apps/merchant-flutter/lib/features/groupbuy/groupbuy_redeem_page.dart`
 
 ### DONE-20260521-023 骑手在线自动派单与拒单顺延推进
 
@@ -387,7 +387,7 @@
 ### DONE-20260521-024 站长手动派单与骑手端首屏推进
 
 - 日期：2026-05-21
-- 结果：已补站长查看站点骑手、站长查看待调度订单和站长手动派单接口；手动派单要求同站点在线骑手且保证金/免押状态可接单，跨站点骑手对站长不可见不可派；BFF 已代理站长调度接口；骑手端 uni-app 已新增抢单大厅首屏和站长工作台首屏。
+- 结果：已补站长查看站点骑手、站长查看待调度订单和站长手动派单接口；手动派单要求同站点在线骑手且保证金/免押状态可接单，跨站点骑手对站长不可见不可派；BFF 已代理站长调度接口；骑手端 Flutter 已新增抢单大厅首屏和站长工作台首屏。
 - 验收证据：
   - `cd services/api-go && go test ./...`
   - `npm run test --workspace @infinitech/bff`
@@ -401,10 +401,10 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/server.mjs`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/rider-uni/pages.json`
-  - `apps/rider-uni/utils/api.js`
-  - `apps/rider-uni/pages/index/index.vue`
-  - `apps/rider-uni/pages/station/index.vue`
+  - `apps/rider-flutter/lib/router.dart`
+  - `apps/rider-flutter/lib/api/rider_api.dart`
+  - `apps/rider-flutter/lib/features/home/rider_home_page.dart`
+  - `apps/rider-flutter/lib/features/station/station_workspace_page.dart`
 
 ### DONE-20260521-025 站长任务时长和固定单量配置推进
 
@@ -423,8 +423,8 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/server.mjs`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/rider-uni/utils/api.js`
-  - `apps/rider-uni/pages/station/index.vue`
+  - `apps/rider-flutter/lib/api/rider_api.dart`
+  - `apps/rider-flutter/lib/features/station/station_workspace_page.dart`
 
 ### DONE-20260521-026 站点骑手绩效等级快照推进
 
@@ -443,8 +443,8 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/server.mjs`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/rider-uni/utils/api.js`
-  - `apps/rider-uni/pages/station/index.vue`
+  - `apps/rider-flutter/lib/api/rider_api.dart`
+  - `apps/rider-flutter/lib/features/station/station_workspace_page.dart`
 
 ### DONE-20260521-027 固定单量后免责拒派执行推进
 
@@ -459,7 +459,7 @@
   - `services/api-go/internal/platform/store.go`
   - `services/api-go/internal/platform/store_test.go`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/rider-uni/pages/index/index.vue`
+  - `apps/rider-flutter/lib/features/home/rider_home_page.dart`
 
 ### DONE-20260521-028 骑手取货送达履约流转推进
 
@@ -478,8 +478,8 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/server.mjs`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/rider-uni/utils/api.js`
-  - `apps/rider-uni/pages/index/index.vue`
+  - `apps/rider-flutter/lib/api/rider_api.dart`
+  - `apps/rider-flutter/lib/features/home/rider_home_page.dart`
 
 ### DONE-20260521-029 商户与骑手保证金首批闭环推进
 
@@ -498,8 +498,8 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/server.mjs`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/rider-uni/utils/api.js`
-  - `apps/rider-uni/pages/index/index.vue`
+  - `apps/rider-flutter/lib/api/rider_api.dart`
+  - `apps/rider-flutter/lib/features/home/rider_home_page.dart`
 
 ### DONE-20260521-030 骑手与站长邀约注册闭环推进
 
@@ -518,8 +518,8 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/server.mjs`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/rider-uni/utils/api.js`
-  - `apps/rider-uni/README.md`
+  - `apps/rider-flutter/lib/api/rider_api.dart`
+  - `apps/rider-flutter/README.md`
 
 ### DONE-20260521-031 PostgreSQL 持久化第一阶段
 
@@ -576,7 +576,7 @@
 ### DONE-20260521-034 骑手/站长主体登录闭环
 
 - 日期：2026-05-21
-- 结果：已把骑手/站长邀约注册升级为设置账号密码，密码使用 bcrypt 哈希保存；新增 `POST /api/auth/rider/login`，骑手和站长可用 `account_id + password` 登录并签发 session-backed token；错误密码返回 `INVALID_CREDENTIALS` 401；PostgreSQL snapshot 已持久化 rider password hash，重启后主体登录不丢；BFF 已代理骑手登录；骑手端 uni-app API 工具已支持接受邀约带密码、账号密码登录，并按账号类型保存 rider/station manager token。
+- 结果：已把骑手/站长邀约注册升级为设置账号密码，密码使用 bcrypt 哈希保存；新增 `POST /api/auth/rider/login`，骑手和站长可用 `account_id + password` 登录并签发 session-backed token；错误密码返回 `INVALID_CREDENTIALS` 401；PostgreSQL snapshot 已持久化 rider password hash，重启后主体登录不丢；BFF 已代理骑手登录；骑手端 Flutter API 工具已支持接受邀约带密码、账号密码登录，并按账号类型保存 rider/station manager token。
 - 验收证据：
   - `cd services/api-go && go test ./...`
   - `npm run test --workspace @infinitech/bff`
@@ -590,14 +590,14 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/server.mjs`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/rider-uni/utils/api.js`
+  - `apps/rider-flutter/lib/api/rider_api.dart`
   - `services/api-go/go.mod`
   - `services/api-go/go.sum`
 
 ### DONE-20260522-035 商户/管理员主体登录闭环
 
 - 日期：2026-05-22
-- 结果：已把商户邀约注册升级为必须设置账号密码，密码使用 bcrypt 哈希保存；新增 `POST /api/auth/merchant/login`，商户可用 `account_id + password` 登录并签发 session-backed merchant token，错误密码返回 `INVALID_CREDENTIALS` 401；PostgreSQL snapshot 已持久化 merchant password hash，重启后商户主体登录不丢；新增 `POST /api/auth/admin/login`，管理员 bootstrap 密码登录默认关闭、无内置默认密码，仅同时配置 `ADMIN_BOOTSTRAP_ACCOUNT_ID` 和 `ADMIN_BOOTSTRAP_PASSWORD` 且密码长度 8-72 字节时启用；BFF 已代理商户登录和管理员登录；商户端 uni-app API 工具已支持邀请注册带密码、账号密码登录，并在匿名注册/登录时不携带开发 token。
+- 结果：已把商户邀约注册升级为必须设置账号密码，密码使用 bcrypt 哈希保存；新增 `POST /api/auth/merchant/login`，商户可用 `account_id + password` 登录并签发 session-backed merchant token，错误密码返回 `INVALID_CREDENTIALS` 401；PostgreSQL snapshot 已持久化 merchant password hash，重启后商户主体登录不丢；新增 `POST /api/auth/admin/login`，管理员 bootstrap 密码登录默认关闭、无内置默认密码，仅同时配置 `ADMIN_BOOTSTRAP_ACCOUNT_ID` 和 `ADMIN_BOOTSTRAP_PASSWORD` 且密码长度 8-72 字节时启用；BFF 已代理商户登录和管理员登录；商户端 Flutter API 工具已支持邀请注册带密码、账号密码登录，并在匿名注册/登录时不携带开发 token。
 - 验收证据：
   - `cd services/api-go && go test ./...`
   - `npm run test --workspace @infinitech/bff`
@@ -614,8 +614,8 @@
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/server.mjs`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/merchant-uni/utils/api.js`
-  - `apps/merchant-uni/README.md`
+  - `apps/merchant-flutter/lib/api/merchant_api.dart`
+  - `apps/merchant-flutter/README.md`
   - `README.md`
   - `PLATFORM_MASTER_PLAN.md`
   - `docs/product/commercial-readiness-checklist.md`
@@ -1098,7 +1098,7 @@
 ### DONE-20260522-056 商户资质员工资料端到端首版
 
 - 日期：2026-05-22
-- 结果：已把商户员工健康证和补充资料从后端模型推进到商户端首批闭环：Store/HTTP 测试覆盖员工资料读取、保存、健康证失效日期校验、跨商户店铺写入隐藏，以及补充资料读取/提交和跨商户写入隐藏；BFF 已代理 `merchant/me`、资质、员工、补充资料路径并覆盖 Authorization 转发；商户端 uni-app 新增“资质资料”页面，可查看接单门槛、资质缺失、保证金状态、员工健康证和补充资料，并提交营业执照、健康证、员工信息和门头/后厨等资料。
+- 结果：已把商户员工健康证和补充资料从后端模型推进到商户端首批闭环：Store/HTTP 测试覆盖员工资料读取、保存、健康证失效日期校验、跨商户店铺写入隐藏，以及补充资料读取/提交和跨商户写入隐藏；BFF 已代理 `merchant/me`、资质、员工、补充资料路径并覆盖 Authorization 转发；商户端 Flutter 新增“资质资料”页面，可查看接单门槛、资质缺失、保证金状态、员工健康证和补充资料，并提交营业执照、健康证、员工信息和门头/后厨等资料。
 - 验收证据：
   - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
   - `npm run test --workspace @infinitech/bff`
@@ -1107,11 +1107,11 @@
   - `services/api-go/internal/platform/store_test.go`
   - `services/api-go/internal/httpapi/router_test.go`
   - `services/bff/src/runtime.test.mjs`
-  - `apps/merchant-uni/utils/api.js`
-  - `apps/merchant-uni/pages.json`
-  - `apps/merchant-uni/pages/index/index.vue`
-  - `apps/merchant-uni/pages/compliance/index.vue`
-  - `apps/merchant-uni/README.md`
+  - `apps/merchant-flutter/lib/api/merchant_api.dart`
+  - `apps/merchant-flutter/lib/router.dart`
+  - `apps/merchant-flutter/lib/features/home/merchant_home_page.dart`
+  - `apps/merchant-flutter/lib/features/compliance/merchant_compliance_page.dart`
+  - `apps/merchant-flutter/README.md`
   - `EXECUTION_LEDGER.md`
   - `PLATFORM_MASTER_PLAN.md`
   - `docs/product/commercial-readiness-checklist.md`
@@ -1708,7 +1708,7 @@
 ### DONE-20260522-083 BFF 浏览器 CORS 白名单首版
 
 - 日期：2026-05-22
-- 结果：BFF 新增浏览器来源白名单和 `OPTIONS` 预检处理，默认允许本地管理端/uni 调试来源，并支持通过 `BFF_ALLOWED_ORIGINS` 配置生产或测试来源。管理端从静态预览页访问 BFF 时，`Authorization`、`Content-Type` 和 `X-Client-Kind` 头已被明确允许，`/api/admin/operations/snapshot` 代理响应会返回匹配的 `Access-Control-Allow-Origin`。非法来源会得到 `FORBIDDEN_ORIGIN`，不返回跨域放行头；后台带 token 的接口不接受 `*` 通配来源。
+- 结果：BFF 新增浏览器来源白名单和 `OPTIONS` 预检处理，默认允许本地管理端/Flutter 调试来源，并支持通过 `BFF_ALLOWED_ORIGINS` 配置生产或测试来源。管理端从静态预览页访问 BFF 时，`Authorization`、`Content-Type` 和 `X-Client-Kind` 头已被明确允许，`/api/admin/operations/snapshot` 代理响应会返回匹配的 `Access-Control-Allow-Origin`。非法来源会得到 `FORBIDDEN_ORIGIN`，不返回跨域放行头；后台带 token 的接口不接受 `*` 通配来源。
 - 验收证据：
   - `npm run test --workspace @infinitech/bff`
   - `npm run verify:architecture`
@@ -2477,27 +2477,2696 @@
   - `docs/product/commercial-readiness-checklist.md`
   - `EXECUTION_LEDGER.md`
 
+### DONE-20260524-111 管理端 P0 业务详情面板首版
+
+- 日期：2026-05-24
+- 结果：Admin Web 新增 `adminDetails` 业务详情适配层，订单、售后、商户、骑手/站长、骑手绩效、派单、审计、退款策略和权限治理表格行可打开详情面板。详情面板展示当前行字段、模块化核查清单和下一步操作按钮，可把运营人员直接带到订单状态补偿、审计检索、Outbox 事件、对象清理候选、退款策略、RBAC 策略/申请等已有操作入口。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+- 当前边界：这是管理端 P0 行详情与下一步动作首版，仍不是完整后端明细接口、业务分页筛选、资质/售后审核表单、二次确认、操作结果追踪或字段级/租户级 RBAC。
+- 文件：
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260524-112 管理端高风险操作二次确认与结果追踪首版
+
+- 日期：2026-05-24
+- 结果：Admin Web 新增 `adminOperations` 高风险操作适配层，邀约、退款策略、审计导出/告警/归档、RBAC 变更、Outbox 批量恢复和订单状态补偿执行前会进入 `pending_confirmation` 确认面板。确认面板展示方法、路径、区域、风险原因和提交参数快照；确认执行后会在操作台保留最近结果，展示成功/失败、状态、请求路径和返回消息。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+- 当前边界：这是管理端高危操作防误触和最近结果追踪首版，仍不是后端任务级异步进度、失败重试回放中心、审核表单全链路或生产事故工单闭环。
+- 文件：
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260524-113 管理端失败回放入口首版
+
+- 日期：2026-05-24
+- 结果：Admin Web 操作结果追踪中的失败记录新增“重试”入口。重试会恢复原操作和参数快照；高风险操作不会直接重放，而是重新进入 `pending_confirmation` 二次确认面板，避免绕过人工确认。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - 本地浏览器打开 `http://127.0.0.1:4174/apps/admin-web/index.html`，确认失败记录出现“重试”，点击后恢复“保存退款策略”并重新进入“需二次确认”面板，参数快照保留，console error 为 0。
+- 当前边界：这是最近失败结果的一键回放入口首版，仍不是后端任务级异步进度、批量失败重试队列、事故工单或按审计事件重放的生产恢复中心。
+- 文件：
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260524-114 管理端 P0 业务筛选分页首版
+
+- 日期：2026-05-24
+- 结果：Admin Web 新增 `adminTable` 表格适配层，P0 业务视图支持关键字筛选、每页 4/10/20 条和上一页/下一页控制。筛选分页会保留原始行索引，详情按钮仍打开正确业务行。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - 本地浏览器打开 `http://127.0.0.1:4174/apps/admin-web/index.html`，进入“订单监控”后筛选“康宁”只剩 1 条，分页计数显示 `第 1/1 页 · 1 条`，清除后恢复全表，console error 为 0。
+- 当前边界：这是前端 P0 业务视图筛选分页首版，仍不是后端分页游标、服务端复杂筛选、导出任务或审核表单全链路。
+- 文件：
+  - `apps/admin-web/src/adminTable.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-115 管理端售后审核表单首版
+
+- 日期：2026-05-25
+- 结果：Admin Web 操作目录新增 `after-sales-review`，连接现有 `POST /api/after-sales/{requestID}/review` 原子审计路径。售后审核模块和售后详情抽屉可预填工单 ID、审核结果、审核原因、退款去向和退款幂等键；该操作已纳入高风险操作，执行前进入二次确认，确认面板展示方法、路径、区域和参数快照。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - 本地浏览器打开 `http://127.0.0.1:4174/apps/admin-web/index.html`，进入“售后审核”后点击“审核售后”，确认表单预填 `asr_231`、`approve`、`证据核验通过`、`balance` 和 `after_sales:asr_231`；点击“进入确认”后出现“需二次确认”面板，路径为 `/api/after-sales/:request_id/review`，console error 为 0。打开首行详情后点击详情内“审核售后”同样可预填工单参数。
+- 当前边界：这是前端售后审核表单和二次确认首版，复用后端已有原子审计路径；仍不是后端售后明细接口、证据时间线辅助判断、批量审核、资质审核表单、退款/outbox 运维表单或字段级/租户级 RBAC。
+- 文件：
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-116 管理端订单退款表单首版
+
+- 日期：2026-05-25
+- 结果：Admin Web 操作目录新增 `order-refund`，连接现有 `POST /api/orders/{orderID}/refund` 原子审计路径。订单监控模块和订单详情抽屉可预填订单 ID、退款原因、退款幂等键、可选退款金额和退款去向；该操作已纳入高风险操作，执行前进入二次确认，确认面板展示方法、路径、区域和参数快照。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - 本地浏览器打开 `http://127.0.0.1:4174/apps/admin-web/index.html`，进入“订单监控”后点击“订单退款”，确认表单预填 `ord_10031`、`客服确认退款`、`refund_ord_10031` 和 `balance`；点击“进入确认”后出现“需二次确认”面板，路径为 `/api/orders/:order_id/refund`，console error 为 0。打开首行详情后点击详情内“订单退款”同样可预填订单退款参数。
+- 当前边界：这是前端订单退款表单和二次确认首版，复用后端已有原子审计路径；仍不是订单后端明细接口、退款审批流、对账工作台、真实微信原路退款 API 闭环或字段级/租户级 RBAC。
+- 文件：
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-117 管理端 Outbox 单事件恢复表单首版
+
+- 日期：2026-05-25
+- 结果：Admin Web 操作目录新增 `outbox-replay-event`，连接现有 `POST /api/admin/outbox/events/{eventID}/replay` 原子审计路径。运营首页和 Outbox 队列详情抽屉可预填事件 ID；该操作已纳入高风险操作，执行前进入二次确认，确认面板展示方法、路径、区域、风险原因和参数快照，避免运维误触可靠投递重放。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - 本地浏览器打开 `http://127.0.0.1:4174/apps/admin-web/index.html`，在“运营首页”点击“恢复单个 Outbox”，确认操作台选择“恢复单个 Outbox”、`event_id` 预填 `obe_1`、按钮显示“进入确认”；点击后出现“需二次确认”面板，路径为 `/api/admin/outbox/events/:event_id/replay`，风险原因为“恢复单个 outbox 事件，可能触发一次可靠投递重试”，浏览器日志为空。打开“Outbox”队列详情后点击详情内“恢复单个 Outbox”同样可预填 `obe_1`。
+- 当前边界：这是前端 Outbox 单事件恢复表单和二次确认首版，复用后端已有原子审计路径；仍不是完整 outbox 事故中心、broker 运维台、dead-letter 分诊自动化、生产告警联动或多租户/字段级权限闭环。
+- 文件：
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-118 管理端 Outbox 发布/失败人工处置表单首版
+
+- 日期：2026-05-25
+- 结果：Admin Web 操作目录新增 `outbox-mark-failed` 和 `outbox-mark-published`，连接现有 `POST /api/admin/outbox/events/{eventID}/failed` 与 `POST /api/admin/outbox/events/{eventID}/published` 原子审计路径。运营首页和 Outbox 队列详情抽屉可预填事件 ID、失败原因、重试延迟和最大尝试次数；两个动作均纳入高风险操作，执行前进入二次确认，确认面板展示方法、路径、区域、风险原因和参数快照。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - 本地浏览器打开 `http://127.0.0.1:4174/apps/admin-web/index.html`，在“运营首页”点击“标记 Outbox 失败”，确认表单预填 `obe_1`、`relay down`、`120`、`10`，点击“进入确认”后出现“需二次确认”面板，路径为 `/api/admin/outbox/events/:event_id/failed`。点击“标记 Outbox 已发布”后同样进入二次确认，路径为 `/api/admin/outbox/events/:event_id/published`。打开“Outbox”队列详情后确认详情内存在“标记 Outbox 失败”和“标记 Outbox 已发布”，浏览器日志为空。
+- 当前边界：这是前端 Outbox 人工 ACK/FAIL 处置表单和二次确认首版，复用后端已有原子审计路径；仍不是完整 outbox 事故中心、claim/lease 运营表单、broker 运维台、dead-letter 分诊自动化、生产告警联动或多租户/字段级权限闭环。
+- 文件：
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-119 管理端 Outbox 领取/续租表单首版
+
+- 日期：2026-05-25
+- 结果：Admin Web 操作目录新增 `outbox-claim-events` 和 `outbox-renew-lease`，连接现有 `POST /api/admin/outbox/events/claim` 与 `POST /api/admin/outbox/events/{eventID}/lease/renew` 原子审计路径。运营首页和 Outbox 队列详情抽屉可预填 topic、limit、lease owner、lease seconds 和事件 ID；两个动作均纳入高风险操作，执行前进入二次确认，确认面板展示方法、路径、区域、风险原因和参数快照。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - 本地浏览器打开 `http://127.0.0.1:4174/apps/admin-web/index.html`，在“运营首页”点击“领取 Outbox 租约”，确认表单预填 `order.paid`、`10`、`relay-admin`、`60`，点击“进入确认”后出现“需二次确认”面板，路径为 `/api/admin/outbox/events/claim`。点击“续租 Outbox 租约”后确认表单预填 `obe_1`、`relay-admin`、`60`，二次确认路径为 `/api/admin/outbox/events/:event_id/lease/renew`。打开“Outbox”队列详情后确认详情内存在“领取 Outbox 租约”和“续租 Outbox 租约”，浏览器日志为空。
+- 当前边界：这是前端 Outbox 租约领取/续租处置表单和二次确认首版，复用后端已有原子审计路径；仍不是完整 outbox 事故中心、broker 运维台、dead-letter 分诊自动化、生产告警联动或多租户/字段级权限闭环。
+- 文件：
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-120 管理端 Outbox 死信分诊/解封表单首版
+
+- 日期：2026-05-25
+- 结果：Admin Web 操作目录新增 `outbox-dead-letter-triage` 和 `outbox-release-dead-letter`，复用现有 `GET /api/admin/outbox/events?status=dead_letter` 与 `POST /api/admin/outbox/events/{eventID}/replay` 原子审计路径。运营首页、今日队列和 Outbox 队列详情抽屉可预填 `topic=order.paid`、`status=dead_letter`、`limit=20` 和死信事件 ID；死信解封已纳入高风险操作，执行前进入二次确认，确认面板展示方法、路径、区域、风险原因和参数快照。
+- 验收证据：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - 本地浏览器打开 `http://127.0.0.1:4174/apps/admin-web/index.html`，在“运营首页”点击“Outbox 死信分诊”，确认操作台选择“Outbox 死信分诊”、`topic` 预填 `order.paid`、`status` 预填 `dead_letter`、`limit` 预填 `20`，按钮显示“执行”且不出现二次确认。点击“解封 Outbox 死信”后确认表单预填 `obe_dead_1`，按钮显示“进入确认”；点击后出现“需二次确认”面板，路径为 `/api/admin/outbox/events/:event_id/replay`，风险原因为“解封 outbox dead-letter 事件，可能重新触发可靠投递”。打开“Outbox”队列详情后确认详情内存在“分诊 Outbox 死信”和“解封 Outbox 死信”，浏览器日志为空。
+- 当前边界：这是前端 Outbox 死信分诊和解封确认首版，复用后端已有查询/replay 原子审计路径；仍不是完整 outbox 事故中心、broker 运维台、毒消息根因分析、生产告警联动或多租户/字段级权限闭环。
+- 文件：
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/config.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `apps/admin-web/README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-121 商户资质审核后端与管理端表单首版
+
+- 日期：2026-05-25
+- 结果：商户资质从“上传即通过”改为待审闭环，`POST /api/merchant/qualifications` 只写入 `pending_review`，营业执照/健康证必须经后台 `POST /api/admin/merchant-qualifications/{qualificationID}/review` 审核通过后才计入商户接单资格。新增 `merchant:qualification_review` scope 和 `CanReviewMerchantQualifications` 权限边界，`ops_admin` 可审核、`support_admin` 不可审核；审核写入 `admin.merchant_qualification.reviewed` 审计，PostgreSQL-backed Store 在同一事务内更新资质、审计和快照。BFF 已允许该后台路径，Admin Web 商户模块和详情抽屉已新增“审核商户资质”表单，并纳入高风险二次确认。
+- 验收证据：
+  - `go test -count=1 ./internal/platform -run 'TestMerchantInviteRegistrationAndQualificationGate|TestReviewMerchantQualification'`
+  - `go test -count=1 ./internal/httpapi -run 'TestMerchantInviteRegisterAndQualificationHTTPFlow|TestAdminMerchantQualificationReviewHTTPUsesAtomicAuditRepositoryPath|TestBackofficeRBAC'`
+  - `npm test --workspace @infinitech/bff`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - `npm run verify`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - 本地浏览器打开 `http://127.0.0.1:4174/apps/admin-web/index.html`，进入“商户资质”模块后点击“审核商户资质”，确认表单预填 `qualification_id=mq_merchant_19_health_certificate`、`merchant_id=merchant_19`、`decision=approve`、`reason=资质原件核验通过`，按钮显示“进入确认”；进入确认后展示路径 `/api/admin/merchant-qualifications/:qualification_id/review` 和风险原因“审核商户资质会改变商户接单资格和准入风控状态”。打开 `merchant_19` 行详情后，详情抽屉存在“审核商户资质”动作，点击后可回填同一组审核参数，浏览器日志为空。静态服务器已关闭。
+- 当前边界：这是商户主体资质审核和接单门槛的首版，不是完整资质中心；仍需补资质图片真实对象预览、OCR/人工复核队列、药房/医务室专项资质、员工健康证批量审核、过期前通知、字段级/租户级权限和审核 SLA/申诉流程。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/auth.go`
+  - `services/api-go/internal/httpapi/auth_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/config.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `apps/admin-web/README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-122 Outbox 单事件事故辅助明细首版
+
+- 日期：2026-05-25
+- 结果：新增 `GET /api/admin/outbox/events/{eventID}` 只读明细接口，由 `outbox:read` 权限守护，内存 Store 与 PostgreSQL-backed Store 均返回一致的事故辅助信息：事件状态、ready/blocked/lease 信号、retry/lease 剩余秒数、payload 摘要、关联业务目标、最近 outbox 审计、推荐下一步操作和人工处置核查清单。BFF 已允许该路径，Admin Web 操作目录新增 `outbox-event-detail`，运营首页和 Outbox 队列详情抽屉可预填 `event_id` 查看明细，再转入恢复、领取、续租或审计。
+- 验收证据：
+  - `go test -count=1 ./internal/platform -run 'TestOutboxEventDetailBuildsIncidentAssist|TestOutboxFailedBackoffAndPublishedAck'`
+  - `go test -count=1 ./internal/httpapi -run 'TestAdminOutboxEventDetailHTTPFlow|TestAdminReplayOutboxEventsHTTPFlow'`
+  - `npm test --workspace @infinitech/bff`
+  - `npm test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+- 当前边界：这是 Outbox 单事件事故辅助明细首版，仍不是完整事故中心；后续还需要接真实 broker 指标、告警事件联动、死信根因分类、自动化 runbook、跨租户字段级权限和生产值班截图归档。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `apps/admin-web/README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-123 商户资质待审列表与明细接口首版
+
+- 日期：2026-05-25
+- 结果：新增 `GET /api/admin/merchant-qualifications` 和 `GET /api/admin/merchant-qualifications/{qualificationID}`，复用 `merchant:qualification_review` 权限，运营可按状态/商户/资质类型查询待审资质，并打开单条资质明细查看商户账号、店铺、保证金、缺失资质、接单资格、事故状态、最近 `admin.merchant_qualification.reviewed` 审计、推荐下一步动作和审核核查清单。BFF 已允许列表/明细路径，Admin Web 操作目录新增 `merchant-qualifications` 与 `merchant-qualification-detail`，运营首页、商户模块和商户详情抽屉可先查看待审上下文，再进入资质审核二次确认。
+- 验收证据：
+  - `go test -count=1 ./internal/platform -run 'TestAdminMerchantQualification|TestMerchantInviteRegistrationAndQualificationGate'`
+  - `go test -count=1 ./internal/httpapi -run 'TestAdminMerchantQualification'`
+  - `npm test --workspace @infinitech/bff -- --test-name-pattern "proxy"`
+  - `npm test --workspace @infinitech/admin-web -- --test-name-pattern "operation catalog|P0 business views|business detail|admin request builder|snapshot adapter"`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+  - 本地浏览器打开 `http://127.0.0.1:4174/apps/admin-web/index.html`，确认运营首页展示“商户资质待审列表”“商户资质明细”操作；切换到 `merchant-qualifications` 后默认 `status=pending_review`、`limit=20`，切换到 `merchant-qualification-detail` 后默认 `qualification_id=mq_merchant_19_health_certificate`、`audit_limit=20`，浏览器 console error 为空。静态服务器已关闭并确认端口不可连接。
+- 当前边界：这是资质审核工作台发现/明细首版，仍不是完整招商 CRM；后续还需要补真实文件预览/ OCR、法人主体一致性校验、过期提醒、补件消息触达、字段级/租户级权限和生产归档证据。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `apps/admin-web/README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-146 通知偏好变更灰度应用首版
+
+- 日期：2026-05-25
+- 结果：通知偏好治理从“审批后全量应用”继续推进到“审批时固化灰度范围、应用时按范围落账”。后端的通知偏好变更申请新增 `rollout` 策略，支持 `all`、`target_ids` 和 deterministic `percentage` 三种模式，并允许通过 `max_targets` 控制首批目标范围；申请审计写入 rollout、requested count 和 preference keys，审批后不能在应用阶段临时扩大范围。应用接口会按 rollout 计算实际写入的偏好，未命中的 preference key 不进入批量保存、不触发 `notification.preferences_changed`，并在 `admin.notification_preferences.change_applied` 审计中记录 applied/skipped preference keys、applied/skipped count 和 rollout 参数。申请台账可从审计日志恢复 rollout 和 applied/skipped 范围；Admin Web 提交通知偏好变更表单已新增灰度策略 JSON，BFF 和架构守卫覆盖透传与防退化。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run TestMerchantNotificationsHTTPFlow`
+  - `npm test --workspace @infinitech/admin-web`
+  - `npm test --workspace @infinitech/bff`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：这是通知偏好变更的首个可审计灰度应用能力，不是完整通知策略中心。策略升级批次、策略回滚、真实渠道账号、模板审批、provider sandbox/生产字段联调、跨端消息中心和生产告警联动仍待补。
+- 文件：
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `apps/admin-web/README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-145 通知偏好变更审批与应用首版
+
+- 日期：2026-05-25
+- 结果：通知偏好链路从“可批量保存多条偏好策略”继续推进到“关键偏好变更必须走申请、审批、手动应用闭环”。后端新增 `GET/POST /api/admin/notification-preferences/change-requests`，申请只写入 `admin.notification_preferences.change_requested` 审计，不直接修改偏好账本；新增 `POST /api/admin/notification-preferences/change-requests/{changeRequestID}/review`，支持另一名通知管理员审批或驳回并禁止申请人自审，审批结果写入 `admin.notification_preferences.change_reviewed`；新增 `POST /api/admin/notification-preferences/change-requests/{changeRequestID}/apply`，只允许 `approved` 申请进入批量保存原子路径，应用时同事务写入偏好、`notification.preferences_changed` outbox 和 `admin.notification_preferences.change_applied` 审计，申请人不能自己应用，驳回申请不能应用。申请台账可从审计日志重建并按 `pending_approval`、`approved`、`rejected`、`applied` 查询。BFF 已代理申请/审批/应用路由，Admin Web 通知运营操作目录已接入查询、提交、审批和应用动作，三类写动作均进入高风险二次确认。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run TestMerchantNotificationsHTTPFlow`
+  - `npm test --workspace @infinitech/admin-web`
+  - `npm test --workspace @infinitech/bff`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：这是通知偏好治理的审批与应用首版，不是完整通知策略治理中心。灰度应用已由后续 `DONE-20260525-146` 承接；真实渠道账号、模板审批、provider sandbox/生产字段联调、升级策略和跨端消息中心仍待补。
+- 文件：
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `apps/admin-web/README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-144 通知偏好批量保存与策略审计首版
+
+- 日期：2026-05-25
+- 结果：通知偏好链路从“单条偏好保存与事件失效”继续推进到“运营可批量保存多条偏好策略且证据闭环”。后端新增 `SaveNotificationPreferenceBatchRequest` 与 `NotificationPreferenceBatchSaveResult`，`POST /api/admin/notification-preferences/batch` 支持一次保存最多 50 条偏好策略并要求变更原因；同批重复 preference key 会被拒绝。内存 Store 会逐条保存偏好并生成 `notification.preferences_changed` outbox，批量动作写入 `admin.notification_preferences.batch_saved` 审计。PostgreSQL-backed Store 会在同一事务内 upsert 多条 `platform_notification_preferences`、插入对应 outbox 事件并写入批量审计。BFF 已允许该路由，Admin Web 通知运营页新增“批量保存通知偏好”操作，`preferences` JSON 与变更原因进入高风险二次确认。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview'`
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow'`
+  - `npm test --workspace @infinitech/admin-web`
+  - `npm test --workspace @infinitech/bff`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：这是批量策略保存与审计首版，不是完整通知策略治理中心。通知偏好审批应用已由后续 `DONE-20260525-145` 承接；策略灰度、真实渠道账号、模板审批、provider sandbox/生产字段联调、升级策略和跨端消息中心仍待补。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/README.md`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-143 通知偏好变更事件与 worker 主动失效首版
+
+- 日期：2026-05-25
+- 结果：通知偏好链路从“worker 有短 TTL 缓存”继续推进到“偏好变更可通过可靠事件驱动缓存失效”。保存通知偏好时，内存 Store 与 PostgreSQL-backed Store 都会生成 `notification.preferences_changed` outbox 事件，payload 携带 `preference_key`、`preference_keys`、目标角色/ID、通知类型、渠道和静默窗口；PostgreSQL 保存路径会在同一事务内 upsert 偏好并插入 outbox。outbox relay 默认 topic、Docker Compose 和 K8s 配置已加入该事件。`notification-worker` 订阅 `notification.preferences_changed`，新增 `notificationPreferenceInvalidationKeys` 与 `invalidateNotificationPreferenceCache`，消费该事件时只删除对应 resolver 缓存 key，不会误创建站内通知。
+- 验收证据：
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm test --workspace @infinitech/outbox-relay-worker`
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow'`
+  - `cd services/api-go && go test -count=1 ./internal/platform`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：这是偏好变更可靠事件和 worker 本地缓存主动失效首版，不是完整通知策略治理中心。批量策略已由后续 `DONE-20260525-144` 承接，通知偏好审批应用已由后续 `DONE-20260525-145` 承接；策略灰度、真实渠道账号、模板审批、provider sandbox/生产字段联调、升级策略和跨端消息中心仍待补。
+- 文件：
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `services/outbox-relay-worker/src/index.mjs`
+  - `services/outbox-relay-worker/src/index.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-142 通知 worker 偏好缓存与失败关闭首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“worker 每次投递前精确读取后端偏好”继续推进到“高频投递可控缓存、偏好服务抖动不绕过用户选择”。`createNotificationPreferenceResolver` 新增按 preference key 的内存缓存，默认 `NOTIFICATION_PREFERENCE_CACHE_TTL_MS=30000`、`NOTIFICATION_PREFERENCE_CACHE_STALE_MS=300000`、`NOTIFICATION_PREFERENCE_CACHE_MAX_KEYS=500`；新鲜缓存命中时不再重复请求 `/api/admin/notification-preferences`，TTL 过期后会刷新，刷新失败且仍在 stale 窗口内会继续使用旧偏好，避免服务短抖动导致外部渠道误触达；没有可用缓存时仍抛出错误，由 dispatcher 把外部 provider 投递转为 `queued + notification_preference_lookup_failed`。Docker Compose、K8s 和架构守卫已加入缓存参数位。
+- 验收证据：
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：这是单 worker 进程内短 TTL 缓存和 stale-if-error 失败关闭首版。偏好变更事件驱动主动失效已由后续 `DONE-20260525-143` 承接，批量保存和审批应用已由后续 `DONE-20260525-144`/`DONE-20260525-145` 承接；真实渠道账号、模板审批、provider sandbox/生产字段联调、升级策略和跨端消息中心仍待补。
+- 文件：
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-141 用户端通知偏好设置首版
+
+- 日期：2026-05-25
+- 结果：通知偏好链路从“商户和运营可配置”继续推进到“用户可在小程序端自助配置”。后端新增 `GET/PUT /api/user/notification-preferences`，用户角色只能读写自己的 `target_role=user` 偏好，管理员可按授权目标查询；保存时服务端会强制覆盖请求里的 `target_role/target_id`，避免用户越权写入商户或其他用户偏好。BFF 已放行用户端 GET/PUT 路由，用户小程序 API client 新增 `getUserNotificationPreferences` 和 `saveUserNotificationPreference`，首页新增“通知偏好”入口，`pages/notification-preferences/index` 可按 `order.status_changed`、`after_sales.updated`、`coupon.campaign` 配置微信订阅、短信、App Push 开关、静默时段和静默渠道。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow'`
+  - `npm test --workspace @infinitech/bff`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：这是用户端通知偏好 UI 与 API 首版，不等于真实触达渠道生产可用。偏好缓存与失败关闭首版已由后续 `DONE-20260525-142` 承接，偏好变更主动失效已由后续 `DONE-20260525-143` 承接，批量保存和审批应用已由后续 `DONE-20260525-144`/`DONE-20260525-145` 承接；真实短信/企业微信/订阅消息/push 生产账号、模板审批、provider sandbox/生产字段联调、升级策略和跨端消息中心仍待补。
+- 文件：
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/app.json`
+  - `apps/user-wechat-miniprogram/pages/index/index.ts`
+  - `apps/user-wechat-miniprogram/pages/notification-preferences/index.ts`
+  - `apps/user-wechat-miniprogram/pages/notification-preferences/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/notification-preferences/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/notification-preferences/index.json`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-140 管理端通知偏好操作入口首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“商户可自助配置偏好”继续推进到“运营可在 Admin Web 读取和维护目标通知偏好”。Admin Web 操作目录新增 `notification-preferences` 和 `notification-preference-save`，可调用运营侧 `GET/PUT /api/admin/notification-preferences`；通知运营页新增偏好查询/保存快捷动作，通知详情抽屉会按目标商户、来源 topic 和失败渠道预填 `target_role`、`target_id`、`notification_type`、`disabled_channels` 和 `quiet_hours` JSON。保存通知偏好会进入高风险二次确认，理由明确提示会改变外部触达渠道和静默窗口；请求构造支持 `json` 字段类型，可把表单 JSON 解析成 `quiet_hours` 对象，非法 JSON 会阻断请求。
+- 验收证据：
+  - `npm test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：这是管理端通知偏好操作入口首版，不是完整通知策略中心。用户端通知偏好 UI 已由后续 `DONE-20260525-141` 承接，偏好缓存与失败关闭首版已由后续 `DONE-20260525-142` 承接，偏好变更主动失效已由后续 `DONE-20260525-143` 承接，批量保存和审批应用已由后续 `DONE-20260525-144`/`DONE-20260525-145` 承接；真实短信/企业微信/订阅消息/push 生产账号、模板审批、provider sandbox/生产字段联调、升级策略和跨端消息中心仍待补。
+- 文件：
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `apps/admin-web/README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-139 商户端通知偏好设置首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“后端有偏好账本、worker 会读取”继续推进到“商户能在端侧自助配置偏好”。`apps/merchant-flutter` 新增 `lib/features/notifications/merchant_notification_preferences_page.dart` 和首页“通知”入口，商户可按 `order.status_changed`、`merchant.qualification_reviewed` 配置微信订阅、短信、企业微信和端内 Push 的外部渠道开关，也可开启静默时段，设置开始/结束时间、时区和静默渠道。商户端 API client 新增 `getMerchantNotificationPreferences` 与 `saveMerchantNotificationPreference`，直接调用 `GET/PUT /api/merchant/notification-preferences`，保存后的 `disabled_channels` 和 `quiet_hours` 进入后端偏好账本，供 `notification-worker` 投递前读取。架构守卫已覆盖页面路径、首页入口、API client、通知类型、渠道字段和静默 payload。
+- 验收证据：
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：这是商户端通知偏好 UI 首版，不等于真实触达渠道生产可用。管理端偏好操作入口已由后续 `DONE-20260525-140` 承接，用户端偏好 UI 已由后续 `DONE-20260525-141` 承接，偏好变更主动失效已由后续 `DONE-20260525-143` 承接，批量保存和审批应用已由后续 `DONE-20260525-144`/`DONE-20260525-145` 承接；真实短信/企业微信/订阅消息/push 生产账号、渠道模板审批、provider 字段映射/sandbox 联调、升级策略和跨端消息中心仍待补。
+- 文件：
+  - `apps/merchant-flutter/lib/features/notifications/merchant_notification_preferences_page.dart`
+  - `apps/merchant-flutter/lib/features/home/merchant_home_page.dart`
+  - `apps/merchant-flutter/lib/router.dart`
+  - `apps/merchant-flutter/lib/api/merchant_api.dart`
+  - `apps/merchant-flutter/README.md`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-138 通知静默到期自动扫描调度首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“运营可手动把静默 queued 回执调度成延迟重投”继续推进到“静默窗口结束后可自动扫描到期回执并调度可靠重投”。quiet-window provider 抑制回执现在会记录静默结束 `retry_at`；`GET /api/admin/notification-deliveries` 支持 `retry_at_before`，后台新增 `POST /api/admin/notification-deliveries/quiet-window-retries/schedule`，按 `status=queued`、`error_code=notification_quiet_window` 和 `retry_at<=now` 扫描到期回执，再生成 `notification.delivery_retries` 延迟 outbox。`notification-worker` 新增静默重试调度器和周期循环，可通过 `NOTIFICATION_QUIET_RETRY_AUTO_SCHEDULE`、`NOTIFICATION_QUIET_RETRY_INTERVAL_MS` 和 `NOTIFICATION_QUIET_RETRY_LIMIT` 在部署侧开启；BFF allowlist、Admin Web 高风险操作目录/通知详情抽屉、Docker Compose、K8s 和架构守卫已接入。
+- 验收证据：
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm test --workspace @infinitech/admin-web`
+  - `npm test --workspace @infinitech/bff`
+  - `go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview'`
+  - `go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow'`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify:architecture`
+  - `npm run verify`
+- 当前边界：这是静默到期扫描与可靠重投调度首版，不等于真实通知渠道已经生产可用。商户端通知偏好 UI 已由后续 `DONE-20260525-139` 承接，管理端偏好操作入口已由后续 `DONE-20260525-140` 承接，用户端偏好 UI 已由后续 `DONE-20260525-141` 承接，批量保存和审批应用已由后续 `DONE-20260525-144`/`DONE-20260525-145` 承接；真实短信/企业微信/订阅消息/push 生产账号、渠道模板审批、provider 字段映射/sandbox 联调、升级策略和跨端消息中心仍待补。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-137 通知静默 queued 再投递调度首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“静默窗口只会生成 queued 回执”继续推进到“静默 queued 回执可被运营调度为延迟再投递”。`NotificationDeliveryRetryScheduleRequest` 新增 `status`、`error_code` 和 `retry_at`，默认仍兼容 failed 回执退避重试；`GET /api/admin/notification-deliveries` 支持 `error_code` 筛选。内存 Store 与 PostgreSQL-backed Store 可按 `status=queued`、`error_code=notification_quiet_window` 选出静默窗口回执，并生成 `notification.delivery_retries` outbox 事件，事件 `available_at` 对齐指定 `retry_at`，payload 继续携带原通知快照，worker 到点可按原通知重发 provider。Admin Web 通知回执查询新增错误码筛选，重试表单新增 queued/failed 状态、错误码和指定重试时间；重试计划通知正文会标出回执状态和错误码，方便运营辨认这是静默补发。
+- 验收证据：
+  - `npm test --workspace @infinitech/notification-worker`
+  - `go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview'`
+  - `go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow'`
+  - `npm test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+- 当前边界：这是静默回执到延迟重投的可运营调度首版；自动扫描已由后续 `DONE-20260525-138` 承接，商户端偏好 UI 已由后续 `DONE-20260525-139` 承接，管理端偏好操作入口已由后续 `DONE-20260525-140` 承接，用户端偏好 UI 已由后续 `DONE-20260525-141` 承接，批量保存和审批应用已由后续 `DONE-20260525-144`/`DONE-20260525-145` 承接；仍缺真实短信/企业微信/订阅消息/push 生产账号、渠道模板审批和 provider 字段联调。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-136 通知 worker 后端偏好读取首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“偏好可通过 API 持久化”继续推进到“worker provider 投递前实际读取后端偏好账本并执行”。后端通知偏好列表新增 `preference_key` 精确查询，便于按 `default`、目标角色、目标 ID、通知类型和目标+类型 key 读取规则。`notification-worker` 新增 `deliveryPreferencesFromRecords` 和 `createNotificationPreferenceResolver`，会调用 `/api/admin/notification-preferences?preference_key=...` 拉取后端偏好记录，并与静态 `NOTIFICATION_DELIVERY_PREFERENCES` 合并后进入 provider 投递决策。若偏好读取失败，外部渠道不调用 provider，而是生成 `queued` 回执并记录 `notification_preference_lookup_failed`，避免在偏好不确定时误触达。
+- 验收证据：
+  - `npm test --workspace @infinitech/notification-worker`
+  - `go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow'`
+  - `go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview'`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+- 当前边界：这是 worker 动态读取偏好首版；quiet-window 到期自动扫描已由后续 `DONE-20260525-138` 承接，商户端偏好 UI 已由后续 `DONE-20260525-139` 承接，管理端偏好操作入口已由后续 `DONE-20260525-140` 承接，用户端偏好 UI 已由后续 `DONE-20260525-141` 承接，批量保存和审批应用已由后续 `DONE-20260525-144`/`DONE-20260525-145` 承接；仍缺真实短信/企业微信/订阅消息/push 生产账号、渠道模板审批和 provider 字段联调。
+- 文件：
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-135 通知偏好后端账本与 API 首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“worker 可按环境配置执行偏好”继续推进到“偏好可持久化、可审计、可由商户/运营 API 维护”。新增 `NotificationPreference`、`NotificationQuietHours`、`SaveNotificationPreferenceRequest` 和 `NotificationPreferenceListRequest` 合约；内存 Store 与 PostgreSQL-backed Store 支持 `NotificationPreferences`、`SaveNotificationPreference` 和 `SaveNotificationPreferenceWithAudit`，PostgreSQL 路径新增 `platform_notification_preferences` 规范表、`preference_key` 唯一约束和目标/类型索引。HTTP 新增商户 `GET/PUT /api/merchant/notification-preferences` 与运营 `GET/PUT /api/admin/notification-preferences`，商户只能维护自身通知类型偏好，运营写入由 `notification:write` 守护并记录 `admin.notification_preferences.saved` 审计；BFF 已代理对应路径。
+- 验收证据：
+  - `go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview'`
+  - `go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow'`
+  - `npm test --workspace @infinitech/bff`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+- 当前边界：这是通知偏好后端账本与 API 首版；notification-worker 动态读取、静默窗口到期自动再投递、商户端 UI、管理端偏好操作入口、用户端偏好 UI、偏好变更主动失效、批量保存和审批应用已由后续增量承接，仍缺真实短信/企业微信/订阅消息/push 生产账号和渠道联调。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/auth.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-134 通知偏好与静默窗口首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“provider dispatch 可携带真实渠道模板”继续推进到“外部触达可按偏好和静默窗口控制”。`notification-worker` 新增 `normalizeDeliveryPreferences` 和 `notificationDeliveryPreferenceDecision`，可通过 `NOTIFICATION_DELIVERY_PREFERENCES` 解析偏好规则；规则按 `default`、`target_role`、`target_role:target_id`、`type:{notification_type}` 和 `target_role:target_id:{notification_type}` 合并，支持 `enabled_channels`、`disabled_channels` 与 `quiet_hours`。被偏好禁用或落入静默窗口的外部 provider 投递不会调用 provider endpoint/adapter，而是生成 `queued` 回执，分别写入 `notification_preference_disabled` 或 `notification_quiet_window` 原因，避免误触达又保留运营证据。Docker Compose 和 K8s 部署骨架已预留 `NOTIFICATION_DELIVERY_PREFERENCES`。
+- 验收证据：
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+- 当前边界：这是 worker 侧偏好过滤和静默窗口首版；偏好后端账本、quiet-window 到期自动扫描、端侧偏好设置 UI、批量保存和审批应用已由后续增量承接，仍缺策略灰度、升级策略、跨端消息中心和真实渠道生产联调。
+- 文件：
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-133 通知 provider 模板映射与渠道 payload 规范首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“provider 可发送、回调可验签入账”继续推进到“provider dispatch 可携带真实渠道模板和结构化 payload”。`notification-worker` 新增 `normalizeProviderTemplates`、`applyProviderTemplate` 和渠道 payload 构建逻辑，可通过 `NOTIFICATION_PROVIDER_TEMPLATES` 按 notification type/template_key、channel 和 provider 匹配模板配置。provider dispatch 现在会保留原有兼容字段，同时新增 `template_id`、`template_params` 和 `provider_payload`：微信订阅消息覆盖 `touser/template_id/page/data/lang`，短信覆盖 `phone/template_code/sign_name/params`，企业微信覆盖 `touser/agentid/msgtype/template_id/text/params`，push 覆盖 `audience/title/body/template_id/extras`。Docker Compose 和 K8s 部署骨架已预留 `NOTIFICATION_PROVIDER_TEMPLATES`，后续可注入审核后的渠道模板映射进入 sandbox/生产联调。
+- 验收证据：
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+- 当前边界：这是 provider 模板配置与渠道 payload 结构首版；偏好过滤、静默窗口和端侧偏好设置 UI 已由后续增量承接，仍缺真实短信、企业微信、微信订阅消息、push 生产账号、渠道模板审批、各 provider sandbox 字段联调、供应商配置审批、升级策略和跨端消息中心。
+- 文件：
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-132 通知 provider 回调验签入账首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“provider 可发送并写即时回执”继续推进到“外部 provider 异步回调可验签、可幂等入账”。API 新增公开回调入口 `POST /api/notifications/provider-callback`，接收 notification/channel/provider/status/provider message id、错误码、错误信息和 callback 时间；生产配置 `NOTIFICATION_PROVIDER_CALLBACK_SECRET` 后按 HMAC-SHA256 canonical lines 校验签名，缺失或错误签名返回 `INVALID_NOTIFICATION_PROVIDER_SIGNATURE`。回调入账会归一化 delivered/failed/queued 与时间字段，按 callback idempotency key、provider message id 或 notification/callback 时间生成幂等键，写入 `platform_notification_deliveries`，重复回调返回同一条投递回执。BFF 已代理该路径；`notification-worker` 新增 `signProviderCallback` 与 `normalizeProviderCallbackPayload`，便于 provider sandbox/mock 生成与后端一致的签名 payload；Docker Compose 与 K8s 部署骨架已预留 `NOTIFICATION_PROVIDER_CALLBACK_SECRET`/secretKeyRef。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow|TestNotificationProviderCallbackHTTPFlow'`
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm test --workspace @infinitech/bff`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+- 当前边界：这是通用 provider 回调安全边界和投递台账入账首版；模板 payload 规范和通知偏好 UI 已由后续增量承接，仍缺真实短信、企业微信、微信订阅消息、push 的生产账号、渠道模板审批、各 provider 字段映射/sandbox 联调、供应商配置审批、升级策略和跨端消息中心。
+- 文件：
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/api-go/cmd/api/main.go`
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-131 通知 provider 执行器首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“可编排重试”继续推进到“可生成真实渠道发送请求、可写回 provider 回执”。`notification.delivery_retries` outbox payload 新增原始 `notifications` 快照，重试任务不再只有失败回执 ID，而是携带原通知标题、正文、目标和类型，便于真实渠道重发。`notification-worker` 新增 provider dispatcher，可按 `NOTIFICATION_PROVIDER_CHANNELS` 处理初始通知，也可从 `notification.delivery_retries` 事件按失败回执生成短信、企业微信、微信订阅消息、push 的 provider dispatch；执行器会调用配置 endpoint/adapter，并把 delivered/failed、provider message id、错误码和错误信息写回 `/api/notifications/{notificationID}/deliveries`。未配置 provider endpoint 时会写回 `provider_not_configured` failed 回执，避免外部渠道还没触达却被误标成功。Docker Compose 和 K8s 部署骨架新增 `notification-worker` 及 provider endpoint/token 环境变量位。
+- 验收证据：
+  - `npm test --workspace @infinitech/notification-worker`
+  - `cd services/api-go && go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview'`
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow'`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+- 当前边界：这是 provider dispatch、endpoint/adapter 调用、失败回执写回和部署配置骨架首版；provider 回调验签入账和通知偏好 UI 已由后续增量承接，仍缺真实短信、企业微信、微信订阅消息、push 的生产账号、模板审批/映射、供应商配置审批、升级策略和跨端消息中心。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-130 通知失败重试编排首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“失败可告警”继续推进到“失败可按退避窗口可靠编排重试、可审计”。新增 `NotificationDeliveryRetrySchedule` 和 `POST /api/admin/notification-deliveries/retries/schedule`，由 `notification:write` scope 守护，运营可按 `target_role`、`target_id`、`channel`、`provider`、`limit`、`retry_after_seconds` 和 `now` 汇总 failed 投递回执并安排重试。内存 Store 与 PostgreSQL-backed Store 均会生成 `notification.delivery_retries` outbox 事件，事件类型为 `notification.delivery_retries.scheduled`，且 `available_at` 对齐 `retry_at`，让该事件只在 provider 退避窗口后进入 ready 队列；没有匹配失败回执时返回 skipped 并保留审计证据。调度动作写入 `admin.notification_delivery_retries.scheduled` 审计，payload 记录计划数量、渠道、provider、退避秒数、`retry_at`、重试策略、outbox event id 和幂等键。BFF 已代理该后台路径；Admin Web `notifications` 模块、通知详情抽屉和操作目录新增“安排投递重试”，可从失败行预填 `merchant_19`、`wechat_subscribe`、provider、limit 和默认退避秒数，并作为高风险动作进入二次确认。`notification-worker` 已订阅 `notification.delivery_retries`，生成面向安全/通知运营目标的重试计划通知 payload；outbox relay 默认 topic、Docker Compose 和 K8s 部署骨架已包含该 topic。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview'`
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow'`
+  - `npm test --workspace @infinitech/admin-web`
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm test --workspace @infinitech/bff`
+  - `npm test --workspace @infinitech/outbox-relay-worker`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+  - 本地 Playwright/Chromium 打开 `http://127.0.0.1:4177/apps/admin-web/index.html`，确认通知运营页展示“安排投递重试”，失败通知 `ntf_2` 详情抽屉包含该动作，点击后预填 `target_id=merchant_19`、`channel=wechat_subscribe`、`provider=wechat_subscribe`、`limit=20`、`retry_after_seconds=300`，并进入 `pending_confirmation` 高风险确认；浏览器 console error 和 page error 为空。静态服务器已关闭并确认端口不可连接。
+- 当前边界：这是可靠重试编排、延迟 outbox 和审计证据首版；provider 执行器骨架和通知偏好 UI 已由后续增量承接，仍缺真实短信、企业微信、微信小程序订阅消息、商户端 push 生产账号、模板映射、回调验签、供应商配置审批、跨端消息中心、升级策略和静默窗口。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminAudit.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `services/outbox-relay-worker/src/index.mjs`
+  - `services/outbox-relay-worker/src/index.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-129 通知失败回执告警首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“失败可查询”继续推进到“失败可可靠告警、可审计”。新增 `NotificationFailureAlertEmission` 和 `POST /api/admin/notification-deliveries/failure-alerts/emit`，由 `notification:write` scope 守护，运营可按 `target_role`、`target_id`、`channel`、`provider`、`limit` 和 `now` 汇总 failed 投递回执。内存 Store 与 PostgreSQL-backed Store 均会把匹配到的失败回执生成 `notification.delivery_failed_alerts` outbox 事件，事件类型为 `notification.delivery_failed_alerts.emitted`，并写入 `admin.notification_delivery_failure_alerts.emitted` 审计；无失败回执时返回 skipped，避免空告警污染队列。BFF 已代理该后台路径；Admin Web `notifications` 模块、通知详情抽屉和操作目录新增“投递失败告警”，可从失败行预填 `merchant_19`、`wechat_subscribe` 和 provider，并作为高风险动作进入二次确认。`notification-worker` 已订阅 `notification.delivery_failed_alerts`，生成面向安全目标的失败告警通知 payload；outbox relay 默认 topic、Docker Compose 和 K8s 部署骨架已包含该 topic。
+- 验收证据：
+  - `npm test --workspace @infinitech/admin-web`
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm test --workspace @infinitech/outbox-relay-worker`
+  - `npm test --workspace @infinitech/bff`
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow'`
+  - `cd services/api-go && go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview'`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+  - 本地浏览器打开 `http://127.0.0.1:4176/apps/admin-web/index.html`，确认通知运营页展示“投递失败告警”，失败通知 `ntf_2` 详情抽屉包含该动作，点击后预填 `target_id=merchant_19`、`channel=wechat_subscribe`、`provider=wechat_subscribe`、`limit=20`，并进入 `pending_confirmation` 高风险确认；浏览器 console error 为空。静态服务器已关闭并确认端口不可连接。
+- 当前边界：这是失败回执到可靠 outbox 告警和审计证据的首版；失败重试编排已由后续 `DONE-20260525-130` 承接，仍缺真实短信、企业微信、微信小程序订阅消息、商户端 push provider 执行器，升级策略、静默窗口、通知偏好和跨端消息中心 UI。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminAudit.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `services/outbox-relay-worker/src/index.mjs`
+  - `services/outbox-relay-worker/src/index.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-128 Admin Web 通知运营页首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“后端可查、回执可记”继续推进到“运营后台可用”。Admin Web `notifications` 模块已从 `planned` 调整为 `wired`，新增“通知运营”视图，展示未读站内信、失败回执、渠道和待接 provider 状态；操作目录新增 `notifications`、`notification-deliveries` 和 `notification-delivery-record`，分别调用 `GET /api/admin/notifications`、`GET /api/admin/notification-deliveries` 和 `POST /api/notifications/{notificationID}/deliveries`。通知详情抽屉可按通知 ID、商户目标、来源 topic、失败状态和渠道预填通知台账、回执查询、补录回执、通知审计和来源 outbox 查询动作；补录回执纳入高风险二次确认。Admin Web RBAC 同步补齐 `notification:read` 和 `notification:write`，`ops_admin` 可读写通知账本/回执，`support_admin` 可只读排查通知争议。
+- 验收证据：
+  - `npm test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：这是运营可视化和人工排查入口首版；失败回执告警和失败重试编排已由 `DONE-20260525-129` 与 `DONE-20260525-130` 承接，仍缺真实短信、企业微信、微信小程序订阅消息、商户端 push provider 执行器，通知偏好和跨端消息中心 UI。
+- 文件：
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminAudit.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/config.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-127 通知投递回执台账首版
+
+- 日期：2026-05-25
+- 结果：通知链路从“可写入、可查询”继续推进到“可证明投递、可排查失败”。新增 `PlatformNotificationDelivery` 回执账本，支持 `queued`、`delivered`、`failed` 状态，记录通知 ID、目标角色/对象、channel、provider、provider message id、错误码、错误信息、幂等键、attempted_at 和 delivered_at。内存 Store 与 PostgreSQL-backed Store 均新增 `RecordNotificationDelivery` 和 `NotificationDeliveries`；PostgreSQL 路径新增 `platform_notification_deliveries` 规范表、幂等唯一约束、通知/目标/渠道状态索引和快照恢复。HTTP 新增 `POST /api/notifications/{notificationID}/deliveries` 回执写入入口和 `GET /api/admin/notification-deliveries` 后台查询入口，BFF 已代理；notification-worker 写入 in-app 通知成功后会继续写入 delivered 回执，失败回执也可由后续外部渠道 worker 幂等记录。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview'`
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow|TestBackofficeRBACScopeMatrix'`
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm test --workspace @infinitech/bff`
+  - `npm run verify:architecture`
+- 当前边界：这是回执账本和 API 首版；Admin Web 通知运营页、失败回执告警和失败重试编排已由 `DONE-20260525-128`、`DONE-20260525-129` 与 `DONE-20260525-130` 承接，仍缺真实短信、企业微信、微信小程序订阅消息、商户端 push provider 执行器，通知偏好和跨端消息中心 UI。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-126 通知运营查询接口首版
+
+- 日期：2026-05-25
+- 结果：商户站内通知从“商户可见”继续推进到“运营可查”。新增 `notification:read` scope 和 `CanReadNotifications` 权限判断，`ops_admin` 可读写通知账本，`support_admin` 可只读排查，`security_auditor` 不能读取运营通知；新增 `GET /api/admin/notifications`，支持按 target role/id、状态、source topic/event 和 limit 查询通知账本。内存 Store 与 PostgreSQL 查询路径均支持来源过滤，并保持 target role/id 成对校验；BFF 已代理后台通知查询路径，架构守卫固定 RBAC、路由和 source 过滤。
+- 验收证据：
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow|TestBackofficeRBACScopeMatrix'`
+  - `cd services/api-go && go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview'`
+  - `npm test --workspace @infinitech/bff`
+  - `npm run verify:architecture`
+- 当前边界：这是后台通知账本查询 API 首版；投递回执、Admin Web 通知运营页和失败回执告警已由 `DONE-20260525-127`、`DONE-20260525-128` 和 `DONE-20260525-129` 承接，仍缺通知偏好、真实短信/企业微信/订阅消息/push 渠道和完整跨端消息中心。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/auth.go`
+  - `services/api-go/internal/httpapi/auth_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-125 商户站内通知中心首版
+
+- 日期：2026-05-25
+- 结果：商户资质审核结果从“可靠事件 + worker payload”继续推进到可见的站内通知账本。新增 `PlatformNotification`、创建/列表/已读请求、`in_app` 渠道和 `unread/read` 状态；内存 Store 与 PostgreSQL-backed Store 均支持通知幂等写入、按目标与状态查询和标记已读。PostgreSQL 路径已新增 `platform_notifications` 规范表、幂等键唯一约束、目标/状态/时间索引和 source 索引，并能从规范表恢复快照。HTTP 新增 `POST /api/notifications` worker/后台写入入口、`GET /api/merchant/notifications` 商户通知列表和 `POST /api/merchant/notifications/{notificationID}/read` 已读入口，BFF 已代理商户通知路径；`notification-worker` 可把 `merchant.qualification_reviewed` 等可靠事件规范化为站内通知创建请求并携带 worker token 写入 API，架构守卫固定链路。
+- 验收证据：
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm test --workspace @infinitech/bff`
+  - `cd services/api-go && go test -count=1 ./internal/platform -run 'TestMerchantNotificationCenterStoresAndReadsQualificationReview|TestAdminMerchantQualificationQueueAndDetail'`
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestMerchantNotificationsHTTPFlow|TestBackofficeRBACScopeMatrix'`
+  - `cd services/api-go && go test -count=1 ./internal/httpapi -run 'TestAdminMerchantQualification|TestMerchantInviteRegisterAndQualificationHTTPFlow'`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+- 当前边界：这是站内通知账本、商户未读列表和已读标记首版，仍不是完整触达系统；投递回执、Admin Web 通知运营页和失败回执告警已由后续增量承接，还需要真实短信、企业微信、微信小程序订阅消息、商户端 push、通知偏好和跨端消息中心 UI。
+- 文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/auth.go`
+  - `services/api-go/internal/httpapi/auth_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260525-124 商户资质审核结果可靠通知首版
+
+- 日期：2026-05-25
+- 结果：商户资质审核从“后台更新状态并写审计”继续推进到可靠通知链路。`ReviewMerchantQualificationWithAudit` 在审核通过/驳回后生成 `merchant.qualification_reviewed` outbox 事件，payload 包含商户、资质、审核结论、原因、有效期、目标角色和通知文案；HTTP 审核响应返回 `outbox_event`，运营可继续从 Outbox 查询、恢复或人工处置该事件。`notification-worker` 已订阅该 topic 并生成面向商户的审核结果通知 payload，outbox relay 默认 topic、Docker Compose 和 K8s 部署骨架均已加入该事件，架构守卫固定链路。
+- 验收证据：
+  - `go test -count=1 ./internal/platform -run 'TestMerchantInviteRegistrationAndQualificationGate|TestAdminMerchantQualificationQueueAndDetail'`
+  - `go test -count=1 ./internal/httpapi -run 'TestAdminMerchantQualification'`
+  - `npm test --workspace @infinitech/notification-worker`
+  - `npm test --workspace @infinitech/outbox-relay-worker`
+  - `npm test --workspace @infinitech/bff`
+  - `npm run verify:architecture`
+  - `git diff --check`
+  - `cd services/api-go && go test -count=1 ./...`
+  - `npm run verify`
+- 当前边界：这是可靠事件、relay 默认投递和通知 worker payload 首版，仍不是完整真实触达；站内信落库、投递回执、运营可见投递状态和失败回执告警已由后续增量承接，还需要接短信、企业微信、微信小程序订阅消息和商户端 push。
+- 文件：
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/runtime.test.mjs`
+  - `services/notification-worker/src/index.mjs`
+  - `services/notification-worker/src/index.test.mjs`
+  - `services/outbox-relay-worker/src/index.mjs`
+  - `services/outbox-relay-worker/src/index.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `README.md`
+  - `PROJECT_STATUS.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `docs/product/commercial-readiness-checklist.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260527-147 前端交付状态盘点与用户端参考图留痕
+
+- 日期：2026-05-27
+- 结果：已完成当前仓库全量代码和前端交付状态盘点。确认用户端效果图 `01-home.png` 到 `35-medicine-order-detail.png` 均已生成并放入 `docs/product/user-miniprogram-reference/`，用户端原生微信小程序当前只注册 12 个页面，仍缺 13-35 的原生代码页面；已有 12 页也需要按最新参考图重新对齐。确认实际仓库没有 `apps/user-flutter`、`apps/merchant-flutter`、`apps/rider-flutter`、`apps/admin-flutter`，当前 `merchant-uni`、`rider-uni`、`admin-uni` 是历史目录，后续应迁移到 Flutter/Dart。新增 `docs/product/frontend-delivery-status.md` 作为后续每一步前端推进的基线留痕，并补齐 `docs/product/user-miniprogram-page-prompts.md` 的第 35 张“药品订单详情”提示词。
+- 验收证据：
+  - `find docs/product/user-miniprogram-reference -maxdepth 1 -type f`
+  - `find apps/user-wechat-miniprogram/pages -mindepth 2 -maxdepth 3 -name 'index.wxml'`
+  - `npm run verify`
+- 当前边界：本次只做盘点和 Markdown 留痕，尚未开始生成 13-35 原生微信小程序页面，也尚未创建 Flutter 工程。
+- 文件：
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/user-miniprogram-page-prompts.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260527-148 用户端登录注册效果图
+
+- 日期：2026-05-27
+- 结果：按生图流程新增用户端微信小程序登录/注册页参考图。页面使用悦享e食风格、白色原生导航栏、主色 `#009bf5`、浅灰背景、登录/注册分段、手机号验证码、微信一键登录、协议勾选和安全提示卡，作为后续原生微信小程序 `pages/auth/login/index` 还原依据。
+- 验收证据：
+  - 使用内置 `image_gen` 生成 UI mockup。
+  - 已查看生成图并确认中文、布局、品牌和安全提示可用。
+  - `file docs/product/user-miniprogram-reference/00-auth-login-register.png`
+- 当前边界：本次只生成登录/注册 UI 效果图和 Markdown 留痕，尚未生成原生微信小程序登录/注册代码。
+- 文件：
+  - `docs/product/user-miniprogram-reference/00-auth-login-register.png`
+  - `docs/product/user-miniprogram-reference/README.md`
+  - `docs/product/user-miniprogram-page-prompts.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260527-149 用户端 1.0 欢迎/登录/注册效果图复刻
+
+- 日期：2026-05-27
+- 来源：`HCRXchenghong/infinitech` 1.0 仓库的 `user-vue/pages.json`、`pages/welcome/welcome/index.vue`、`pages/auth/login/index.vue`、`pages/auth/register/index.vue`、`packages/mobile-core/src/WelcomeLandingPage.vue`、`AuthLoginPage.vue`、`AuthRegisterPage.vue`、`auth-login-page.scss` 和 `auth-register-page.scss`。
+- 结果：按 1.0 用户端小程序真实欢迎页、登录页、注册页重新生成三张参考效果图。欢迎页复刻蓝色渐变启动页、蓝底白色链路/S logo、主标题「欢迎来到悦享e食」、副标题「附近美食，一键下单，准时送达」、底部「登录 / 注册」和「游客访问」卡片；登录页复刻白底极简认证页、验证码/密码登录 tabs、下划线输入、验证码按钮、微信登录入口；注册页复刻昵称、手机号、邀请码、验证码、密码、确认密码和微信注册/登录入口。
+- 验收证据：
+  - 已 clone 并检查 1.0 仓库源码：`/tmp/infinitech-legacy/user-vue`
+  - 使用内置 `image_gen` 生成三张 UI mockup。
+  - 已查看生成图并确认布局、核心文案和 1.0 视觉方向可用。
+  - `file docs/product/user-miniprogram-reference/00-welcome-legacy.png docs/product/user-miniprogram-reference/00-login-legacy.png docs/product/user-miniprogram-reference/00-register-legacy.png`
+- 当前边界：本次只生成 1.0 风格参考图和 Markdown 留痕，尚未生成原生微信小程序代码。
+- 文件：
+  - `docs/product/user-miniprogram-reference/00-welcome-legacy.png`
+  - `docs/product/user-miniprogram-reference/00-login-legacy.png`
+  - `docs/product/user-miniprogram-reference/00-register-legacy.png`
+  - `docs/product/user-miniprogram-reference/README.md`
+  - `docs/product/user-miniprogram-page-prompts.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260527-150 用户端 1.0 欢迎页动态效果移植
+
+- 日期：2026-05-27
+- 来源：`HCRXchenghong/infinitech` 1.0 仓库的 `packages/mobile-core/src/WelcomeLandingPage.vue`。
+- 结果：已把 1.0 用户端欢迎页启动动画移植为原生微信小程序页面，并设为 `apps/user-wechat-miniprogram/app.json` 第一启动页。动画保留蓝色渐变背景、logo 脉冲、大 logo 初始放大、`悦享e食` 150ms 打字机、2.5s 后完整标题「欢迎来到悦享e食」缩放归位、3.7s 底部登录/游客卡片渐入；已登录用户会跳过欢迎页进入首页，游客访问写入 `authMode=guest` 后进入首页。
+- 验收证据：
+  - `node -e "JSON.parse(require('fs').readFileSync('apps/user-wechat-miniprogram/app.json','utf8')); console.log('app.json ok')"`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：本次只移植欢迎页动态效果；登录页和注册页仍停留在参考图阶段，欢迎页「登录 / 注册」按钮暂时保留 1.0 路径并在页面未接入时提示“登录页下一步接入”。
+- 文件：
+  - `apps/user-wechat-miniprogram/app.json`
+  - `apps/user-wechat-miniprogram/pages/welcome/welcome/index.json`
+  - `apps/user-wechat-miniprogram/pages/welcome/welcome/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/welcome/welcome/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/welcome/welcome/index.ts`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260527-151 用户端小程序 01-35 页面补齐与后端对接
+
+- 日期：2026-05-27
+- 结果：用户端原生微信小程序已补齐欢迎/登录/注册和 01-35 业务参考图对应页面，`apps/user-wechat-miniprogram/app.json` 当前注册 38 个页面，每个页面都有 `index.json`、`index.wxml`、`index.ts`。已扩展 `utils/api.ts` 并优先接入当前 BFF/API：微信登录、首页配置、店铺、商品、团购、地址、购物车、下单、订单、售后、售后事件/证据、通知偏好、钱包充值、支付密码、余额支付、微信预支付和团购券。消息/群聊/红包/评价/钱包明细/优惠券/积分/邀请/找饭搭/反馈/处方等后端仍待补，页面已明确保留待接状态。
+- 验收证据：
+  - `node - <<'NODE' ... NODE` 路由完整性检查：`pages=38`，所有页面 `json/wxml/ts` 存在。
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：本次完成用户端 UI 页面覆盖和现有后端优先接入，不代表所有缺口后端都已生产化；缺口清单见 `docs/product/user-miniprogram-backend-integration.md`。
+- 文件：
+  - `apps/user-wechat-miniprogram/app.json`
+  - `apps/user-wechat-miniprogram/app.wxss`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/**/index.json`
+  - `apps/user-wechat-miniprogram/pages/**/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/**/index.ts`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260527-152 用户端 01-07 精修与首批待接后端闭环
+
+- 日期：2026-05-27
+- 结果：已按参考图精修用户端小程序 `01` 到 `07` 高频交易页：首页补 8 宫格、精选团购、猜你喜欢、饭搭入口和底部 tab；附近商家改为简洁列表；店铺详情补头图、活动、外卖/团购 tab、分类点餐和购物车栏；购物车改为底部抽屉；确认订单补 ETA、费用层级和提交后支付选择；订单列表补状态 tab 和底部 tabbar；订单详情补地图式配送卡、时间线、地址和联系操作。已补首批待接后端：评价、钱包流水、反馈记录、找饭搭资料、红包发送/详情在 API-Go、BFF 和小程序 API 工具中打通。
+- 验收证据：
+  - `cd services/api-go && go test ./...`
+  - `node - <<'NODE' ... NODE` 路由完整性检查：`pages=38`，所有页面 `json/wxml/ts` 存在。
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：红包当前仅创建/详情和拆分记录首版，尚未做领取、退款、资金冻结/扣减、风控和 PostgreSQL 规范化账本；钱包提现、IM/群聊/私聊、优惠券、积分邀请、处方、跑腿专属费用和轨迹仍待后续批次。
+- 文件：
+  - `apps/user-wechat-miniprogram/pages/index/index.ts`
+  - `apps/user-wechat-miniprogram/pages/index/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/index/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/shop/list/index.ts`
+  - `apps/user-wechat-miniprogram/pages/shop/list/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/shop/list/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/cart/index.ts`
+  - `apps/user-wechat-miniprogram/pages/cart/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/cart/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/order/confirm/index.ts`
+  - `apps/user-wechat-miniprogram/pages/order/confirm/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/order/confirm/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/order/list/index.ts`
+  - `apps/user-wechat-miniprogram/pages/order/list/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/order/list/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/order/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/order/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/order/detail/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.ts`
+  - `apps/user-wechat-miniprogram/pages/wallet/index.ts`
+  - `apps/user-wechat-miniprogram/pages/wallet/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/feedback/complaint/index.ts`
+  - `apps/user-wechat-miniprogram/pages/feedback/records/index.ts`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.ts`
+  - `apps/user-wechat-miniprogram/pages/red-packet/send/index.ts`
+  - `apps/user-wechat-miniprogram/pages/red-packet/send/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/red-packet/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/red-packet/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/bff/src/server.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260527-153 用户端 08-15 精修与圈子消息后端闭环
+
+- 日期：2026-05-27
+- 结果：已按参考图精修用户端小程序 `08` 到 `15`：通知偏好补三类偏好卡、渠道开关和静默时间；支付密码改为首次输入/再次确认两步流程并补安全提示；地址列表补三张地址卡、默认标记和编辑/删除/设默认操作；圈子补推荐/附近/商户群/官方 tabs、发布入口、动态流、悬浮发布和底部 tab；找饭搭补介绍卡、检查清单、饭搭预览和安全提示；申请售后补订单摘要、类型、金额、原因、凭证位和处理说明；评价订单补星级、标签、匿名开关、菜品评价和图片位；消息中心补搜索、分段、通知入口、会话列表和底部 tab。已补首批圈子/消息待接后端：圈子动态列表/发布、消息会话列表、聊天记录和发送消息在 API-Go、BFF 和小程序 API 工具中打通。
+- 验收证据：
+  - `cd services/api-go && go test ./...`
+  - `node - <<'NODE' ... NODE` 路由完整性检查：`pages=38`，所有页面 `json/wxml/ts` 存在。
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：消息当时是内存 Store 首版会话/消息接口，不等于完整生产 IM；离线补偿/已读由 `DONE-20260527-164` 承接，WebSocket 投递由 `DONE-20260527-166` 承接，消息 PostgreSQL 规范化首版由 `DONE-20260529-175` 承接，会话成员权限校验首版由 `DONE-20260529-178` 承接。后续仍需动态群成员/静默设置、客服坐席工作台多端一致性和生产级 IM 网关。圈子发布当前为轻量发布/列表，举报、审核队列、置顶、灰度和风控待补。
+- 文件：
+  - `apps/user-wechat-miniprogram/pages/notification-preferences/index.ts`
+  - `apps/user-wechat-miniprogram/pages/wallet/payment-password/index.ts`
+  - `apps/user-wechat-miniprogram/pages/wallet/payment-password/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/wallet/payment-password/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/address/list/index.ts`
+  - `apps/user-wechat-miniprogram/pages/address/list/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/address/list/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/circle/index.ts`
+  - `apps/user-wechat-miniprogram/pages/circle/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/circle/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.ts`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/after-sales/index.ts`
+  - `apps/user-wechat-miniprogram/pages/after-sales/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/after-sales/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.ts`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/messages/index.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/messages/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.wxss`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/bff/src/server.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260527-154 用户端 16-24 精修与资产服务后端闭环
+
+- 日期：2026-05-27
+- 结果：已按参考图精修用户端小程序 `16` 到 `24`：我的补蓝色头图、会员资料卡、资产区、订单快捷、服务宫格、账户安全和底部 tab；钱包补余额蓝卡、充值/提现、资产统计、安全说明、账单筛选和操作列表；红包优惠补优惠摘要、tabs、分类筛选、券卡和规则说明；会员积分补等级、权益、任务、兑换、明细和退款提示；邀请好友补活动卡、邀请码复制、分享和邀请记录；搜索补分类 tabs、猜你想搜、排序条和混合结果卡；买药补校医务室、用药提示、药品分类、AI 问诊、药品列表、处方入口和底部结算栏；跑腿补服务类型、取送信息、物品要求、费用预估和确认下单；跑腿订单详情补状态、地图轨迹、骑手、进度、取送信息、费用和底部操作。
+- 后端对接：已补用户概览、钱包总览/提现申请、优惠券列表/兑换、会员积分/签到、邀请摘要、混合搜索、买药首页、跑腿下单/详情在 API-Go、BFF 和小程序 API 工具中的首批闭环；新增 Store 覆盖测试 `TestUserAssetCatalogAndErrandAPIs`。
+- 验收证据：
+  - `cd services/api-go && go test ./...`
+  - `node - <<'NODE' ... NODE` 路由完整性检查：`pages=38`，所有页面 `json/wxml/ts` 存在。
+- 当前边界：本轮是内存 Store/首版聚合接口，不等于生产资金和医药能力；真实提现打款回调、优惠券锁定核销、积分邀请反作弊、处方审核、药品订单规范化、跑腿轨迹/补差价和 IM 实时推送仍待后续生产化。
+- 文件：
+  - `apps/user-wechat-miniprogram/pages/profile/index.ts`
+  - `apps/user-wechat-miniprogram/pages/profile/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/profile/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/wallet/index.ts`
+  - `apps/user-wechat-miniprogram/pages/wallet/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/wallet/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/coupons/index.ts`
+  - `apps/user-wechat-miniprogram/pages/coupons/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/coupons/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/member-points/index.ts`
+  - `apps/user-wechat-miniprogram/pages/member-points/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/member-points/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/invite-friends/index.ts`
+  - `apps/user-wechat-miniprogram/pages/invite-friends/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/invite-friends/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/search/index.ts`
+  - `apps/user-wechat-miniprogram/pages/search/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/search/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/medicine/home/index.ts`
+  - `apps/user-wechat-miniprogram/pages/medicine/home/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/medicine/home/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/errand/home/index.ts`
+  - `apps/user-wechat-miniprogram/pages/errand/home/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/errand/home/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/errand/order-detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/errand/order-detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/errand/order-detail/index.wxss`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/bff/src/server.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260527-155 用户端 25-35 精修与客服处方药品闭环
+
+- 日期：2026-05-27
+- 结果：已按参考图精修用户端小程序 `25` 到 `35`：商户群聊补群资料、公告、券/订单卡/红包卡、输入栏和快捷面板；发红包补红色头图、拼手气/普通切换、金额/个数/祝福语和塞钱按钮；红包详情补进度、领取记录、钱包流水、领取和退回入口；在线客服补客服状态、场景 tabs、关联订单、聊天、处理建议和快捷入口；工单详情补状态、关联订单、问题描述、处理进度、方案和材料；投诉建议补反馈类型、关联订单、问题说明、影响程度、联系方式和凭证；反馈记录补统计、状态 tabs、搜索筛选、记录卡和帮助卡；上传处方、处方审核结果、药品订单确认、药品订单详情补成校医审核与药品履约链路。
+- 后端对接：新增客服工单、红包领取/退回、处方审核、药品订单确认/详情 API，并接入 BFF 白名单和小程序 `utils/api.ts`。新增接口包括 `GET/POST /api/service-tickets`、`GET /api/service-tickets/{ticketID}`、`POST /api/service-tickets/{ticketID}/events`、`POST /api/red-packets/{packetID}/claim`、`POST /api/red-packets/{packetID}/refund`、`POST /api/prescriptions`、`GET /api/prescriptions/{reviewID}`、`POST /api/medicine/orders`、`GET /api/medicine/orders/{orderID}`。
+- 验证：
+  - `cd services/api-go && go test ./...`
+  - `git diff --check`
+- 当前边界：本轮是内存 Store/API-Go/BFF/小程序首版闭环，不等于生产资金和医药合规完成。红包资金冻结/扣减、24 小时自动退回、红包风控、客服工作台、处方影像对象存储/OCR/药师审核、药品库存锁定、PostgreSQL 规范化和 IM 实时推送仍待后续生产化。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/`
+  - `apps/user-wechat-miniprogram/pages/red-packet/`
+  - `apps/user-wechat-miniprogram/pages/customer-service/`
+  - `apps/user-wechat-miniprogram/pages/service-ticket/`
+  - `apps/user-wechat-miniprogram/pages/feedback/`
+  - `apps/user-wechat-miniprogram/pages/prescription/`
+  - `apps/user-wechat-miniprogram/pages/medicine/order-confirm/`
+  - `apps/user-wechat-miniprogram/pages/medicine/order-detail/`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/bff/src/server.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260527-156 用户端手机号登录注册后端闭环
+
+- 日期：2026-05-27
+- 结果：继续按参考图精修与待接后端收口，把登录/注册页从“验证码服务待接入”推进到可测链路。API-Go 新增手机号验证码、手机号验证码/密码登录、手机号注册接口；BFF 白名单放行；小程序登录页和注册页已接真实请求，开发环境会回填 `dev_code` 方便微信开发者工具直接验证，注册页补协议确认状态。
+- 后端对接：新增 `POST /api/auth/phone/code`、`POST /api/auth/phone/login`、`POST /api/auth/phone/register`，内存 Store 和 PostgreSQL-backed Store 快照路径均保存手机号绑定、验证码票据和用户密码哈希；手机号注册/登录成功后签发用户 Bearer token，并让 `GET /api/user/profile` 返回绑定手机号。
+- 验证：
+  - `cd services/api-go && go test ./...`
+- 当前边界：这是手机号认证的开发验证码/API 首版；生产短信 provider 与基础频控已由 `DONE-20260527-167` 承接。设备/图形风控、黑名单、验证码审计和生产模板审批仍待后续生产化。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/auth/login/`
+  - `apps/user-wechat-miniprogram/pages/auth/register/`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+
+### DONE-20260527-157 用户端找饭搭候选与安全动作闭环
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与后端补齐，把 `12` 找饭搭从静态“推荐饭搭预览”推进到真实候选列表。页面会在资料满足真实性承诺、免责承诺和问卷后读取候选，展示匹配分、共同饮食/性格标签、距离文案和隐私提示；每张候选卡补“不感兴趣”和“举报”动作。
+- 后端对接：新增 `GET /api/meal-match/candidates`、`POST /api/meal-match/reports`、`POST /api/meal-match/blocks`，复用 `GET/PUT /api/meal-match/profile` 前置资料。API-Go 内存 Store 根据饮食习惯和性格交集计算匹配分，拉黑后候选会隐藏；举报生成待审核记录。BFF 已放行新增路由，小程序 `utils/api.ts` 已接候选、举报和拉黑。
+- 验证：
+  - `cd services/api-go && go test ./...`
+  - `npm run test --workspace @infinitech/bff`
+- 当前边界：这是找饭搭用户端候选与安全动作首版，不等于生产社交风控完成。资料人工审核和举报处置首版已由 `DONE-20260528-168` 承接，同校/同楼隐私与设备风控首版已由 `DONE-20260528-173` 承接；举报分级策略、真实设备指纹 provider、精准地理隐私 provider 和 PostgreSQL 规范化仍待生产化。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.ts`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.wxss`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+
+### DONE-20260527-158 用户端红包资金冻结与过期退回闭环
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与后端补齐，把 `26` 发红包和 `27` 红包详情从“拆分/领取记录首版”推进到资金闭环首版。发红包时服务端会从发包人余额扣减并冻结总金额；领取时释放对应冻结金额并把红包金额入账到领取人余额；发包人手动退回或过期批量退回时，未领取金额回到发包人余额。小程序红包详情页已展示服务端过期状态和退回文案，余额不足时提示先充值。
+- 后端对接：扩展 `RedPacket` 领域状态，新增 `expired_refunded`、`claimed_amount_fen`、`refunded_amount_fen`、`expires_at`、`refunded_at`；新增 `AutoRefundExpiredRedPackets` 仓储能力和 `POST /api/admin/red-packets/expire` 管理接口，BFF 已放行。PostgreSQL-backed Store 会持久化红包快照，并通过既有钱包同步把红包冻结、领取和退回流水同步到钱包账本。
+- 验证：
+  - `cd services/api-go && go test ./...`
+  - `npm run test --workspace @infinitech/bff`
+- 当前边界：这是红包余额资金首版闭环，不是完整金融生产化。领取风控已由后续 `DONE-20260527-165` 承接；仍需真实 24 小时调度器、支付密码校验、群成员资格、红包 PostgreSQL 规范化表、财务对账和异常补偿。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/red-packet/send/index.ts`
+  - `apps/user-wechat-miniprogram/pages/red-packet/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/red-packet/detail/index.wxml`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/contracts_test.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+
+### DONE-20260527-159 用户端客服工单分派关闭与回访闭环
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与后端补齐，把 `28` 在线客服、`29` 工单详情、`30` 投诉建议、`31` 反馈记录从“用户提交/补充说明首版”推进到客服处理闭环首版。工单现在支持后台客服列表、分派客服、客服给出处理方案、用户确认关闭和回访评分；小程序工单详情页的“接受方案/关闭工单”已接真实关闭与回访接口。
+- 后端对接：扩展 `ServiceTicket` 字段，新增分派客服、处理时间、关闭时间、回访评分/评价；新增 `GET /api/admin/service-tickets`、`POST /api/admin/service-tickets/{ticketID}/assign`、`POST /api/admin/service-tickets/{ticketID}/resolve`、`POST /api/service-tickets/{ticketID}/close`、`POST /api/service-tickets/{ticketID}/follow-up`。BFF 已放行新增路由，PostgreSQL-backed Store 已把反馈/客服工单/工单事件纳入 snapshot 持久化。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `npm run test --workspace @infinitech/bff`
+- 当前边界：这是客服工单状态流转和用户侧确认首版，不是完整客服中心。客服工作台可视化已由 `DONE-20260528-169` 承接，SLA 状态与超时升级已由 `DONE-20260528-170` 承接，质检抽检和客服绩效已由 `DONE-20260528-171` 承接；IM 实时推送、PostgreSQL 规范化表和审计同事务仍待后续生产化。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/service-ticket/detail/index.ts`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+
+### DONE-20260527-160 用户端处方影像上传票据与审核绑定闭环
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与待接后端补齐，把 `32` 上传处方从“本地图片 URL + 直接创建审核单”推进到处方影像上传票据、上传确认和审核单绑定首版。用户端小程序选择处方图片后会先申请对象存储上传票据，再确认对象 key/类型/大小/hash，提交审核时把票据 ID、对象 key 和 hash 一并传给服务端；审核结果保留对象元数据，药品订单继续使用审核通过的处方 ID。
+- 后端对接：新增 `POST /api/prescriptions/upload-ticket` 和 `POST /api/prescriptions/upload-confirm`，扩展 `PrescriptionReview` 保存 `image_upload_ticket_id`、`image_object_key`、`image_content_sha`。API-Go 内存 Store 支持处方影像票据签发、确认、防串用校验和审核单绑定；BFF 已放行新增路由；PostgreSQL-backed Store 已把处方影像票据、处方审核单、药品订单详情和处方序列纳入 snapshot 持久化。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestPrescriptionImageUploadReviewAndMedicineOrder|TestUserAssetCatalogAndErrandAPIs'`
+  - `cd services/api-go && go test ./internal/httpapi -run TestPrescriptionImageUploadReviewHTTPFlow`
+  - `npm --workspace @infinitech/bff test -- --test-name-pattern "prescription image"`
+- 当前边界：这是用户端处方影像提交的对象存储票据首版，不是完整医药合规闭环。OCR 结构化识别、药师/校医工作台、处方留档、药品库存锁定、对象扫描统一接管、处方 PostgreSQL 规范化表和合规审计仍待后续生产化。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/prescription/upload/index.ts`
+  - `apps/user-wechat-miniprogram/pages/prescription/upload/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/prescription/upload/index.wxss`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+
+### DONE-20260527-161 用户端药品订单库存锁定闭环
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与待接后端补齐，把 `22` 买药首页、`34` 药品订单确认、`35` 药品订单详情的库存能力补成首版闭环。买药首页从 Store 库存读取剩余库存；药品订单创建会校验并锁定库存，订单项返回 `stock_locked` 和 `stock_remaining`；库存不足返回 HTTP 409 `INSUFFICIENT_STOCK`，小程序确认页会提示用户返回调整药品。
+- 后端对接：API-Go 内存 Store 新增药品库存账本和锁定逻辑，PostgreSQL-backed Store snapshot 纳入 `medicine_stock`；HTTP 错误映射新增 `INSUFFICIENT_STOCK`；已补 Store 与 HTTP 库存锁定测试。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestMedicineOrderLocksStockAndRejectsInsufficientInventory|TestPrescriptionImageUploadReviewAndMedicineOrder|TestUserAssetCatalogAndErrandAPIs'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestMedicineOrderInventoryHTTPFlow|TestPrescriptionImageUploadReviewHTTPFlow'`
+- 当前边界：这是药品库存锁定首版，不是完整医药库存/药房系统。药品批次、效期、处方留档、OCR/药师工作台、对象扫描统一接管、药品 PostgreSQL 规范化表和合规审计仍待后续生产化。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/medicine/order-confirm/index.ts`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+
+### DONE-20260527-162 用户端处方 OCR 留档与药师复核闭环
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与待接后端补齐，把 `32` 上传处方、`33` 处方审核结果、`34-35` 药品履约依赖的处方审核能力补成 OCR/留档/药师复核首版。创建处方审核单时会生成 OCR 识别摘要、识别剂量、置信度、处方留档编号和 6 年留档信息；小程序审核结果页展示 OCR 状态、剂量和留档编号；药师后台可按状态查询处方队列并复核通过/驳回，用户侧查询会同步看到复核结果。
+- 后端对接：新增 `GET /api/admin/prescriptions`、`POST /api/admin/prescriptions/{reviewID}/review`，BFF 已放行；API-Go `PrescriptionReview` 扩展 `ocr_result` 和 `archive`，Store 支持药师复核状态流转，PostgreSQL-backed Store 通过 snapshot 持久化新增字段。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestPrescriptionImageUploadReviewAndMedicineOrder|TestMedicineOrderLocksStockAndRejectsInsufficientInventory'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestPrescriptionImageUploadReviewHTTPFlow'`
+  - `npm run test --workspace @infinitech/bff -- --test-name-pattern "prescription"`
+- 当前边界：这是 OCR 摘要、处方留档和药师复核工作台首版，不是完整医药合规系统。对象扫描统一接管、OCR 真实 provider、药品批次效期、处方 PostgreSQL 规范化表、合规审计同事务和药房工作台可视化仍待后续生产化。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/prescription/review-result/index.ts`
+  - `apps/user-wechat-miniprogram/pages/prescription/review-result/index.wxml`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/auth.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+
+### DONE-20260527-163 用户端处方影像对象扫描门禁统一接管
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与待接后端补齐，把 `32` 上传处方的处方影像从“票据确认”推进到和售后凭证共用对象存储 upload callback + scan result 门禁。启用 `RequireUploadCallbackForConfirm` / `RequireScanApprovalForConfirm` 后，处方影像必须先收到对象存储上传回调，再收到扫描通过结果，才允许 `upload-confirm` 和后续处方审核；扫描驳回或未扫描会阻断确认。小程序上传处方页新增“安全扫描中/安全扫描通过/扫描未通过”状态展示。
+- 后端对接：`PrescriptionImageUploadTicket` 新增 `scan_status`、`scan_result` 和 `scan_checked_at`；通用 `POST /api/object-storage/upload-callback`、`POST /api/object-storage/scan-result` 现在可同时更新售后凭证和处方影像票据；BFF 已放行两个对象存储回调路由；默认开发模式仍可直接确认，生产开启扫描门禁后按统一流程拦截。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestPrescriptionImageUploadReviewAndMedicineOrder|TestPrescriptionImageUploadRequiresUnifiedObjectScanApproval|TestAfterSalesEvidenceRequiresUploadCallbackAndScanApproval'`
+  - `npm run test --workspace @infinitech/bff -- --test-name-pattern "prescription image upload"`
+- 当前边界：这是处方影像对象扫描门禁的统一接管首版；真实 OCR provider、药品批次效期、处方 PostgreSQL 规范化表、合规审计同事务和药房工作台可视化仍待后续生产化。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/prescription/upload/index.ts`
+  - `apps/user-wechat-miniprogram/pages/prescription/upload/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/prescription/upload/index.wxss`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+
+### DONE-20260527-164 用户端消息离线补偿与已读回执闭环
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端消息中心/商户群聊从“列表、聊天、发送”推进到可补离线消息和可回写已读的首版闭环。API-Go 新增 `GET /api/messages/{threadID}/sync?since_id=&mark_read=` 和 `POST /api/messages/{threadID}/read`，会话摘要返回 `last_message_id`、`last_read_message_id`、`last_read_at`，打开会话可按游标拉取增量消息并清未读；发送聊天消息会写入 `message.sent` outbox 事件，给后续 realtime gateway/WebSocket 投递承接。PostgreSQL-backed Store 快照路径已持久化聊天消息与已读状态，避免本地重启丢失首版演示数据。
+- 小程序对接：`pages/messages/merchant-group/index` 改为优先调用同步接口，按 `lastMessageId` 合并增量消息，打开会话时自动标记已读，发送成功后更新本地游标；`utils/api.ts` 新增 `syncChatMessages` 和 `markChatThreadRead`。
+- BFF 对接：已放行消息同步和已读回执路由，覆盖 `GET /api/messages/{threadID}/sync` 与 `POST /api/messages/{threadID}/read`。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestChatMessageSyncMarksReadAndQueuesRealtimeOutbox'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestChatSyncReadAndRealtimeOutboxHTTPFlow'`
+  - `npm run test --workspace @infinitech/bff -- --test-name-pattern "chat sync"`
+- 当前边界：这是用户端消息离线补偿、已读回执和实时出站事件的首版；仍不是完整生产 IM。WebSocket 投递已由 `DONE-20260527-166` 承接，消息 PostgreSQL 规范化首版已由 `DONE-20260529-175` 承接，会话成员权限校验首版已由 `DONE-20260529-178` 承接；后续还需要动态群成员/静默设置、客服坐席工作台多端一致性和跨端消息一致性。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.ts`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+
+### DONE-20260527-165 用户端红包领取风控闭环
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与待接后端补齐，把 `27` 红包详情从“可领取/退回/过期退回”推进到领取风控首版。API-Go 在 `POST /api/red-packets/{packetID}/claim` 领取前执行同群短时频次和 24 小时累计金额校验：同一用户同一群 10 分钟内最多领取 3 次，24 小时累计领取金额超过上限会拦截；同一个红包重复点击领取保持幂等返回，不因频次规则误伤。风控拦截通过 `RISK_CONTROL_REJECTED` 和 429 返回，红包详情会返回 `risk` 状态与原因。
+- 小程序对接：`pages/red-packet/detail/index` 新增“领取校验”提示卡，展示服务端返回的风控状态；领取失败时会把后端原因写入页面提示，并用 toast 告知用户。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestMerchantRefundGroupAndRedPacketConstants|TestRedPacketWalletFreezeClaimAndAutoRefund|TestRedPacketClaimRiskControlsFrequencyAndIdempotency'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestRedPacketWalletAndExpiryHTTPFlow|TestRedPacketClaimRiskHTTPFlow'`
+- 当前边界：这是红包领取频次和金额风控首版，不是完整资金风控系统；真实设备指纹、IP/地理异常、群成员资格、支付密码校验、人工复核队列、红包 PostgreSQL 规范化表、财务对账和异常补偿仍待后续生产化。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/red-packet/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/red-packet/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/red-packet/detail/index.wxss`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/contracts_test.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+
+### DONE-20260527-166 用户端消息 WebSocket 实时投递闭环
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端商户群聊从“发送写 outbox”推进到 WebSocket 首版实时投递。`services/realtime-gateway` 新增 `/ws?thread_id=&user_id=` WebSocket 升级、连接注册、订阅过滤和 `/internal/realtime/publish` 内部发布入口；`message.sent` 事件会按 `thread_id` 投递给订阅同会话的客户端。
+- Outbox 对接：`outbox-relay-worker` 默认包含 `message.sent` topic，新增 realtime gateway publisher 和 topic routing publisher；配置 `REALTIME_GATEWAY_URL` 后会把 `message.sent` POST 到实时网关，其他 topic 继续走 Kafka REST 或 console fallback。
+- 小程序对接：`utils/api.ts` 新增 realtime base URL 与 socket URL helper；`pages/messages/merchant-group/index` 打开会话时建立 WebSocket，收到同会话 `message.sent` 后合并到消息流、更新游标和实时状态。
+- 部署对接：Docker Compose 与 K8s base 已新增 realtime-gateway 服务/部署环境变量，outbox relay 已配置 `REALTIME_GATEWAY_URL`、`REALTIME_INTERNAL_TOKEN` 和 `message.sent` topic。
+- 验证：
+  - `npm run test --workspace @infinitech/realtime-gateway`
+  - `npm run test --workspace @infinitech/outbox-relay-worker`
+  - `npm run verify:architecture`
+- 当前边界：这是单机/轻量 WebSocket 投递首版，不是完整生产 IM 网关；消息 PostgreSQL 规范化首版已由 `DONE-20260529-175` 承接，Redis adapter 多副本 fanout 首版已由 `DONE-20260529-176` 承接，WebSocket 签名 token 鉴权首版已由 `DONE-20260529-177` 承接。断线重连/心跳策略、消息顺序保障和压测仍待后续生产化。
+- 涉及文件：
+  - `services/realtime-gateway/src/server.mjs`
+  - `services/realtime-gateway/src/runtime.mjs`
+  - `services/realtime-gateway/src/runtime.test.mjs`
+  - `services/outbox-relay-worker/src/index.mjs`
+  - `services/outbox-relay-worker/src/index.test.mjs`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.wxml`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+
+### DONE-20260527-167 用户端登录注册短信验证码生产化首版
+
+- 日期：2026-05-27
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端登录/注册手机号验证码从“开发验证码回填”推进到生产短信 provider 首版。API-Go 新增 `PhoneVerificationConfig`、provider dispatch request/result、`PHONE_VERIFICATION_MODE=provider`、`SMS_PROVIDER_ENDPOINT`、`SMS_PROVIDER_TOKEN`、`SMS_TEMPLATE_PHONE_CODE` 等配置；生产模式下验证码不会返回给小程序，只发送给 provider，开发模式仍保留 `dev_code` 回填。
+- 风控对接：手机号验证码新增重发冷却、单手机号小时/日频控和 `RATE_LIMITED` 429 响应；PostgreSQL snapshot 已保留验证码请求节流状态，避免重启后短时绕过首版频控。
+- 小程序对接：登录页和注册页新增验证码发送状态提示，展示重发冷却；生产短信模式不回填验证码，开发模式继续自动填入验证码便于本地预览。
+- 部署对接：K8s API-Go 部署骨架已加入短信 provider 环境变量，架构守卫新增“生产 SMS provider 模式”断言。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestPhoneCodeRegisterAndLogin|TestPhoneCodeProviderModeHidesCodeAndRateLimits'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestPhoneRegisterAndLoginIssuesSignedToken|TestPhoneCodeProviderModeHTTPFlow'`
+  - `cd services/api-go && go test ./...`
+  - `npm run verify:architecture`
+  - `git diff --check`
+- 当前边界：这是短信验证码 provider 调用和基础频控首版，不是完整短信风控系统；真实短信模板审批、图形验证码/设备指纹、IP 黑名单、验证码审计归档、provider 回执重试和异常告警仍待后续生产化。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/cmd/api/main.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/auth/login/index.ts`
+  - `apps/user-wechat-miniprogram/pages/auth/login/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/auth/login/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/auth/register/index.ts`
+  - `apps/user-wechat-miniprogram/pages/auth/register/index.wxml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+
+### DONE-20260528-168 用户端找饭搭人工审核与举报处置闭环
+
+- 日期：2026-05-28
+- 结果：继续按参考图逐页精修与待接后端补齐，把 `12` 找饭搭从“资料完成后直接可用”推进到资料提交后进入人工审核。小程序会展示“待完善 / 审核中 / 审核未通过 / 可开启”，后端未放行时不再保留种子候选卡，而是显示审核或资料缺口提示；审核通过后才返回候选，举报成立后目标资料会暂停展示。
+- 后端对接：`MealMatchProfile` 新增审核状态、审核原因、审核记录 ID、审核人和审核时间；`SaveMealMatchProfile` 在前置资料完整后自动创建 `profile_review` 待审记录；新增 `GET /api/admin/meal-match/moderation` 和 `POST /api/admin/meal-match/moderation/{recordID}/review`，支持按状态/动作/用户筛选并审批资料或举报。BFF 已放行管理端审核路由，服务端 RBAC 新增 `meal_match:read` 与 `meal_match:review` scope，`ops_admin` 与 `support_admin` 可处理队列。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'Test(CircleMealMatchCouponAndHomeCards|MealMatchCandidatesReportAndBlock)$'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'Test(BackofficeRBACScopeMatrix|BackofficeRBACPolicyCatalog|MealMatchCandidatesReportAndBlockHTTPFlow)$'`
+  - `npm run test --workspace @infinitech/bff -- --test-name-pattern "meal match"`
+  - `npm run verify:architecture -- --test-name-pattern "meal match moderation"`
+- 当前边界：这是找饭搭资料人工审核和举报处置首版，不是完整社交风控系统。真实同校/同楼隐私策略、举报分级策略、设备指纹、精准地理隐私、审核工作台可视化和 PostgreSQL 规范化仍待后续生产化。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.ts`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.wxss`
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/auth.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/contracts_test.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/auth_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+
+### DONE-20260528-169 管理端客服工单工作台可视化首版
+
+- 日期：2026-05-28
+- 结果：继续按参考图逐页精修与后端能力补齐，把用户端反馈/客服工单的“后台可处理面”补到 Admin Web。管理端 `support` 模块从计划态推进到可打开的客服工作台，新增工单 KPI、队列、工单表格、详情抽屉核查清单和下一步动作。
+- 后端对接：Admin Web 操作目录已接 `GET /api/admin/service-tickets`、`POST /api/admin/service-tickets/{ticketID}/assign`、`POST /api/admin/service-tickets/{ticketID}/resolve`；客服工作台详情抽屉可预填工单状态、客服分派和处理方案。客服分派、提交方案都纳入高风险二次确认和失败回放。
+- 权限与守卫：`support_admin` 前端角色矩阵补 `service_ticket:read`、`service_ticket:write`；架构守卫固定 Admin Web 配置、视图、详情、操作、BFF 代理和测试覆盖，避免客服工作台回退成纯占位。
+- 验证：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run test --workspace @infinitech/bff -- --test-name-pattern "service ticket"`
+  - `npm run verify:architecture -- --test-name-pattern "admin web|bff keeps"`
+  - `git diff --check`
+  - `npm run verify`
+  - 本地 Admin Web 冒烟：打开 `http://127.0.0.1:4173/apps/admin-web/index.html`，进入“客服工作台”，确认 `待质检`、`绩效风险`、`抽检客服工单`、`客服质检记录`、`客服绩效汇总`可见且控制台 0 error。
+  - 本地 Admin Web 冒烟：打开 `http://127.0.0.1:4173/apps/admin-web/index.html`，进入“客服工作台”，确认 `SLA 超时`、`10 分钟首响/超时升级`、`升级客服工单`可见且控制台 0 error。
+- 当前边界：本轮补的是管理端可视化和已有服务工单 API 的操作承接，不等于完整客服中心生产化。SLA 自动升级已由 `DONE-20260528-170` 承接，质检抽检和客服绩效已由 `DONE-20260528-171` 承接，客服消息风控已由 `DONE-20260528-172` 承接；后续仍需服务工单 PostgreSQL 规范化表和审计同事务强化。
+- 涉及文件：
+  - `apps/admin-web/src/config.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/README.md`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `README.md`
+
+### DONE-20260528-170 用户端客服工单 SLA 状态与超时升级闭环
+
+- 日期：2026-05-28
+- 结果：继续按参考图逐页精修与后端能力补齐，把客服工单从“人工处理首版”推进到 SLA 状态/超时升级首版。服务工单新增 `sla_status`、升级级别、升级原因、升级时间；后台可按 SLA 状态筛选工单，小程序工单详情页展示预计更新时间、SLA 状态和升级说明。
+- 后端对接：新增 `POST /api/admin/service-tickets/{ticketID}/escalate`；`GET /api/admin/service-tickets` 新增 `sla_status` 和 `now` 查询参数；Store 会按 `reply_due_at` 自动计算 `normal`、`due_soon`、`overdue`、`escalated`、`completed`，分派后重置首响 SLA，处理方案/关闭后标记 completed。BFF 已放行升级路由。
+- 管理端对接：Admin Web 客服工作台新增 `support-ticket-escalate` 操作、SLA 筛选项、超时队列指标、详情抽屉预填升级原因；客服分派、SLA 升级、处理方案都进入高风险二次确认。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `npm run test --workspace @infinitech/bff -- --test-name-pattern "service ticket"`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture -- --test-name-pattern "admin web|bff keeps"`
+  - `git diff --check`
+  - `npm run verify`
+  - `npm run verify`
+- 当前边界：这是 SLA 状态和人工升级首版，不是完整客服中心。质检抽检和客服绩效已由 `DONE-20260528-171` 承接，客服消息风控已由 `DONE-20260528-172` 承接；后续仍需 SLA 自动巡检 worker、服务工单 PostgreSQL 规范化表和审计同事务强化。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/user-wechat-miniprogram/pages/service-ticket/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/service-ticket/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/service-ticket/detail/index.wxss`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+	  - `apps/admin-web/README.md`
+	  - `README.md`
+
+### DONE-20260528-171 客服质检抽检与客服绩效首版
+
+- 日期：2026-05-28
+- 结果：继续按参考图逐页精修与后端能力补齐，把客服工单从“SLA/处理闭环”推进到内部运营闭环。新增客服质检记录、质检结果、质检分、辅导标记和客服绩效汇总，Admin Web 客服工作台可直接抽检工单、查看质检记录和查看客服绩效。
+- 后端对接：新增 `POST /api/admin/service-tickets/{ticketID}/quality-review`、`GET /api/admin/service-ticket-quality-reviews`、`GET /api/admin/service-ticket-performance`；Store 会从服务工单、SLA 状态、回访评分和质检记录计算客服绩效，PostgreSQL-backed Store 已把质检记录纳入 snapshot 持久化。BFF 已放行质检和绩效路由。
+- 管理端对接：Admin Web 操作目录新增 `support-quality-review`、`support-quality-reviews`、`support-performance`；客服工作台指标从“待确认”推进到“待质检/绩效风险”，详情抽屉可预填抽检分数、结果、辅导标记、质检记录筛选和客服绩效查询。质检写动作进入高风险二次确认。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `npm run test --workspace @infinitech/bff -- --test-name-pattern "service ticket"`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture -- --test-name-pattern "admin web|bff keeps"`
+  - `git diff --check`
+  - `npm run verify`
+  - 本地 Admin Web 冒烟：打开 `http://127.0.0.1:4173/apps/admin-web/index.html`，进入“客服工作台”，确认 `待质检`、`绩效风险`、`抽检客服工单`、`客服质检记录`、`客服绩效汇总`可见且控制台 0 error。
+- 当前边界：这是客服质检/绩效首版，不是完整客服中心生产化。客服消息风控已由 `DONE-20260528-172` 承接；后续仍需 SLA 自动巡检 worker、服务工单/质检 PostgreSQL 规范化表、质检审计同事务强化、客服绩效产品化配置和真实 IM 生产化。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/server.mjs`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminOperations.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/index.html`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/admin-web/README.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+
+### DONE-20260528-172 客服消息敏感信息风控首版
+
+- 日期：2026-05-28
+- 结果：继续按参考图逐页精修与后端能力补齐，把“客服不会索要支付密码、验证码或银行卡信息”的页面提示补成可执行能力。IM 聊天消息、客服工单创建内容和客服工单补充事件都会执行敏感信息风控；正常内容标记 `passed`，敏感提及标记 `flagged`，疑似泄露验证码、支付密码或银行卡号时返回 `RISK_CONTROL_REJECTED` 并不写入消息/outbox/工单事件。
+- 后端对接：`ChatMessage`、`ServiceTicket`、`ServiceTicketEvent` 新增 `risk_state`、`risk_reason_code`、`risk_reason`、`risk_checked_at`；`SendChatMessage`、`CreateServiceTicket`、`AddServiceTicketEvent` 共用风控判定，`message.sent` outbox payload 会带风险结果，BFF 继续放行聊天发送/同步/已读路由。
+- 用户端对接：`pages/customer-service/chat/index` 新增发送前本地提示与拦截卡片，命中敏感数字内容时清空输入并显示“已拦截”，敏感词提及但未泄露时允许发送并提醒用户不要提供敏感信息。
+- 管理端对接：Admin Web 客服工作台说明和防护清单已纳入“消息风控”，架构守卫固定后端、BFF、小程序和管理端路径。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `npm run test --workspace @infinitech/bff -- --test-name-pattern "chat sync"`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify:architecture -- --test-name-pattern "customer service message risk"`
+  - `git diff --check`
+  - `npm run verify`
+- 当前边界：这是敏感信息关键字/数字披露风控首版，不是完整客服中心生产化。消息 PostgreSQL 规范化首版已由 `DONE-20260529-175` 承接；后续仍需模型化内容安全、客服质检审计同事务、服务工单 PostgreSQL 规范化表、真实 IM 多端会话权限和多副本实时网关压测。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/user-wechat-miniprogram/pages/customer-service/chat/index.ts`
+  - `apps/user-wechat-miniprogram/pages/customer-service/chat/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/customer-service/chat/index.wxss`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260528-173 用户端找饭搭同校隐私与设备风控首版
+
+- 日期：2026-05-28
+- 结果：继续按参考图逐页精修与待接后端补齐，把找饭搭从“人工审核后可见候选”推进到同校/同楼隐私放行和设备环境风控。资料必须携带学校、楼栋、隐私范围、位置精度和设备 ID；候选只在同校范围展示，双方任一方选择同楼保护时必须同楼才展示；候选位置不再暴露精确距离，只展示“同楼可约 / 同校范围 / 已隐藏位置”。
+- 后端对接：`MealMatchProfile` 新增学校、校区、楼栋、隐私范围、位置精度、设备 ID 和设备风险字段；`MealMatchCandidate` 与候选列表返回同校/同楼、隐私提示和设备风控结果。`SaveMealMatchProfile` 会执行设备风控，缺失设备或共享设备进入人工复核，已知风险设备返回 `RISK_CONTROL_REJECTED`；审核通过后可把待复核设备标记为 `passed`。
+- 用户端对接：`pages/meal-match/index` 新增本地设备 ID 生成与持久化，提交资料时带同校/同楼隐私字段；页面新增“隐私与设备安全”卡片，候选卡显示模糊位置和隐私范围，不再展示精确米数。
+- 架构守卫：固定 API contracts、Store、HTTP 测试、BFF 测试和小程序页面的隐私/设备风控字段，防止后续回退成裸候选列表。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'Test(CircleMealMatchCouponAndHomeCards|MealMatchCandidatesReportAndBlock)$'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestMealMatchCandidatesReportAndBlockHTTPFlow$'`
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `npm run test --workspace @infinitech/bff -- --test-name-pattern "meal match"`
+  - `npm run verify:architecture -- --test-name-pattern "meal match moderation"`
+- 当前边界：这是同校/同楼隐私和轻量设备风控首版，不是完整社交风控系统。后续仍需真实设备指纹 provider、IP/地理异常、举报分级策略、精准地理隐私 provider、找饭搭 PostgreSQL 规范化表和审核工作台更细颗粒度可视化。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/contracts_test.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/bff/src/runtime.test.mjs`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.ts`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/meal-match/index.wxss`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260528-174 用户端真实微信 wx.login 页面流程首版
+
+- 日期：2026-05-28
+- 结果：继续按参考图逐页精修与待接后端补齐，把登录/注册页从“接口失败直接进入预览 token”推进到真实微信 `wx.login` 页面流程。登录页和注册页共用 `getWechatLoginCode()` 获取真实 code，再通过 `POST /api/auth/wechat-mini/login` 换取服务端 token；生产接口失败时停留当前页并提示，不再自动写入开发 token。
+- 小程序对接：`utils/api.ts` 新增 `getWechatLoginCode()`、`isPreviewAuthAllowed()` 和 `activatePreviewAuth()`；开发 token 兜底仅允许本地 API 或显式 `allowPreviewAuth=true`。登录/注册页面新增微信登录状态提示，手机号登录/注册接口失败也不再在生产环境自动伪登录。
+- 后端边界：API-Go 的 `code2session` provider resolver 和 BFF 白名单沿用既有实现；本轮重点收口页面生产行为，避免真实环境登录失败被本地预览 token 掩盖。
+- 验证：
+  - `npm run verify:architecture -- --test-name-pattern "phone verification"`
+  - `git diff --check`
+- 当前边界：这是微信登录页面生产兜底收口首版；仍需微信开发者工具真机走查、真实小程序 AppID/secret 联调、手机号一键登录/头像昵称授权策略和登录失败埋点。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/auth/login/index.ts`
+  - `apps/user-wechat-miniprogram/pages/auth/login/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/auth/login/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/auth/register/index.ts`
+  - `apps/user-wechat-miniprogram/pages/auth/register/index.wxml`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-175 用户端消息 PostgreSQL 规范化首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端消息/商户群聊从快照恢复推进到 PostgreSQL 规范化消息表和已读状态表。`PostgresStore` 启动会先把快照消息同步到 `conversations`、`conversation_members`、`messages` 和 `conversation_read_states`，再从规范化表恢复会话消息与已读游标，避免只依赖单个 JSON snapshot。
+- 后端对接：`messages` 新增 `sender_name`、`risk_state`、`risk_reason_code`、`risk_reason`、`risk_checked_at`；`conversation_read_states` 存储 user/thread 已读游标。`persistAfter` 会同步消息、已读状态和 outbox，保持 `message.sent` 实时投递事件和风险字段可恢复。
+- 数据库对接：新增 `infra/db/migrations/0005_chat_messages.sql`，补消息风险字段、发送人索引、会话时间索引和已读状态表；架构守卫固定消息 PostgreSQL 规范化、读回执表、前端同步和实时 Socket 接入。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestChatMessageSyncMarksReadAndQueuesRealtimeOutbox|TestStoreSnapshotRoundTripRestoresStateAndIndexes'`
+  - `cd services/api-go && go test ./internal/platform ./internal/httpapi`
+  - `npm run verify:architecture -- --test-name-pattern "chat messages"`
+- 当前边界：这是消息 PostgreSQL 规范化首版，不是完整生产 IM。Redis adapter 多副本 fanout 首版已由 `DONE-20260529-176` 承接，WebSocket 签名 token 鉴权首版已由 `DONE-20260529-177` 承接，会话成员权限校验首版已由 `DONE-20260529-178` 承接；后续仍需动态群成员/静默策略产品化、断线重连/心跳、消息顺序保障、压测和客服坐席多端一致性。
+- 涉及文件：
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `infra/db/migrations/0005_chat_messages.sql`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-176 Realtime Gateway Redis 多副本 fanout 首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端商户群聊实时投递从单进程 WebSocket client map 推进到 Redis Pub/Sub cluster fanout 首版。outbox relay 打到任意 realtime-gateway 副本后，该副本会先投递本地连接，再把标准化 `message.sent` envelope 发布到 Redis channel，其他副本收到后按 `thread_id` 投递本机连接。
+- 网关对接：`createRealtimeServer` 新增 `instanceID`、`clusterChannel` 和可注入 `clusterAdapter`；Redis envelope 带 `source_id`，本副本收到自己发布的消息会跳过，避免回环重复投递。`/readyz` 新增 cluster 状态，便于查看 adapter、channel、发布/接收计数和最近错误。
+- 部署对接：Docker Compose 给 realtime-gateway 接入 `REALTIME_REDIS_URL=redis://redis:6379/0` 和 `REALTIME_REDIS_CHANNEL`；K8s base 增加 `realtime-redis-url` secret 引用和 channel 配置，保留 6 副本网关部署口径。
+- 验证：
+  - `npm run test --workspace @infinitech/realtime-gateway`
+  - `npm run verify:architecture -- --test-name-pattern "realtime gateway supports redis"`
+- 当前边界：这是 Redis Pub/Sub 多副本 fanout 首版，不是完整生产 IM 网关。WebSocket 签名 token 鉴权首版已由 `DONE-20260529-177` 承接，会话成员权限校验首版已由 `DONE-20260529-178` 承接；后续仍需动态群成员/静默策略产品化、断线重连/心跳、消息顺序保障、Redis Cluster failover 演练、连接容量压测和客户端弱网重连体验。
+- 涉及文件：
+  - `services/realtime-gateway/src/runtime.mjs`
+  - `services/realtime-gateway/src/server.mjs`
+  - `services/realtime-gateway/src/runtime.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-177 Realtime Gateway WebSocket 签名鉴权首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端商户群聊实时连接从“只靠 `thread_id` 订阅”推进到 WebSocket upgrade 签名 token 鉴权首版。生产可通过 `REALTIME_WS_AUTH_REQUIRED=true` 强制校验 API-Go 同款 HMAC access token；连接上的 `user_id` 不能冒充其他用户，管理员/客服角色保留代看能力。
+- 网关对接：realtime-gateway 新增 `authorizeWebSocketUpgrade`、`verifySignedRealtimeToken`、dev token 开关和 user_id spoofing 拦截；token 使用 `AUTH_TOKEN_SECRET` / `REALTIME_AUTH_TOKEN_SECRET` 校验 `sub`、`role`、`exp`。未开启强制鉴权时保持本地调试兼容。
+- 小程序对接：登录/注册结果会保存 `userId`；开发 token 会同步写当前用户 ID；商户群 WebSocket URL 不再硬编码 `user_1`，连接时继续带 `Authorization: Bearer <token>`。
+- 部署对接：Docker Compose 增加 `REALTIME_WS_AUTH_REQUIRED` 和 `AUTH_TOKEN_SECRET`；K8s base 对 realtime-gateway 开启 `REALTIME_WS_AUTH_REQUIRED=true` 并读取 `auth-token-secret`。
+- 验证：
+  - `npm run test --workspace @infinitech/realtime-gateway`
+  - `npm run verify:architecture -- --test-name-pattern "realtime websocket"`
+- 当前边界：这是 WebSocket 签名 token 鉴权首版，不是完整 IM 权限系统。会话成员服务端校验首版已由 `DONE-20260529-178` 承接；后续仍需动态群成员/静默策略产品化、token 撤销/会话状态联动、断线重连/心跳、消息顺序保障、Redis failover 演练和容量压测。
+- 涉及文件：
+  - `services/realtime-gateway/src/runtime.mjs`
+  - `services/realtime-gateway/src/server.mjs`
+  - `services/realtime-gateway/src/runtime.test.mjs`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.ts`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-178 用户端消息会话成员权限校验首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端消息/商户群聊从“已签名连接”推进到会话成员服务端校验首版。用户端消息列表、聊天记录、离线同步、已读回执和发送消息都会按会话成员关系隐藏非成员访问；realtime-gateway 在 WebSocket upgrade 通过签名 token 后，会用 `thread_id`、主体类型和主体 ID 调 API-Go 内部授权口确认成员资格。
+- 后端对接：`ChatThreadMember`、`ChatThreadAccessRequest` 和 `ChatThreadAccessResult` 已纳入平台契约；`Store.AuthorizeChatThreadAccess` 按 `conversation_members` 默认成员规则校验 `user`、`merchant`、`rider`、`support_admin` 与系统主体，非成员返回隐藏式 `ErrNotFound`。API-Go 新增 `POST /internal/realtime/authorize`，通过 `REALTIME_INTERNAL_TOKEN` 保护，给 realtime-gateway 返回 `allowed` 或 `not_member`。
+- 数据库/部署对接：`PostgresStore.AuthorizeChatThreadAccess` 读取 `conversation_members`，默认会话同步会写入完整成员集合而不是单成员；Docker Compose 和 K8s base 已补 `REALTIME_MEMBERSHIP_AUTH_URL`，API-Go 与 realtime-gateway 共享 `realtime-internal-token`。
+- 网关对接：realtime-gateway 新增 `REALTIME_MEMBERSHIP_AUTH_URL`、`createHTTPMembershipAuthorizer` 和握手期成员校验；非成员连接会返回 `403 websocket thread membership denied`，授权服务不可用时返回 `503`，避免只靠前端 `thread_id` 进入陌生会话。
+- 验证：
+  - `npm run test --workspace @infinitech/realtime-gateway`
+  - `go test ./internal/platform -run TestChatMessageSyncMarksReadAndQueuesRealtimeOutbox`
+  - `go test ./internal/httpapi -run TestChatSyncReadAndRealtimeOutboxHTTPFlow`
+  - `npm run verify:architecture -- --test-name-pattern "chat thread membership"`
+- 当前边界：这是静态/默认会话成员权限校验首版，不是完整 IM 成员体系。动态群成员入退群、群静默/免打扰产品化、token 撤销/会话状态联动、客户端断线重连/心跳、消息顺序保障、Redis failover 演练和 10 万在线压测仍需后续补齐。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `services/realtime-gateway/src/runtime.mjs`
+  - `services/realtime-gateway/src/server.mjs`
+  - `services/realtime-gateway/src/runtime.test.mjs`
+  - `infra/docker/compose.yml`
+  - `infra/k8s/base/app-stack.yaml`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-179 用户端消息会话免打扰偏好首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端消息/商户群聊从“能看、能发、能鉴权”再推进到“能按会话切换免打扰”。API-Go 新增 `GET /api/messages/{threadID}/preference` 和 `PUT /api/messages/{threadID}/preference`，用户可读取与切换 `muted`；消息列表会把当前会话的免打扰状态直接返回给小程序，商户群页右上角可切换“已静默/消息提醒”。
+- 后端对接：`ChatThreadPreference`、`UpdateChatThreadPreferenceRequest` 已纳入平台契约；`Store` 新增会话成员偏好读写，官方群默认沿用 `user:* muted=true`，商户群/客服/骑手会话可按用户保存精确 `conversation_members` 记录。`AuthorizeChatThreadAccess` 和会话列表现在会带出最新 `muted`，让 realtime-gateway 内部授权和小程序 UI 看到同一状态。
+- 数据库对接：`PostgresStore` 会把 `chat_thread_members` 快照同步回 `conversation_members`，启动时再从表恢复成员静默状态；这样会话免打扰不会只留在 JSON snapshot 里。
+- 小程序对接：消息中心列表新增“免打扰”标签，群聊页调用新 preference API 并支持即时切换；分段筛选也开始按群聊/私聊/通知真正过滤会话列表。
+- 验证：
+  - `go test ./internal/platform -run TestChatMessageSyncMarksReadAndQueuesRealtimeOutbox`
+  - `go test ./internal/httpapi -run TestChatSyncReadAndRealtimeOutboxHTTPFlow`
+  - `npm run verify:architecture -- --test-name-pattern "chat thread mute"`
+- 当前边界：这是会话免打扰偏好首版，不是完整 IM 产品化。动态群成员、跨端统一静默策略、token 撤销/会话状态联动、客户端断线重连/心跳、消息顺序保障、Redis failover 演练和 10 万在线压测仍需后续补齐。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/index.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/messages/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.wxml`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-180 用户端商户群资料与成员预览首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端商户群聊从“能收发消息和切免打扰”再推进到“群资料、群公告、群设置和成员预览都走后端”。API-Go 新增 `GET /api/messages/{threadID}/overview` 和 `GET /api/messages/{threadID}/members`，小程序商户群页会读取群摘要、群公告、活跃成员预览和当前静默状态；新增 `pages/messages/group-settings/index` 子页承接群设置入口、免打扰开关和成员列表预览。
+- 后端对接：平台契约新增 `ChatThreadOverview` 和 `ChatThreadMemberProfile`，Repository/Store 新增群资料与成员查询；商户群默认成员补入 `user_group_xiaolin`、`user_group_ajie`，并通过会话成员视图输出“蓝海餐厅 / 小林 / 阿杰 / 我”等展示数据。商户群种子消息也改成更贴参考图的商户消息与拼单对话。
+- 数据库对接：新能力继续复用现有 `conversation_members` 规范化成员表，不新增旁路快照字段；`PostgresStore` 已有的成员同步/恢复能力可直接承接群资料与成员预览查询。
+- 小程序对接：商户群页顶部信息条改为“群资料 + 群设置”入口，聊天区补了聊天内优惠券卡；群设置页可读取群资料、公告、成员预览并切换免打扰。这样参考图里的“群设置”“326 人已加入 · 新用户默认静音”“群公告”不再只是硬编码占位。
+- 验证：
+  - `go test ./internal/platform -run TestChatMessageSyncMarksReadAndQueuesRealtimeOutbox`
+  - `go test ./internal/httpapi -run TestChatSyncReadAndRealtimeOutboxHTTPFlow`
+  - `npm run verify:architecture -- --test-name-pattern "chat thread mute|architecture directories"`
+- 当前边界：这是群资料与成员预览首版，不是完整动态群成员体系。真正的入群/退群、群主/管理员操作、跨端成员一致性、token 撤销/会话状态联动、断线重连/心跳、消息顺序保障、Redis failover 演练和 10 万在线压测仍需后续补齐。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/user-wechat-miniprogram/app.json`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/messages/group-settings/index.json`
+  - `apps/user-wechat-miniprogram/pages/messages/group-settings/index.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/group-settings/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/messages/group-settings/index.wxss`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-181 用户端商户群自助入退群与群券资格首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端商户群从“能看群资料”推进到“能自助入群、退群并按资格领券”。API-Go 新增 `GET /api/messages/{threadID}/membership`、`POST /api/messages/{threadID}/join`、`POST /api/messages/{threadID}/leave`；商户群成员数会随当前成员快照动态变化，群券 `GROUP8` 只有群成员可领取。
+- 后端对接：平台契约新增 `ChatThreadMembership`、`ChatThreadJoinRequest`、`ChatThreadLeaveRequest`；`Store` / `PostgresStore` 新增自助入群/退群读写与群券资格校验，`ClaimUserCoupon` 已识别商户群券领取逻辑并保持幂等。
+- 数据库对接：`conversation_members` 现在按当前成员快照整表同步，不再在恢复期盲目回填默认成员；这样用户退群后，PostgreSQL-backed Store 重启也不会把已退出成员自动加回去。
+- 小程序对接：店铺详情新增“商户群福利”卡片，支持从商家页直接入群；商户群页聊天内优惠券卡可直接领取群券；群设置页支持退出商户群；红包优惠页新增商户群福利卡，支持“入群并领券”一条链路。
+- 验证：
+  - `go test ./internal/platform -run 'TestChatMessageSyncMarksReadAndQueuesRealtimeOutbox|TestMerchantGroupMembershipJoinLeaveAndCouponEligibility|TestUserAssetCatalogAndErrandAPIs'`
+  - `go test ./internal/httpapi -run 'TestChatSyncReadAndRealtimeOutboxHTTPFlow|TestMerchantGroupMembershipAndCouponHTTPFlow'`
+  - `npm run verify:architecture -- --test-name-pattern 'chat thread mute|merchant group self-serve membership'`
+- 当前边界：这是商户群自助入退群与群券资格首版，不含群主/管理员角色、批量拉群、被踢出群通知、断线重连/顺序保障和生产压测。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/messages/merchant-group/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/messages/group-settings/index.ts`
+  - `apps/user-wechat-miniprogram/pages/messages/group-settings/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/messages/group-settings/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/coupons/index.ts`
+  - `apps/user-wechat-miniprogram/pages/coupons/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/coupons/index.wxss`
+  - `scripts/check-architecture.mjs`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-182 用户端店铺详情评价与商家信息聚合首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端店铺详情页里仍是占位文案的“评价 / 商家”两栏推进到真实数据闭环。API-Go 新增 `GET /api/shops/{shopID}/detail`，统一返回头图、公告、活动标签、评分摘要、评价列表、营业时间、联系电话、地址、服务承诺和资质信息。
+- 后端对接：平台契约新增 `ShopDetail`、`ShopReviewSummary`、`ShopReviewEntry` 和 `ShopMerchantInfo`；`Store.ShopDetail` 会把默认评价种子、动态新增评价、商户资质与员工联系电话聚合成一个公开详情结果。
+- 小程序对接：店铺详情页已补真实头图、评价摘要、评价卡片、商家信息卡、资质清单、配送说明以及“联系商家 / 复制地址”操作，`评价` 和 `商家` tabs 不再停留在占位提示。
+- 验证：
+  - `go test ./internal/platform -run TestShopDetailAggregatesReviewsAndMerchantInfo`
+  - `go test ./internal/httpapi -run TestShopDetailHTTPFlow`
+- 当前边界：这是店铺详情评价与商家信息聚合首版，商品分类映射、真实评价图片上传、商家电话脱敏策略和门店多店地址体系仍待后续补齐。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxss`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `README.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-183 用户端下单链路购物车与地址回填首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端“购物车 -> 确认订单 -> 订单详情”这条高频下单链路从半静态预览推进到真实回填首版。购物车页已接真实商品增减、清空和费用汇总；确认订单页会按当前用户地址列表和购物车摘要回填地址与费用；订单详情页可直接展示真实商家名、配送地址快照和事件时间。
+- 后端对接：平台契约为 `CartSummary` 新增 `shop_name`，为 `Order` 新增 `shop_name` 和 `address_snapshot`；`Store.CheckoutCart` 会在下单时固化商家名和地址快照，`GET /api/cart` 与 `GET /api/orders/{orderID}` 都能直接给小程序渲染所需字段。
+- 小程序对接：地址列表页支持从确认订单页进入选择模式，并可通过同一个地址保存接口回写默认地址；确认订单页已补默认地址回填、地址选择返回和真实购物车费用；订单详情页已补真实状态文案与时间线时间。
+- 验证：
+  - `go test ./internal/platform -run TestShopAddressCartCheckoutPaymentAndGrabFlow`
+  - `go test ./internal/httpapi -run TestShopAddressCartCheckoutHTTPFlow`
+- 当前边界：这是下单链路真实回填首版，还没有地址删除接口、订单选项编辑面板、优惠券核销联动和微信支付真机调起验收。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/user-wechat-miniprogram/pages/cart/index.ts`
+  - `apps/user-wechat-miniprogram/pages/cart/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/cart/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/address/list/index.ts`
+  - `apps/user-wechat-miniprogram/pages/address/list/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/address/list/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/order/confirm/index.ts`
+  - `apps/user-wechat-miniprogram/pages/order/confirm/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/order/confirm/index.wxss`
+  - `apps/user-wechat-miniprogram/pages/order/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/order/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/order/detail/index.wxss`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-184 用户端订单评价真实回填与更新首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端“订单列表 -> 订单详情 -> 评价订单”这条评价链路从静态壳推进到真实回填首版。订单列表现在能识别待评价状态并直接跳评价页；订单详情能展示 `reviewed` 状态并提供去评价/修改评价入口；评价页会读取真实订单摘要、回填既有评价、支持匿名开关和星级交互，并对同一订单执行更新覆盖。
+- 后端对接：平台契约为 `Review` 新增 `anonymous`，为 `Order` 新增 `reviewed`；`GET /api/reviews` 支持按 `order_id` 过滤，同一用户对同一订单再次提交会复用原评价 ID 原地更新；店铺评价聚合会对匿名评价做用户名和头像脱敏。
+- 小程序对接：订单列表改用真实 `shop_name`、时间和 `reviewed` 状态渲染操作按钮；订单详情增加去评价/修改评价入口；评价页已接 `GET /api/orders/{orderID}` 与 `GET /api/reviews?order_id=`，能回填内容、标签、匿名状态并提交更新。
+- 验证：
+  - `go test ./internal/platform -run 'TestShopDetailAggregatesReviewsAndMerchantInfo|TestOrderReviewStateAndOrderScopedLookup'`
+  - `go test ./internal/httpapi -run 'TestShopAddressCartCheckoutHTTPFlow|TestReviewHTTPFlowSupportsOrderScopedLookupAndUpdate'`
+- 当前边界：图片上传位仍是占位交互，评价维度目前仍聚合成单条订单评价，尚未拆分到菜品逐项评分或骑手独立评分账本。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/order/list/index.ts`
+  - `apps/user-wechat-miniprogram/pages/order/list/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/order/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/order/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.ts`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.wxss`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-185 用户端售后页订单上下文与进度预览首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端“申请售后”页从静态表单推进到真实订单上下文首版。页面现在会按选中的真实订单回填商家、商品摘要、订单状态和可退金额；售后记录会按当前订单筛选，并可直接查看最近处理进度、时间线和已上传凭证预览。顺手也修掉了原先“联系客服”按钮误跳返回的问题，不再把售后单错误导向客服工单详情页。
+- 后端对接：`AfterSalesRequest` 新增 `shop_name`、`order_status`、`order_item_summary`、`latest_event_message` 和 `latest_event_at`；`GET /api/after-sales` 支持按 `order_id` 过滤，便于小程序按订单拉取售后记录并展示最近用户可见进度。
+- 小程序对接：售后页现在会联合读取 `GET /api/orders`、`GET /api/orders/{orderID}`、`GET /api/after-sales?order_id=`、`GET /api/after-sales/{requestID}/events` 和 `GET /api/after-sales/{requestID}/evidence`；当当前订单已有处理中售后时，提交按钮会切到“查看进度”，前端会优先展示已有申请，减少重复提交。
+- 验证：
+  - `go test ./internal/platform -run 'TestAfterSalesReviewApprovesAndRefundsBalance|TestUserAfterSalesRequestsExposeOrderContextAndFilter'`
+  - `go test ./internal/httpapi -run 'TestAfterSalesHTTPFlow|TestReviewHTTPFlowSupportsOrderScopedLookupAndUpdate'`
+- 当前边界：这一段还没有把售后图片上传入口真正放到用户手里，当前只支持预览已有凭证；对象存储上传票据和确认链路仍主要由接口和测试覆盖，前端补传会在下一段接入。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/after-sales/index.ts`
+  - `apps/user-wechat-miniprogram/pages/after-sales/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/after-sales/index.wxss`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-186 用户端售后页补充凭证上传首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端售后页里原本还停留在“下一段接入”的凭证上传补成首版可用。现在用户在处理中售后单里可以直接补传图片凭证，凭证区会展示上传中状态、历史凭证卡和点击预览，不再只是静态加号占位。
+- 后端对接：本轮未新增后端契约，但把既有 `POST /api/after-sales/{requestID}/evidence/upload-ticket`、`POST /api/after-sales/{requestID}/evidence/confirm`、`POST /api/object-storage/upload-callback` 和 `POST /api/object-storage/scan-result` 真正串到用户端；前端会先尝试直接确认，若环境要求对象存储上传回调或扫描通过，再按严格门禁补回调和扫描结果后重试确认。
+- 小程序对接：售后页已新增补充凭证上传交互、上传中卡片态、严格环境兜底确认链路和凭证区文案收口；`utils/api.ts` 也补了售后凭证确认、对象存储上传回调和扫描结果提交 helper，后续评价页图片上传可以直接复用这组模式。
+- 验证：
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：小程序侧目前仍按参考图控制在最多 3 张售后凭证展示位；若生产环境使用真实对象存储签名且拒绝前端模拟回调，最终仍需依赖正式对象存储回调与扫描 worker 才能完成确认。
+- 涉及文件：
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/after-sales/index.ts`
+  - `apps/user-wechat-miniprogram/pages/after-sales/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/after-sales/index.wxss`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-187 用户端评价页图片上传与逐项菜品评分首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端“评价订单”页从只支持单条订单评价，推进到支持评价图片上传和逐项菜品评分的首版。现在评价页会按订单商品回填菜品行，支持逐项点星、评价图片上传/预览、匿名状态回填，并把图片和 `item_ratings` 一起提交给后端。
+- 后端对接：`Review` 新增 `item_ratings`；API-Go 新增 `POST /api/reviews/upload-ticket` 与 `POST /api/reviews/upload-confirm`，复用对象存储上传票据、上传回调和扫描门禁能力。评论更新仍保持同一用户同一订单原地覆盖，但现在会一并更新 `image_urls` 和 `item_ratings`。
+- 小程序对接：评价页已接 `GET /api/orders/{orderID}`、`GET /api/reviews?order_id=`、`POST /api/reviews/upload-ticket`、`POST /api/reviews/upload-confirm`，并复用对象存储上传回调/扫描结果 helper，在严格环境下先补对象存储回调，再按需要补扫描通过结果后重试确认。
+- 验证：
+  - `go test ./internal/platform -run 'TestOrderReviewStateAndOrderScopedLookup|TestReviewImageUploadSupportsOrderReviewAssets|TestReviewImageUploadRequiresUnifiedObjectScanApproval'`
+  - `go test ./internal/httpapi -run 'TestReviewHTTPFlowSupportsOrderScopedLookupAndUpdate'`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：评价页现在仍把“总体评价”和“配送服务”聚合成单条 `rating` 计算后提交，尚未拆分成独立骑手评分账本；图片上传先服务于评价详情回填与商家侧展示，店铺评价聚合里的图片瀑布流仍待后续再做。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/user-wechat-miniprogram/utils/api.ts`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.ts`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.wxss`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-188 用户端店铺详情评价图片区与配送服务评分首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把用户端“店铺详情 -> 评价订单 -> 再回店铺评价区”的链路补成了一条线。现在店铺详情评价卡会展示真实评价图片、菜品评分摘要和配送服务评分，评价页里的“配送服务”也不再只停留在前端，而是会独立落到后端。
+- 后端对接：`Review` 新增 `rider_rating`；`CreateReview` 会独立保存配送服务评分；`ShopDetail` 评价聚合新增 `image_urls`、`item_highlights` 和 `rider_stars_text`，默认评价种子与动态订单评价都会回填这几类字段。
+- 小程序对接：`pages/order/review/index` 提交时改成商家总体评分走 `rating`、配送服务走 `rider_rating`；`pages/shop/detail/index` 的评价区已补图片预览、菜品评分摘要 chip 和配送服务评分展示。
+- 验证：
+  - `go test ./internal/platform -run 'TestShopDetailAggregatesReviewsAndMerchantInfo|TestOrderReviewStateAndOrderScopedLookup'`
+  - `go test ./internal/httpapi -run 'TestShopDetailHTTPFlow|TestReviewHTTPFlowSupportsOrderScopedLookupAndUpdate'`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：店铺详情评价区暂时还是轻量图片宫格，没有继续做更重的瀑布流/视频态；`rider_rating` 已经落在订单评价里，但还没继续接到骑手端绩效账本和聚合看板。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/user-wechat-miniprogram/pages/order/review/index.ts`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxss`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/user-miniprogram-backend-integration.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-189 骑手配送评分聚合与站长绩效展示首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把已经落在订单评价里的 `rider_rating` 真正接到了骑手绩效聚合里，并让站长工作台、管理端绩效视图和用户端店铺评价图区都能看见这条数据。
+- 后端对接：`RiderPerformance` 新增 `rider_average_rating`、`rider_review_count`；`StationRiderPerformance` 现在会从订单评价和骑手直评里聚合配送评分样本，返回骑手平均配送分和样本数。
+- 前端对接：站长工作台骑手卡已展示配送评分与样本数；Admin Web 骑手绩效视图已把原来的占位列换成配送评分；用户端店铺详情评价图区补成稳定三宫格预览，多图时最后一格会提示余量。
+- 验证：
+  - `go test ./internal/platform -run 'TestStationManagerManualAssignUsesStationScope|TestShopDetailAggregatesReviewsAndMerchantInfo|TestOrderReviewStateAndOrderScopedLookup'`
+  - `go test ./internal/httpapi -run 'TestStationManagerManualDispatchHTTPFlow|TestShopDetailHTTPFlow|TestReviewHTTPFlowSupportsOrderScopedLookupAndUpdate'`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：配送评分目前只进入绩效展示口径，还没有继续参与派单优先级权重计算；骑手端和管理端也还没补更细的评价明细钻取。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/rider-uni/pages/station/index.vue`
+  - `apps/rider-uni/README.md`
+  - `apps/admin-web/README.md`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.ts`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxml`
+  - `apps/user-wechat-miniprogram/pages/shop/detail/index.wxss`
+  - `apps/user-wechat-miniprogram/README.md`
+  - `docs/product/frontend-delivery-status.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-190 骑手配送评分进入派单分与优先级首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把骑手配送评分从“只展示”推进到“参与派单”。`RiderPerformance.score` 现已纳入配送评分样本折算结果，站点内骑手 `dispatch_priority` 会在绩效快照和自动派单前刷新，新的配送评价会直接影响下一次自动派单候选排序。
+- 后端对接：`RiderPerformance` 新增 `rider_average_rating`、`rider_review_count` 后，绩效评分会把配送评分按样本数置信度折算进总分；`dispatchDecisionLocked` 在挑选候选骑手前会刷新站点骑手优先级；新增自动派单测试覆盖“同基础指标下高配送评分骑手优先”。
+- 前端对接：站长工作台骑手卡已从“配送评分 + 样本数”补成“配送评分 + 样本数 + 派单分”；Admin Web 骑手绩效视图也会在评分列里附带派单分，便于解释排序依据。
+- 验证：
+  - `go test ./internal/platform -run 'TestStationManagerManualAssignUsesStationScope|TestAutoAssignRefreshesPriorityFromRiderRatings|TestShopDetailAggregatesReviewsAndMerchantInfo|TestOrderReviewStateAndOrderScopedLookup'`
+  - `go test ./internal/httpapi -run 'TestStationManagerManualDispatchHTTPFlow|TestShopDetailHTTPFlow|TestReviewHTTPFlowSupportsOrderScopedLookupAndUpdate'`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：配送评分已经进入派单分和优先级，但还没有做骑手评分明细钻取、评分趋势图或更复杂的派单权重解释面板。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/README.md`
+  - `apps/rider-uni/pages/station/index.vue`
+  - `apps/rider-uni/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260529-191 骑手绩效拆解与站长可解释展示首版
+
+- 日期：2026-05-29
+- 结果：继续按参考图逐页精修与待接后端补齐，把骑手绩效从“有分数”推进到“能解释分数”。`RiderPerformance` 现已返回 `score_breakdown`，拆出接单加分、单量加分、履约加分、评分加分、评分置信度和团队均值；站长工作台新增绩效拆解卡，后台骑手绩效表和详情抽屉也同步展示派单分与拆解。
+- 后端对接：`evaluateRiderPerformanceLevel` 现在会返回完整拆解结构；`/api/station-manager/rider-performance` 会把真实 `score_breakdown` 返回给站长端和后台快照消费方。
+- 前端对接：站长工作台新增骑手绩效拆解区；Admin Web 骑手绩效视图新增“派单分”“评分拆解”列，详情抽屉也能直接查看整行拆解事实。
+- 验证：
+  - `go test ./...`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：现在已经能解释派单分来源，但还没有补骑手评分趋势图、最近评价摘录或更细的异常履约钻取。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/rider-uni/pages/station/index.vue`
+  - `apps/rider-uni/README.md`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260601-192 骑手绩效趋势与异常履约钻取首版
+
+- 日期：2026-06-01
+- 结果：继续按参考图逐页精修与待接后端补齐，把骑手绩效从“能解释分数”推进到“能解释最近为什么变了”。`RiderPerformance` 现已补出 `recent_trend`、`recent_reviews` 和 `exception_summary`，站长工作台与管理端详情抽屉都能直接看到最近 3 天趋势、评价摘录和异常履约摘要。
+- 后端对接：`/api/station-manager/rider-performance` 现在会返回最近 3 天绩效趋势点、最新骑手评价摘录，以及 7 天窗口内的超时、拒单、售后、低分异常摘要；绩效快照生成时会同步刷新这些派单解释数据。
+- 前端对接：站长工作台绩效拆解卡新增趋势、最近评价和异常履约区；Admin Web 骑手绩效详情抽屉会把这三组事实拼进详情面板，方便运营做派单复盘和追责。
+- 验证：
+  - `go test ./...`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：现在已经能看到短期趋势和异常摘要，但还没有把趋势图产品化成可交互筛选，也还没有补“异常事件 -> 订单/售后/派单审计”的逐条深链钻取。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/README.md`
+  - `apps/rider-uni/pages/station/index.vue`
+  - `apps/rider-uni/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260603-193 骑手异常履约明细深链首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把骑手异常履约从“摘要可见”推进到“明细可追”。`RiderPerformance` 现已补出 `exception_details`，会把派单超时、骑手拒单、售后介入和低分评价整理成可排序的异常明细，并带上订单、派单事件、售后单或评价单的关联 ID。
+- 后端对接：`/api/station-manager/rider-performance` 现在会返回 `exception_details`；后台售后列表补了 `request_id / order_id / status` 过滤，方便异常明细动作真正落到后端查询；相关 Store / PostgreSQL 代理签名也已同步。
+- 前端对接：站长工作台异常履约区新增异常明细列表；Admin Web 骑手绩效详情抽屉会展示逐条异常明细，并预填“查看派单事件 / 查看售后 / 查看审计”动作。
+- 验证：
+  - `go test ./internal/platform -run 'TestRiderPerformanceExceptionDetailsExposeDrilldownContext|TestStationManagerManualAssignUsesStationScope'`
+  - `go test ./internal/httpapi -run 'TestAfterSalesHTTPFlow|TestStationManagerManualDispatchHTTPFlow|TestStationManagerRiderPerformanceExceptionDrilldownHTTPFlow'`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `go test ./...`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：现在已经能从绩效详情跳到派单事件、售后和审计，但还没有把异常明细继续钻到专门的订单详情/售后详情页，也还没有做跨时间范围筛选。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/postgres_store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/README.md`
+  - `apps/rider-uni/pages/station/index.vue`
+  - `apps/rider-uni/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260603-194 售后时间线与凭证钻取首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把后台售后排查从“能筛到单子”推进到“能直接回看时间线和凭证”。管理端控制台现已补出 `after-sales-events`、`after-sales-evidence` 两个只读查询操作，售后详情抽屉和骑手异常履约明细都能直接预填跳过去。
+- 后端对接：这轮没有新增服务端业务接口，直接复用了现有 `GET /api/after-sales/{requestID}/events`、`GET /api/after-sales/{requestID}/evidence` 和 `GET /api/dispatch/orders/{orderID}/events`。
+- 前端对接：Admin Web 新增售后时间线/凭证操作定义；售后审核详情抽屉补出“查看售后列表 / 时间线 / 凭证 / 订单派单事件”动作；骑手异常履约明细中的售后类异常会优先给出时间线和凭证动作。
+- 验证：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：现在已经能直接查售后时间线和凭证，但结果仍主要通过操作台 JSON 展示，还没有做成专门的可视化时间线/附件预览面板。
+- 涉及文件：
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260603-195 售后与派单结果可视化首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把管理端售后/派单只读查询从“看原始 JSON”推进到“先看结构化结果，再决定要不要钻底层返回”。接口操作台现已对 `after-sales-events`、`after-sales-evidence` 和 `dispatch-order-events` 渲染可视化预览。
+- 后端对接：这轮没有新增服务端接口，继续复用已有 `GET /api/after-sales/{requestID}/events`、`GET /api/after-sales/{requestID}/evidence`、`GET /api/dispatch/orders/{orderID}/events` 返回结构。
+- 前端对接：Admin Web 新增 `adminResultPreview` 结果适配层；操作台为售后时间线补出事件卡、为售后凭证补出凭证卡和图片预览、为派单事件补出事件卡与原因/候选摘要；原始 JSON 继续保留在折叠区，方便排障对照。
+- 验证：
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：现在的可视化结果仍停留在接口操作台范围内，尚未把售后时间线/凭证/派单事件进一步做成独立详情页或支持时间范围筛选。
+- 涉及文件：
+  - `apps/admin-web/src/adminResultPreview.mjs`
+  - `apps/admin-web/src/adminResultPreview.test.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260603-196 售后聚合详情首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把后台售后排查从“列表/时间线/凭证/派单四处跳”推进到“一个聚合详情先把上下文看全”。后端现已新增 `GET /api/admin/after-sales/{requestID}`，前端售后抽屉、骑手异常履约明细和接口操作台都已经接上。
+- 后端对接：新增 `AdminAfterSalesDetail` 聚合契约与仓储方法，一次性返回售后工单、事件时间线、凭证列表、派单事件，以及事件/凭证/派单摘要统计；HTTP 路由新增管理员只读详情口并沿用现有售后读取权限。
+- 前端对接：Admin Web 新增 `after-sales-detail` 操作定义；售后详情抽屉和骑手异常履约里的售后异常优先给出“查看售后详情”；结果预览会把聚合结果先渲染成工单概览、时间线概览、凭证概览、派单概览四张卡。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestAdminAfterSalesDetailAggregatesTimelineEvidenceAndDispatch|TestAfterSalesEventsEscalateToAdminReviewAndAuditTimeline'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestShopAddressCartCheckoutHTTPFlow|TestAfterSalesHTTPFlow'`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：聚合详情已经把售后主上下文收口，但还没有把订单审计、退款流水和客服工单也一起并进同一详情面板；如果继续往前推，下一段值得做的是“售后详情深链到退款/审计/客服”的统一钻取。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/src/adminResultPreview.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminResultPreview.test.mjs`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260603-197 售后资金与客服深链首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把售后聚合详情从“只看售后自身上下文”推进到“顺着同一单把退款和客服也追清楚”。售后聚合详情现在会一并返回退款摘要、关联退款记录、关联客服工单和客服工单摘要；客服工单列表也支持按 `related_order_id` 过滤。
+- 后端对接：`AdminAfterSalesDetail` 新增退款与客服工单聚合字段；`AdminServiceTickets` 新增 `related_order_id` 过滤能力并透传到 HTTP 查询口。
+- 前端对接：Admin Web 售后详情抽屉新增“查看客服工单”动作；骑手异常履约里的售后异常也会带着订单号直跳客服工单列表；售后聚合详情预览继续补出“退款概览 / 客服工单”两张卡。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestAdminAfterSalesDetailAggregatesTimelineEvidenceAndDispatch|TestAfterSalesEventsEscalateToAdminReviewAndAuditTimeline'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestAfterSalesHTTPFlow|TestServiceTicketAdminAndUserClosureHTTPFlow'`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：现在已经能从售后详情追到退款和客服，但还没有把订单审计、退款审计和客服工单详情继续并到同一聚合口；下一段更值当的是把“售后 -> 退款流水 -> 审计日志 -> 客服详情”再做成统一深链。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+
+### DONE-20260603-198 售后审计与工单详情深链首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把售后聚合详情再往“排查一屏收口”推进了一截。现在售后聚合详情会继续带回关联审计摘要和最近审计记录，管理端也补出了订单审计、退款审计和客服工单详情的直达入口。
+- 后端对接：`AdminAfterSalesDetail` 新增 `related_audits` 与 `audit_summary`，会聚合订单、售后工单和客服工单的关联审计记录，并返回验证状态和最新动作。
+- 前端对接：Admin Web 售后详情抽屉与骑手异常履约明细新增“查看订单审计 / 查看退款审计”；客服工作台新增 `support-ticket-detail` 操作与可视化预览，能直接看工单状态、SLA、时间线和最近处理进展。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run TestAdminAfterSalesDetailAggregatesTimelineEvidenceAndDispatch`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestAfterSalesHTTPFlow|TestServiceTicketAdminAndUserClosureHTTPFlow'`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：售后聚合详情里已经能看到关联审计摘要，但还没把审计原文、退款流水明细和客服详情做成同一面板内的交互切换；下一段更值当的是把售后详情里的退款/审计/客服卡片继续做成真正可钻的联动面板。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/src/adminResultPreview.mjs`
+  - `apps/admin-web/src/adminResultPreview.test.mjs`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `apps/admin-web/src/adminResultPreview.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminResultPreview.test.mjs`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260603-199 退款流水与管理员工单详情首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把售后深链里还偏“手工拼”的两段补成后台自己的正式能力。现在后台已经有管理员退款流水列表和管理员客服工单详情接口，订单监控、售后审核和异常履约可以直接顺着订单追退款，客服工作台也能直接走管理员详情口看工单。
+- 后端对接：新增 `GET /api/admin/refunds`，支持按 `order_id / user_id / destination / status` 筛选退款流水；新增 `GET /api/admin/service-tickets/{ticketID}`，管理员可直接读取工单详情，不再复用用户查询口。
+- 前端对接：Admin Web 新增 `refund-transactions` 操作；订单监控、售后审核和骑手异常履约明细新增“查看退款流水”动作；`support-ticket-detail` 改走管理员路径；退款流水补出首版结果预览卡片。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestAdminRefundTransactionsFiltersByOrderAndDestination|TestServiceTicketAssignmentResolveCloseAndFollowUp|TestAdminAfterSalesDetailAggregatesTimelineEvidenceAndDispatch'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestAfterSalesHTTPFlow|TestServiceTicketAdminAndUserClosureHTTPFlow'`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：退款流水现在已经能查、能筛、能预览，但还没有把售后聚合详情里的退款卡片和后台操作台做成面板内直跳联动；下一段更值当的是把售后详情里的退款/客服/审计卡片变成同屏切换的联动工作面。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminSnapshot.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminResultPreview.mjs`
+  - `apps/admin-web/src/adminResultPreview.test.mjs`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260603-200 售后预览卡同屏联动首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把后台售后深链里最后一段“看完摘要还要手动填参数”的阻力先拿掉。现在售后聚合详情和退款流水预览卡已经能直接把操作台预填到时间线、凭证、派单事件、退款流水、客服工单详情和审计检索，后台排查开始更像一个同屏工作面。
+- 后端对接：本轮没有新增接口，继续复用既有 `after-sales-detail`、`after-sales-events`、`after-sales-evidence`、`dispatch-order-events`、`refund-transactions`、`support-ticket-detail` 和 `audit-logs`。
+- 前端对接：`adminResultPreview` 为售后聚合详情与退款流水卡补出预填动作；`main.js` 新增预览卡按钮事件绑定，可直接切换当前操作并自动带参；`styles.css` 补了预览卡动作区样式。
+- 验证：
+  - `node --test apps/admin-web/src/adminResultPreview.test.mjs`
+  - `node --check apps/admin-web/src/main.js`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：现在已经能从摘要直接跳到操作台，但还没有把这些联动结果收成真正的多面板并排视图；下一段更值当的是把退款/审计/客服详情继续做成可并排对照的工作区。
+- 涉及文件：
+  - `apps/admin-web/src/adminResultPreview.mjs`
+  - `apps/admin-web/src/adminResultPreview.test.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260603-201 订单聚合详情首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把后台“订单其实才是总入口”这条线补成首版。现在管理端已经有管理员订单聚合详情接口，订单监控、售后详情和退款/客服预览都能顺着同一个订单把售后、退款、工单、派单和审计一起拉回来看。
+- 后端对接：新增 `GET /api/admin/orders/{orderID}`，返回订单主信息、售后记录摘要、退款摘要、客服工单摘要、派单摘要和关联审计摘要；聚合体里同时带回对应明细列表，方便后台继续深钻。
+- 前端对接：Admin Web 新增 `order-detail` 操作；订单监控详情抽屉和售后详情抽屉新增“查看订单总览”；结果预览新增订单聚合详情卡组，并把售后/退款/客服预览顺手接回订单总入口。
+- 验证：
+  - `cd services/api-go && go test ./internal/platform -run 'TestAdminAfterSalesDetailAggregatesTimelineEvidenceAndDispatch|TestAdminOrderDetailAggregatesAfterSalesRefundsSupportDispatchAndAudits'`
+  - `cd services/api-go && go test ./internal/httpapi -run 'TestAfterSalesHTTPFlow|TestAdminOrderDetailHTTPFlow'`
+  - `node --test apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+- 当前边界：订单聚合详情现在已经能做后台排查总入口，但还没有把退款、工单、审计做成真正并排对照的多面板工作区；下一段更值当的是继续把订单总览下的三个深链结果收成同屏协作面。
+- 涉及文件：
+  - `services/api-go/internal/platform/contracts.go`
+  - `services/api-go/internal/platform/repository.go`
+  - `services/api-go/internal/platform/store.go`
+  - `services/api-go/internal/platform/postgres_store.go`
+  - `services/api-go/internal/platform/store_test.go`
+  - `services/api-go/internal/httpapi/router.go`
+  - `services/api-go/internal/httpapi/router_test.go`
+  - `apps/admin-web/src/adminApi.mjs`
+  - `apps/admin-web/src/adminViews.mjs`
+  - `apps/admin-web/src/adminDetails.mjs`
+  - `apps/admin-web/src/adminResultPreview.mjs`
+  - `apps/admin-web/src/adminApi.test.mjs`
+  - `apps/admin-web/src/adminResultPreview.test.mjs`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260603-202 订单总览联动结果区首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把后台“总览点进去还要反复抄参数”的最后一层阻力再削掉一截。现在 Admin Web 的预览卡只读动作会直接拉结果，并把退款、工单、派单、审计这些深链结果保留到同屏联动面板里，后台排查开始真正支持并排对照。
+- 前端对接：新增 `adminLinkedWorkspace` helper，统一处理联动结果去重、保留最近 3 个面板和只读动作直拉；`main.js` 补出联动结果区、关闭/提主结果动作和卡片内继续联动；`styles.css` 补齐多面板工作区样式；`admin-web` README 和路线图同步记录。
+- 测试：新增 `apps/admin-web/src/adminLinkedWorkspace.test.mjs`，覆盖只读动作直拉判断、请求 URL 去重和最近结果上限；并回归 `adminResultPreview`、`adminApi` 现有测试。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --check apps/admin-web/src/adminLinkedWorkspace.mjs`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+- 当前边界：现在已经能把联动结果并排挂起来，但还没有把退款/客服/审计的多面板数据再做成共享筛选或同步定位；下一段更值当的是把“同一订单上下文”继续做成更强的联动工作区，而不是只停在并排展示。
+- 涉及文件：
+  - `apps/admin-web/src/adminLinkedWorkspace.mjs`
+  - `apps/admin-web/src/adminLinkedWorkspace.test.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
+### DONE-20260603-203 同单工作区首版
+
+- 日期：2026-06-03
+- 结果：继续按参考图逐页精修与待接后端补齐，把后台“有了订单上下文但下一步还得自己想挂哪些面板”的那层心智负担再往下压一截。现在订单聚合详情、售后聚合详情和工单详情这类主结果，会直接长出“同单工作区”工具条，能一键展开订单工作区或售后工作区，也能单独挂退款、工单、派单、审计、时间线、凭证这些常用面板。
+- 前端对接：`adminLinkedWorkspace` 新增上下文提取、工作区动作和默认 bundle；`main.js` 新增同单工作区工具条、一键挂板和多面板批量拉取；`styles.css` 补齐工具条样式；README、路线图同步记录。
+- 测试：扩充 `apps/admin-web/src/adminLinkedWorkspace.test.mjs`，覆盖订单/售后聚合结果的上下文提取、同单工作区动作和默认 bundle。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+- 当前边界：现在已经能基于上下文一键挂起常用面板，但还没有做到多面板共享筛选、同步定位和联动高亮；下一段更值当的是把“同一订单”的退款/工单/审计做成真正互相对齐的工作区，而不是只停在一起展示。
+- 涉及文件：
+  - `apps/admin-web/src/adminLinkedWorkspace.mjs`
+  - `apps/admin-web/src/adminLinkedWorkspace.test.mjs`
+  - `apps/admin-web/src/main.js`
+  - `apps/admin-web/src/styles.css`
+  - `apps/admin-web/README.md`
+  - `docs/product/recent-progress-roadmap.md`
+  - `EXECUTION_LEDGER.md`
+
 ## 进行中
 
 ### TASK-USER-MP-001 用户端原生微信小程序
 
 - 状态：进行中
 - 目标：完成首版用户端原生微信小程序。
-- 已完成：首页、圈子、找饭搭、商家列表、店铺详情、团购套餐购买入口、购物车、确认订单、订单列表、订单详情、余额支付密码、地址预览页；小程序 API 客户端和微信登录、店铺/商品/团购/购物车/结算/订单查询/支付密码/微信支付预下单接入点；默认访问 BFF。
-- 下一步：接入定位、消息、邀请页、售后、评价和真实微信 `wx.login` 页面流程。
+- 已完成：首页、圈子、找饭搭、商家列表、店铺详情、团购套餐购买入口、购物车、确认订单、订单列表、订单详情、余额支付密码、地址预览页；01-35 已按参考图首轮精修；小程序 API 客户端和微信登录、真实微信 `wx.login` 页面流程、手机号验证码/密码登录注册/生产短信 provider 首版、店铺/商品/团购/购物车/结算/订单查询/评价/售后/反馈/客服工单分派关闭回访/客服消息敏感信息风控/圈子动态/消息会话/聊天发送/消息离线补偿/已读回执/消息 WebSocket 实时投递/消息 PostgreSQL 规范化首版/realtime gateway Redis adapter 多副本 fanout 首版/realtime gateway WebSocket 签名鉴权首版/realtime gateway 会话成员权限校验首版/realtime gateway 会话免打扰偏好首版/realtime gateway 群资料与成员预览首版/饭搭资料人工审核候选举报拉黑举报处置/找饭搭同校同楼隐私和设备风控/红包发送详情领取退回过期退回/红包领取风控/钱包账单/钱包总览/提现申请/优惠券/会员积分/邀请好友/搜索/买药首页/处方影像上传确认/处方影像对象扫描门禁/处方 OCR 留档/处方药师复核/处方审核/药品订单确认详情/药品库存锁定/跑腿下单详情/支付密码/微信支付预下单接入点；默认访问 BFF。
+- 下一步：做微信开发者工具真机视觉走查，继续补售后凭证上传入口、评价图片上传/逐项菜品评价、订单选项编辑、地址删除/编辑、优惠券核销联动，以及群主/管理员角色、被踢出群/成员变更通知、断线重连、消息顺序保障和压测生产化。
 - 范围：登录、首页、后台可控卡片、圈子/小微墙、找饭搭、分类、商家、搜索、今日推荐、商品详情、购物车、地址、订单备注、餐具数量、下单、微信支付、余额支付密码、订单、售后、评价、收藏、积分会员、钱包充值/提现/账单、消息、官方群/商户群、红包、客服、邀请、买药、快递/跑腿、公益。
 - 验收：
   - 微信开发者工具可运行。
   - 真机可跑通首单闭环。
   - UI 使用 `#009bf5` 和旧版 logo。
-  - 找饭搭未满足性别、真实性承诺、免责承诺和问卷前不可使用。
+  - 找饭搭未满足性别、真实性承诺、免责承诺、问卷和人工审核前不可使用。
 
 ### TASK-BACKEND-001 核心业务 API
 
 - 状态：进行中
 - 目标：建立 Go 核心业务 API。
 - 已完成：微信登录签名 token、真实微信 `code2session` provider resolver、auth session 持久化与 logout 撤销、生产默认关闭开发 token、商户邀约/资质、商户员工健康证、商户补充资料、商户主体登录、管理员 bootstrap 登录、骑手/站长邀约注册、骑手/站长主体登录、商户资料、商户订单列表、商户接单/出餐状态机、商户商品管理、商户/骑手保证金、店铺接单门槛、团购下单发券与扫码核销、骑手在线状态、10 分钟后自动派单、拒单顺延派单、派单确认超时自动转派、订单状态机补偿首版、管理端运营快照聚合首版、管理端操作审计日志首版、审计日志 PostgreSQL `audit_logs` 规范化表首版、管理端审计服务端安全边界首版、管理端审计完整性证明首版、管理端服务端 RBAC 策略矩阵首版、平台 outbox 事件首版、outbox relay worker 首版、outbox relay 可运行化与部署骨架、outbox 积压观测首版、outbox 手动恢复/重放首版、outbox 批量恢复/重放首版、outbox 死信隔离首版、outbox relay 租约领取首版、outbox relay 租约续租首版、PostgreSQL outbox 规范化 relay 路径首版、outbox 租约健康观测首版、消费端幂等落库首版、支付/钱包 PostgreSQL 规范化恢复首版、订单创建 PostgreSQL 事务化首版、购物车结算 PostgreSQL 事务化首版、余额支付 PostgreSQL 事务扣减首版、退款策略与余额退款核心闭环首版、payment-worker 原路退款事件规范化首版、退款 PostgreSQL 事务化首版、售后申请与审核核心闭环首版、售后 PostgreSQL 规范化恢复首版、售后审核 PostgreSQL 事务化首版、售后部分退款资金账本首版、售后仲裁与客服介入处理日志首版、售后可退金额与证据上传票据首版、售后证据确认与附件元数据首版、对象存储上传签名配置化首版、售后上传票据账本与确认防伪首版、售后对象存在性 HEAD 校验开关首版、售后上传回调验签与扫描门禁首版、对象扫描 worker 首版、对象扫描 worker ClamAV 适配与下载首版、对象生命周期清理 worker 首版、对象清理失败账本首版、对象清理统计接口首版、派单审计事件 PostgreSQL 规范化恢复首版、商家订单流转 PostgreSQL 事务化首版、骑手取货/送达完成、固定单量完成后免责拒派决策、站长站点骑手/订单视图、站长手动派单、站长任务时长/固定单量配置、站点骑手绩效等级快照、派单事件持久化与查询审计、站点区域匹配首版、店铺、商品、地址、购物车、结算订单、订单列表、订单详情、余额支付、余额支付密码、微信支付预下单/回调验签、骑手抢单、每日一次免责取消的领域实现和 HTTP 接口；用户/商户/骑手/站长/管理员/安全审计员及后台分权角色鉴权骨架；核心 PostgreSQL 迁移；Repository 边界；PostgreSQL-backed Store 快照持久化第一阶段。
-- 补充进展：`DONE-20260523-091` 已完成退款策略配置与 `admin.refund_settings.updated` 审计同事务首版；`DONE-20260523-092` 已完成管理端订单退款与 `admin.order.refunded` 审计同事务首版；`DONE-20260523-093` 已完成售后审核与 `after_sales.reviewed` 审计同事务首版；`DONE-20260523-094` 已完成订单状态补偿与 `admin.order_state.compensated` 审计同事务首版；`DONE-20260524-095` 已完成 outbox 运维 claim/lease renew/publish/fail/replay/batch replay 与审计同事务首版；`DONE-20260524-096` 已完成商户/骑手/站长邀约与审计同事务首版；`DONE-20260524-097` 已完成管理端服务端 RBAC 策略矩阵首版；`DONE-20260524-098` 已完成 RBAC 权限治理查询与变更申请审计首版；`DONE-20260524-099` 已完成 RBAC 权限申请审批/驳回台账首版；`DONE-20260524-100` 已完成 RBAC 权限变更手动应用首版；`DONE-20260524-101` 已完成 RBAC 权限变更审计回滚首版；`DONE-20260524-102` 已完成管理端审计导出首版；`DONE-20260524-103` 已完成管理端审计留存/告警健康报告首版；`DONE-20260524-104` 已完成管理端审计留存告警 outbox 投递首版；`DONE-20260524-105` 已完成管理端审计 WORM/冷归档请求首版；`DONE-20260524-106` 已完成管理端审计归档 worker 首版；`DONE-20260524-107` 已完成审计归档完成回写与记录查询首版；`DONE-20260524-108` 已完成审计归档对象下载校验与回查首版；`DONE-20260524-109` 已完成审计归档校验历史查询首版；`DONE-20260524-110` 已完成审计归档校验历史可视化面板首版。已迁移的审计同事务路径在 PostgreSQL-backed Store 下均在同一数据库事务内写入业务表、outbox 表或邀约快照与 `audit_logs`。
+- 补充进展：`DONE-20260523-091` 已完成退款策略配置与 `admin.refund_settings.updated` 审计同事务首版；`DONE-20260523-092` 已完成管理端订单退款与 `admin.order.refunded` 审计同事务首版；`DONE-20260523-093` 已完成售后审核与 `after_sales.reviewed` 审计同事务首版；`DONE-20260523-094` 已完成订单状态补偿与 `admin.order_state.compensated` 审计同事务首版；`DONE-20260524-095` 已完成 outbox 运维 claim/lease renew/publish/fail/replay/batch replay 与审计同事务首版；`DONE-20260524-096` 已完成商户/骑手/站长邀约与审计同事务首版；`DONE-20260524-097` 已完成管理端服务端 RBAC 策略矩阵首版；`DONE-20260524-098` 已完成 RBAC 权限治理查询与变更申请审计首版；`DONE-20260524-099` 已完成 RBAC 权限申请审批/驳回台账首版；`DONE-20260524-100` 已完成 RBAC 权限变更手动应用首版；`DONE-20260524-101` 已完成 RBAC 权限变更审计回滚首版；`DONE-20260524-102` 已完成管理端审计导出首版；`DONE-20260524-103` 已完成管理端审计留存/告警健康报告首版；`DONE-20260524-104` 已完成管理端审计留存告警 outbox 投递首版；`DONE-20260524-105` 已完成管理端审计 WORM/冷归档请求首版；`DONE-20260524-106` 已完成管理端审计归档 worker 首版；`DONE-20260524-107` 已完成审计归档完成回写与记录查询首版；`DONE-20260524-108` 已完成审计归档对象下载校验与回查首版；`DONE-20260524-109` 已完成审计归档校验历史查询首版；`DONE-20260524-110` 已完成审计归档校验历史可视化面板首版；`DONE-20260524-111` 已完成管理端 P0 业务详情面板首版；`DONE-20260524-112` 已完成管理端高风险操作二次确认与结果追踪首版；`DONE-20260524-113` 已完成管理端失败回放入口首版；`DONE-20260524-114` 已完成管理端 P0 业务筛选分页首版；`DONE-20260525-115` 已完成管理端售后审核表单首版；`DONE-20260525-116` 已完成管理端订单退款表单首版；`DONE-20260525-117` 已完成管理端 Outbox 单事件恢复表单首版；`DONE-20260525-118` 已完成管理端 Outbox 发布/失败人工处置表单首版；`DONE-20260525-119` 已完成管理端 Outbox 领取/续租表单首版；`DONE-20260525-120` 已完成管理端 Outbox 死信分诊/解封表单首版；`DONE-20260525-121` 已完成商户资质审核后端与管理端表单首版；`DONE-20260525-122` 已完成 Outbox 单事件事故辅助明细首版；`DONE-20260525-123` 已完成商户资质待审列表与明细接口首版；`DONE-20260525-124` 已完成商户资质审核结果可靠通知首版；`DONE-20260525-125` 已完成商户站内通知中心首版；`DONE-20260525-126` 已完成通知运营查询接口首版；`DONE-20260525-127` 已完成通知投递回执台账首版；`DONE-20260525-128` 已完成 Admin Web 通知运营页首版；`DONE-20260525-129` 已完成通知失败回执告警首版。已迁移的审计同事务路径在 PostgreSQL-backed Store 下均在同一数据库事务内写入业务表、outbox 表、资质表或邀约快照与 `audit_logs`。
 - 下一步：继续扫描后台配置、运营处置、资金和风控写路径，把剩余关键写操作迁移到业务写入与审计写入同事务强制提交；补字段级/租户级权限、策略版本回滚和菜单隐藏策略；补生产 WORM bucket 保留策略、归档校验生产演练回查、保留期删除审批；补真实 Kafka/NATS broker 运维和 relay 积压恢复；继续推进微信原路退款 API 调用、售后对象存储真实签名/回调和提现/结算资金链路。
 - 范围：认证、用户、商户、骑手、店铺、商品、订单、团购、买药、跑腿、钱包、支付、消息、客服、RTC、邀请、配置。
 - 验收：
@@ -2522,7 +5191,7 @@
 
 ## 端侧与后续任务
 
-### TASK-MERCHANT-UNI-001 商户端 uni-app
+### TASK-MERCHANT-FLUTTER-001 商户端 Flutter
 
 - 状态：进行中
 - 目标：完成首版商户端。
@@ -2530,13 +5199,13 @@
 - 下一步：补商户端登录/邀请注册页面、店铺装修、商户钱包、消息页和资质过期强弹窗。
 - 范围：管理员邀请链接注册、登录、经营、订单、商品图片/描述/配料表、店铺详情页、团购二维码验券、商户自发券、平台活动券确认参与、钱包、消息、商户群、红包、营业执照/健康证有效期、员工信息、补充资料、资质过期弹窗、售后沟通、评价查看。
 - 验收：
-  - HBuilderX/uni-app 可运行。
+  - Flutter 可运行。
   - 商户能接单、拒单、出餐、联系用户/骑手。
   - 资质过期或未审核通过时店铺暂时关闭并提示补资料。
   - 团购券二维码扫码验券可用。
   - 商户自发券和商户承担活动券能进入结算审计。
 
-### TASK-RIDER-UNI-001 骑手端 uni-app
+### TASK-RIDER-FLUTTER-001 骑手端 Flutter
 
 - 状态：进行中
 - 目标：完成首版骑手端。
@@ -2555,29 +5224,29 @@
 
 - 状态：进行中
 - 目标：完成桌面管理端。
-- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、运营快照、操作审计、退款策略、售后列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 首版矩阵；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、审计检索、退款策略和权限治理等 P0 业务视图首版；P0 KPI、队列和表格已可由运营快照生成，并对展示字段做 HTML 转义；审计中心已支持 actor/action/target/after/before/limit 筛选、before 游标翻页、保存筛选、详情抽屉、跨模块跳转、脱敏 payload 摘要、完整性状态展示、CSV 导出、留存告警报告、告警 outbox 投递、WORM/冷归档请求和归档校验历史可视化面板；后端已支持 `security_auditor` 只读审计角色、后台分权 RBAC 策略矩阵、RBAC 策略查询、权限变更申请审计、权限申请审批/驳回台账、权限变更手动应用、权限变更审计回滚、审计 CSV 导出、审计留存/告警健康报告、审计留存告警 outbox 投递、审计 WORM/冷归档请求、审计归档 worker、归档完成记录查询、归档对象校验、归档校验历史查询、审计 payload 服务端白名单/敏感字段掩码和审计完整性证明首版。
-- 补充进展：退款策略保存、管理端订单退款、售后审核、订单状态补偿、对象清理完成/失败、outbox 运维和商户/骑手邀约后端已改为同事务写入业务结果与审计；管理端服务端 RBAC 策略矩阵首版已落地，Admin Web 审计检索和权限治理页可继续查看完整性状态、服务端规范化 payload、权限申请审计、审批/驳回审计、应用审计、回滚审计、审计 CSV 导出审计、留存告警健康报告、告警 outbox 投递结果、归档请求结果和归档校验历史可视化面板。
-- 下一步：补订单详情、商户资质审核详情、骑手/站长管理详情、售后审核详情、业务分页筛选、字段级/租户级 RBAC、剩余后台配置/运营处置/资金风控写路径同事务审计、生产 WORM bucket 保留策略、归档校验生产演练回查、保留期删除审批、真实告警渠道投递、KMS/链式不可抵赖签名和首页卡片/优惠券/圈子饭搭配置页。
+- 已完成：最小运营控制台首版，包含登录操作台、商户/站长/骑手邀约、运营快照、操作审计、退款策略、售后列表、客服工单列表、对象存储清理、outbox 运维、订单状态补偿、P0 运营指标位、今日待办、模块状态和 RBAC 首版矩阵；已补订单监控、售后审核、商户资质、骑手/站长、骑手绩效、派单审计、审计检索、退款策略、客服工作台、通知运营和权限治理等业务视图首版；P0 KPI、队列和表格已可由运营快照生成，并对展示字段做 HTML 转义；业务表格行已新增详情面板首版，可展示字段、核查清单并跳到补偿、订单退款、商户资质审核、售后审核、客服分派、工单方案、审计、outbox、对象清理、通知回执和 RBAC 等下一步操作；通知运营模块已可查询通知台账、投递回执并补录高风险回执；客服工作台已可查询服务工单、预填客服分派和处理方案并进入高风险二次确认；商户模块和详情抽屉已新增资质审核表单首版，可预填 `merchant_id`、`qualification_id`、`decision`、`reason` 和 `reviewed_at` 并进入高风险二次确认；订单模块和详情抽屉已新增退款表单首版，可预填 `order_id`、`reason`、`idempotency_key`、`amount_fen` 和 `destination` 并进入高风险二次确认；售后模块和详情抽屉已新增审核表单首版，可预填 `request_id`、`decision`、`reason`、`refund_destination` 和 `refund_idempotency_key` 并进入高风险二次确认；运营首页和 Outbox 队列详情抽屉已新增事件明细、死信分诊、领取租约、续租、死信解封、单事件恢复、标记失败和标记已发布表单首版，可预填 `status=dead_letter`、`event_id`、失败原因、重试延迟、最大尝试次数和租约参数，高风险写动作进入二次确认；后端 Outbox 单事件明细已返回事件状态、payload 摘要、关联目标、最近审计、推荐操作和处置核查清单；审计中心已支持 actor/action/target/after/before/limit 筛选、before 游标翻页、保存筛选、详情抽屉、跨模块跳转、脱敏 payload 摘要、完整性状态展示、CSV 导出、留存告警报告、告警 outbox 投递、WORM/冷归档请求和归档校验历史可视化面板；后端已支持 `security_auditor` 只读审计角色、后台分权 RBAC 策略矩阵、RBAC 策略查询、权限变更申请审计、权限申请审批/驳回台账、权限变更手动应用、权限变更审计回滚、审计 CSV 导出、审计留存/告警健康报告、审计留存告警 outbox 投递、审计 WORM/冷归档请求、审计归档 worker、归档完成记录查询、归档对象校验、归档校验历史查询、审计 payload 服务端白名单/敏感字段掩码和审计完整性证明首版。
+- 补充进展：退款策略保存、管理端订单退款、售后审核、商户资质审核、订单状态补偿、对象清理完成/失败、outbox 运维和商户/骑手邀约后端已改为同事务写入业务结果与审计；管理端服务端 RBAC 策略矩阵首版已落地，Admin Web 审计检索和权限治理页可继续查看完整性状态、服务端规范化 payload、权限申请审计、审批/驳回审计、应用审计、回滚审计、审计 CSV 导出审计、留存告警健康报告、告警 outbox 投递结果、归档请求结果和归档校验历史可视化面板。
+- 下一步：把 P0 详情面板继续接更多后端业务明细接口、更完整的审核辅助信息、字段级/租户级 RBAC、剩余后台配置/运营处置/资金风控写路径同事务审计、生产 WORM bucket 保留策略、归档校验生产演练回查、保留期删除审批、真实告警渠道投递、KMS/链式不可抵赖签名和首页卡片/优惠券/圈子饭搭配置页。
 - 范围：订单、售后、用户、商户、骑手绩效等级、商品、精选商品、首页卡片、首页活动、优惠券、圈子/饭搭、团购、买药、跑腿、支付中心、钱包、提现、退款策略、积分会员、通知推送、评价、风控、数据备份恢复、派单规则、骑手计价、群聊红包、客服、RTC、电话联系审计、OAuth/API 管理、系统日志。
 - 验收：
   - 桌面浏览器可完成运营配置和订单处理。
   - 权限边界清楚。
   - 首页卡片、圈子开关、饭搭协议/问卷、优惠券资金责任可配置可审计。
 
-### TASK-ADMIN-UNI-001 移动管理端 uni-app
+### TASK-ADMIN-FLUTTER-001 移动管理端 Flutter
 
 - 状态：未开始
 - 目标：完成手机运营高频处理端。
 - 范围：订单监控、调度、客服、退款审核、告警处理。
 - 验收：
-  - HBuilderX/uni-app 可运行。
+  - Flutter 可运行。
   - 移动端可处理紧急运营任务。
 
 ### TASK-BFF-001 多端 BFF
 
 - 状态：进行中
 - 目标：建立面向用户小程序、商户端、骑手端、管理端的聚合层。
-- 已完成：运行时配置、首页模块/卡片、用户端微信登录、商户邀约与主体登录、管理员 bootstrap 登录、骑手/站长邀约与主体登录、店铺/商品/地址/购物车/结算/订单/钱包/微信支付预下单、退款策略/订单退款、商户订单/商品/保证金、骑手调度/保证金、派单事件查询、派单确认超时转派、订单状态机补偿、管理端运营快照代理、管理端操作审计代理、管理端审计导出代理、管理端审计留存/告警健康报告代理、管理端审计留存告警 outbox 投递代理、管理端 RBAC 策略查询、权限变更申请、申请列表、审批/驳回、手动应用和审计回滚代理、对象存储清理候选/统计/完成/失败代理、站长任务/绩效核心接口代理、浏览器来源 CORS 白名单与预检处理首版。
+- 已完成：运行时配置、首页模块/卡片、用户端微信登录、商户邀约与主体登录、管理员 bootstrap 登录、骑手/站长邀约与主体登录、店铺/商品/地址/购物车/结算/订单/钱包/微信支付预下单、退款策略/订单退款、商户资质审核、商户资质待审列表/明细、商户订单/商品/保证金、骑手调度/保证金、派单事件查询、派单确认超时转派、订单状态机补偿、管理端运营快照代理、管理端操作审计代理、管理端审计导出代理、管理端审计留存/告警健康报告代理、管理端审计留存告警 outbox 投递代理、管理端 RBAC 策略查询、权限变更申请、申请列表、审批/驳回、手动应用和审计回滚代理、对象存储清理候选/统计/完成/失败代理、站长任务/绩效核心接口代理、浏览器来源 CORS 白名单与预检处理首版。
 - 范围：运行时配置、聚合接口、灰度、端侧兼容、错误标准化。
 - 验收：
   - 各端不直接依赖内部领域 API。
@@ -2585,8 +5254,9 @@
 
 ### TASK-REALTIME-001 IM 与实时通知
 
-- 状态：未开始
+- 状态：进行中
 - 目标：建立实时网关。
+- 已完成：`message.sent` outbox 到 realtime-gateway 的 WebSocket 首版投递，Redis Pub/Sub 多副本 fanout 首版，WebSocket 签名 token 鉴权首版，会话成员服务端校验首版，小程序商户群页已接同会话实时消息接收。
 - 范围：消息、订单通知、骑手位置、抢单/派单事件、官方客服。
 - 验收：
   - 用户/商户/骑手/客服消息实时送达。
@@ -2669,3 +5339,187 @@
 - 验收：
   - RPO/RTO 结果有证据。
   - 发布回滚演练通过。
+
+### DONE-20260603-204 同单工作区同步刷新
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/src/styles.css`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`
+- 内容：
+  - Admin Web 同单工作区新增共享上下文同步首版，联动卡片会标记“已对齐 / 待同步”，并显示同步后的订单/售后/工单/用户目标 token。
+  - 联动结果区新增“同步当前筛选 / 同步全部”和单卡“同步当前上下文”，主结果切换后，退款、客服工单、派单事件、审计等已挂载卡片可以直接批量刷新到当前上下文，不必手填参数重挂。
+  - 同步逻辑统一收口到 `adminLinkedWorkspace.mjs`，对 `order-detail`、`refund-transactions`、`support-tickets`、`support-ticket-detail`、`dispatch-order-events`、`after-sales-*`、`audit-logs` 等操作做共享参数重绑。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-205 同单工作区上下文切换
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/src/styles.css`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`
+- 内容：
+  - Admin Web 同单工作区新增“切到此上下文”和候选上下文区，运营不必再先把某张联动卡提升为主结果，就能直接围绕该卡的订单/售后/工单/用户上下文继续排查。
+  - 工作区切换后会保留主结果，并补出“跟随主结果”回退入口；焦点定位会自动跟到新上下文，让“筛选 + 同步当前筛选/全部 + 带参刷新”继续围绕同一组 token 运作。
+  - `adminLinkedWorkspace.mjs` 新增上下文归一化、上下文候选聚合、上下文相等判断和主焦点推导；`adminLinkedWorkspace.test.mjs` 补了对应断言。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-206 同单工作区分组同步与表单预填
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/src/styles.css`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`
+- 内容：
+  - Admin Web 同单工作区新增按退款、客服、派单、审计分组的同步按钮，运营可以只刷新当前关注的那组联动面板，不必总是整批重跑。
+  - 操作台当前操作会跟随工作区上下文自动预填 `order_id / related_order_id / request_id / ticket_id / user_id / target_type / target_id` 等参数；切换上下文、切换操作和回到“跟随主结果”时都会同步更新。
+  - 顺手修掉了联动结果卡分组 badge 的显示问题，退款/客服/派单/审计卡现在会显示正确分组，不再一律落成“其他”。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-207 同单工作区上下文自动刷新
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`
+- 内容：
+  - Admin Web 同单工作区新增上下文自动刷新：切到联动卡上下文、切候选上下文、回到“跟随主结果”，以及把联动卡提升为主结果后，当前筛选下待同步的联动卡会自动刷新，不再需要再手动补一轮“同步当前筛选”。
+  - 焦点态下的同步匹配口径也一起修正，除了识别联动卡当前的订单/售后/工单/用户 token，还会识别同步后的目标 token，避免刚切完上下文时因为焦点已切到新 token 而漏掉最该刷新的卡。
+  - `main.js` 补了异步上下文切换与自动刷新串联；`adminLinkedWorkspace.mjs` 抽出 `linkedWorkspaceSyncEntries` / `linkedWorkspaceSyncActions`，把分组同步、焦点同步和目标 token 判断统一收口。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-208 同单工作区同步反馈
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/src/styles.css`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`
+- 内容：
+  - Admin Web 同单工作区新增同步反馈层：工具条会显示“同步中 / 同步反馈”提示，并把退款、客服、派单、审计四组的待同步/已对齐状态汇总展示出来。
+  - 当前筛选、全部同步和分组同步按钮在刷新期间会进入对应“刷新中”态；刷新完成后会直接回写“已刷新当前筛选/全部/某分组 N 张卡”，减少运营对同步结果的猜测。
+  - `adminLinkedWorkspace.mjs` 新增分组汇总能力 `linkedWorkspaceSyncOverview`；`main.js` 接入同步活动状态、分组状态摘要和按钮 loading 文案；`styles.css` 补齐同步反馈区样式。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-209 同单工作区同步时间与分组完成感
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/src/styles.css`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`
+- 内容：
+  - Admin Web 同单工作区同步反馈继续补强：现在除了“同步中 / 已刷新”，还会带上最近一次完成时间和涉及分组摘要，方便运营确认刚刚刷新的是哪几条线。
+  - 分组状态摘要会在同步完成后显示“刚刷新 N”，退款/客服/派单/审计几组不再只剩统一的“已对齐”，而是能把刚刚发生的动作保留一层可读痕迹。
+  - `adminLinkedWorkspace.mjs` 新增同步动作分组统计 `linkedWorkspaceSyncActionGroups`；`main.js` 接入完成时间、分组摘要和“刚刷新”态；`styles.css` 补齐状态文案排布。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-210 同单工作区局部失败反馈
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/main.js`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`、`EXECUTION_LEDGER.md`
+- 内容：
+  - Admin Web 同单工作区同步反馈新增局部失败感知：如果某一轮刷新只成功了一部分卡，状态文案会写明“其中失败 N 张”，不再把局部失败伪装成完全成功。
+  - 分组状态摘要也会同步标出失败分组和失败张数，退款/客服/派单/审计里哪一条线掉队，工作区会直接用红色 badge 提醒。
+  - 复用 `linkedWorkspaceSyncActionGroups` 对成功/失败动作按组计数，`main.js` 把失败数、失败分组和完成时间一起回写到同步状态里。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-211 同单工作区失败项重试
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/src/styles.css`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`
+- 内容：
+  - Admin Web 同单工作区新增失败项重试入口：工作区会直接给出“重试失败项”以及按退款/客服分组的失败重试按钮，局部失败后不必手动筛卡重跑。
+  - 重试链路会沿用当前工作区上下文、当前筛选和当前焦点，把失败卡重新组装成同一批 GET 动作重跑；成功/失败结果继续回写到现有同步反馈区。
+  - `adminLinkedWorkspace.mjs` 新增失败项识别与分组统计 helper；`main.js` 接入失败项重试入口、失败项重试状态和重试反馈；`styles.css` 补齐失败重试按钮样式。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/adminResultPreview.test.mjs apps/admin-web/src/adminApi.test.mjs`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-212 同单工作区失败定位与单卡重试
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/src/styles.css`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`、`EXECUTION_LEDGER.md`
+- 内容：
+  - Admin Web 联动结果区新增“失败”筛选，失败卡会直接显示失败原因，先让运营知道是超时、网关错误还是接口失败，再决定怎么补救。
+  - 失败卡片本身补了“重试此卡”，工作区工具条补了“仅看失败项”；现在既可以集中看红卡，也可以逐张把掉队卡补回来。
+  - `adminLinkedWorkspace.mjs` 新增失败原因摘要和失败筛选口径；`main.js` 接入失败原因展示、单卡重试和失败筛选捷径；`styles.css` 补了失败提示样式。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs`
+  - `git diff --check -- apps/admin-web/src/adminLinkedWorkspace.mjs apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/main.js apps/admin-web/src/styles.css`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-213 同单工作区失败卡请求事实
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/src/styles.css`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`、`EXECUTION_LEDGER.md`
+- 内容：
+  - Admin Web 失败卡补出结构化失败事实：现在红卡会直接显示 HTTP 状态、最后一次请求路径和原参数摘要，定位失败时不必先去翻原始 JSON。
+  - 失败卡同时会展示“按当前工作区上下文重试后会改写成什么参数”，让运营在补跑前先确认上下文切换是否符合预期。
+  - `adminLinkedWorkspace.mjs` 新增失败事实与重试参数摘要 helper；`main.js` 接入失败事实面板；`styles.css` 补齐失败事实样式；`adminLinkedWorkspace.test.mjs` 补覆盖。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs`
+  - `git diff --check -- apps/admin-web/src/adminLinkedWorkspace.mjs apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/main.js apps/admin-web/src/styles.css`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-214 同单工作区失败卡回填与对照痕迹
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`、`EXECUTION_LEDGER.md`
+- 内容：
+  - Admin Web 失败卡补了“回填到操作台”，失败后可以直接把当前工作区上下文下的重试参数带回操作台，不必手工抄参数。
+  - 联动结果 entry 开始保留最近一次失败和最近一次成功的痕迹；红卡会把两次状态并排给出来，方便判断故障是持续的还是回归造成的。
+  - `adminLinkedWorkspace.mjs` 新增失败/成功痕迹合并与读取逻辑；`main.js` 接入卡片回填和痕迹展示；`adminLinkedWorkspace.test.mjs` 补了痕迹保留断言。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs`
+  - `git diff --check -- apps/admin-web/src/adminLinkedWorkspace.mjs apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/main.js`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`
+
+### DONE-20260603-215 同单工作区回填确认与局部历史
+
+- 时间：2026-06-03
+- 范围：`apps/admin-web/src/adminLinkedWorkspace.mjs`、`apps/admin-web/src/adminLinkedWorkspace.test.mjs`、`apps/admin-web/src/main.js`、`apps/admin-web/src/styles.css`、`apps/admin-web/README.md`、`docs/product/recent-progress-roadmap.md`、`EXECUTION_LEDGER.md`
+- 内容：
+  - Admin Web 失败卡点“回填到操作台”后，操作台会显示专门的回填确认面板，直接给出来源、当前参数、失败请求事实，以及“执行当前查询 / 收起提示”两个下一步。
+  - 红卡里的最近失败/最近成功痕迹改成了局部历史列表，带时间戳、状态 badge 和参数摘要，判断是持续失败还是刚刚恢复会更直观。
+  - `adminLinkedWorkspace.mjs` 新增预填 action helper；`main.js` 接入回填确认面板和局部历史列表；`styles.css` 补齐对应样式；`adminLinkedWorkspace.test.mjs` 补了预填 action 断言。
+- 验证：
+  - `node --check apps/admin-web/src/main.js`
+  - `node --test apps/admin-web/src/adminLinkedWorkspace.test.mjs`
+  - `git diff --check -- apps/admin-web/src/adminLinkedWorkspace.mjs apps/admin-web/src/adminLinkedWorkspace.test.mjs apps/admin-web/src/main.js apps/admin-web/src/styles.css`
+  - `npm run test --workspace @infinitech/admin-web`
+  - `npm run verify`
+  - `git diff --check`

@@ -9,3 +9,4 @@ artifacts/
 tmp/
 *.log
 *.test
+apps/user-wechat-miniprogram/project.private.config.json

@@ -4,6 +4,8 @@ import {
   createLeaseRenewalLoop,
   createKafkaRestPublisher,
   createOutboxApiClient,
+  createRealtimeGatewayPublisher,
+  createTopicRoutingPublisher,
   defaultLeaseSeconds,
   defaultLeaseRenewIntervalMs,
   defaultMaxAttempts,
@@ -18,7 +20,12 @@ test("outbox relay declares critical platform topics", () => {
   assert.ok(defaultRelayTopics.includes("order.paid"));
   assert.ok(defaultRelayTopics.includes("dispatch.assigned"));
   assert.ok(defaultRelayTopics.includes("order.completed"));
+  assert.ok(defaultRelayTopics.includes("merchant.qualification_reviewed"));
   assert.ok(defaultRelayTopics.includes("audit.retention_alerts"));
+  assert.ok(defaultRelayTopics.includes("notification.delivery_failed_alerts"));
+  assert.ok(defaultRelayTopics.includes("notification.delivery_retries"));
+  assert.ok(defaultRelayTopics.includes("notification.preferences_changed"));
+  assert.ok(defaultRelayTopics.includes("message.sent"));
   assert.equal(defaultRelayTopics.includes("audit.archive_requested"), false);
 });
 
@@ -391,6 +398,53 @@ test("kafka rest publisher posts keyed records with outbox metadata", async () =
   assert.equal(body.records[0].key, "order_event:ord_1:paid");
   assert.equal(body.records[0].value.order_id, "ord_1");
   assert.equal(body.records[0].value._meta.outbox_event_id, "obe_1");
+});
+
+test("realtime gateway publisher posts message events to internal publish endpoint", async () => {
+  const requests = [];
+  const publisher = createRealtimeGatewayPublisher({
+    realtimeGatewayUrl: "http://realtime.test/",
+    token: "realtime-token",
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return jsonResponse({ success: true, data: { delivered: 2 } });
+    }
+  });
+
+  const result = await publisher.publish({
+    topic: "message.sent",
+    key: "message.sent:msg_1",
+    payload: { id: "msg_1", thread_id: "merchant_blue_sea", content: "离线消息" },
+    event: { id: "obe_msg_1", aggregate_id: "merchant_blue_sea" }
+  });
+
+  assert.deepEqual(result, { delivered: 2 });
+  assert.equal(requests[0].url, "http://realtime.test/internal/realtime/publish");
+  assert.equal(requests[0].options.headers.Authorization, "Bearer realtime-token");
+  const body = JSON.parse(requests[0].options.body);
+  assert.equal(body.topic, "message.sent");
+  assert.equal(body.payload.thread_id, "merchant_blue_sea");
+  assert.equal(body.event.id, "obe_msg_1");
+});
+
+test("topic routing publisher sends message.sent to realtime and other topics to fallback", async () => {
+  const calls = [];
+  const publisher = createTopicRoutingPublisher({
+    "message.sent": {
+      async publish(message) {
+        calls.push(["realtime", message.topic]);
+      }
+    }
+  }, {
+    async publish(message) {
+      calls.push(["fallback", message.topic]);
+    }
+  });
+
+  await publisher.publish({ topic: "message.sent" });
+  await publisher.publish({ topic: "order.paid" });
+
+  assert.deepEqual(calls, [["realtime", "message.sent"], ["fallback", "order.paid"]]);
 });
 
 test("relay loop polls repeatedly and aggregates tick results", async () => {

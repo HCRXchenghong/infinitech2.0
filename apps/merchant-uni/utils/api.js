@@ -73,6 +73,21 @@ export function getMerchantProfile() {
   return request("/api/merchant/me");
 }
 
+export function getMerchantNotificationPreferences(notificationType = "", limit = 20) {
+  const params = [];
+  if (notificationType) params.push(`notification_type=${encodeURIComponent(notificationType)}`);
+  if (limit) params.push(`limit=${encodeURIComponent(String(limit))}`);
+  const query = params.join("&");
+  return request(`/api/merchant/notification-preferences${query ? `?${query}` : ""}`);
+}
+
+export function saveMerchantNotificationPreference(payload) {
+  return request("/api/merchant/notification-preferences", {
+    method: "PUT",
+    data: payload
+  });
+}
+
 export function saveMerchantQualification(payload) {
   return request("/api/merchant/qualifications", {
     method: "POST",

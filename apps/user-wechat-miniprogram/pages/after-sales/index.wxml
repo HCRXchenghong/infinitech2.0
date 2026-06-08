@@ -1,0 +1,150 @@
+<view class="mp-page">
+  <view class="mp-nav">
+    <view class="mp-back" bindtap="handleBack">‹</view>
+    <text class="mp-title">申请售后</text>
+    <text class="mp-action">{{statusText}}</text>
+  </view>
+
+  <view class="summary-card">
+    <view class="summary-head">
+      <text class="summary-shop">{{orderSummary.shop}}</text>
+      <text class="summary-status">{{orderSummary.status}}</text>
+    </view>
+    <text class="summary-line">订单号 {{orderSummary.orderNo}} · {{orderSummary.time}}</text>
+    <text class="summary-line">{{orderSummary.items}}</text>
+    <text class="summary-paid">实付 ¥{{orderSummary.paid}}</text>
+  </view>
+
+  <view class="mp-card">
+    <text class="mp-section-title">选择订单</text>
+    <view class="mp-row selectable {{item.selected ? 'selected' : ''}}" wx:for="{{orders}}" wx:key="id" data-id="{{item.id}}" bindtap="handleOrderSelect">
+      <view class="mp-row-main">
+        <text class="mp-row-title">{{item.title}}</text>
+        <text class="mp-row-subtitle">{{item.subtitle}}</text>
+      </view>
+      <view class="order-side">
+        <text class="order-amount">{{item.amountText}}</text>
+        <text class="mp-value">{{selectedOrderId === item.id ? '已选' : '选择'}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="mp-card">
+    <text class="mp-section-title">售后类型</text>
+    <view class="type-grid">
+      <text wx:for="{{typeOptions}}" wx:key="key" class="type-pill {{type === item.key ? 'active' : ''}}" data-type="{{item.key}}" bindtap="handleTypeTap">{{item.title}}</text>
+    </view>
+  </view>
+
+  <view class="mp-card">
+    <text class="mp-section-title">申请金额</text>
+    <view class="amount-input">
+      <text>¥</text>
+      <input type="digit" placeholder="{{amountPlaceholder}}" value="{{amount}}" bindinput="handleAmountInput" />
+    </view>
+    <text class="mp-section-subtitle">最多可退 ¥{{maxRefundText}}，审核通过后按当前退款策略退回。</text>
+  </view>
+
+  <view class="mp-card">
+    <text class="mp-section-title">退款原因</text>
+    <textarea class="mp-textarea" placeholder="请描述问题，例如少送、错送、商品变质等" value="{{reason}}" bindinput="handleReasonInput"></textarea>
+  </view>
+
+  <view class="mp-card">
+    <text class="mp-section-title">售后凭证</text>
+    <view class="evidence-grid">
+      <view
+        wx:for="{{evidenceCards}}"
+        wx:key="id"
+        class="evidence-slot {{item.kind === 'uploaded' ? 'uploaded' : ''}} {{item.kind === 'pending' ? 'pending' : ''}} {{item.kind === 'add' ? 'action' : ''}} {{item.kind === 'empty' ? 'empty' : ''}}"
+        data-kind="{{item.kind}}"
+        data-url="{{item.url}}"
+        bindtap="handleEvidenceTap"
+      >
+        <block wx:if="{{item.kind === 'uploaded' || item.kind === 'pending'}}">
+          <text class="evidence-name">{{item.name}}</text>
+          <text class="evidence-meta">{{item.meta}}</text>
+        </block>
+        <block wx:else>
+          <text>{{item.text}}</text>
+        </block>
+      </view>
+    </view>
+    <text class="mp-section-subtitle">{{evidenceHint}}</text>
+  </view>
+
+  <view class="mp-card">
+    <text class="mp-section-title">处理说明</text>
+    <view class="step" wx:for="{{steps}}" wx:for-index="stepIndex" wx:key="*this">
+      <text class="step-dot">{{stepIndex + 1}}</text>
+      <text>{{item}}</text>
+    </view>
+    <text class="risk-tip">食品安全问题建议保留外包装与照片证据。</text>
+  </view>
+
+  <view class="mp-card">
+    <text class="mp-section-title">售后记录</text>
+    <view wx:if="{{requests.length === 0}}" class="empty-copy">当前订单还没有售后记录，提交后会在这里看到进度。</view>
+    <view wx:for="{{requests}}" wx:key="id" class="mp-row selectable {{selectedRequestId === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="handleRequestTap">
+      <view class="mp-row-main">
+        <view class="request-head">
+          <text class="mp-row-title">{{item.title}}</text>
+          <text class="status-badge {{item.statusTone}}">{{item.status}}</text>
+        </view>
+        <text class="mp-row-subtitle">{{item.subtitle}}</text>
+        <text class="request-latest">{{item.latest}} · {{item.latestTime}}</text>
+      </view>
+      <view class="request-side">
+        <text class="request-amount">¥{{item.requestedAmountText}}</text>
+        <text class="mp-value">{{selectedRequestId === item.id ? '查看中' : '查看'}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{requestDetail}}" class="mp-card">
+    <view class="request-detail-head">
+      <view>
+        <text class="mp-section-title">{{requestDetail.title}}</text>
+        <text class="mp-section-subtitle">最近更新 {{requestDetail.latestTime}}</text>
+      </view>
+      <text class="status-badge {{requestDetail.statusTone}}">{{requestDetail.status}}</text>
+    </view>
+    <view class="detail-metrics">
+      <view class="metric-item">
+        <text class="metric-label">申请金额</text>
+        <text class="metric-value">¥{{requestDetail.amountText}}</text>
+      </view>
+      <view class="metric-item">
+        <text class="metric-label">剩余可退</text>
+        <text class="metric-value">¥{{requestDetail.refundableText}}</text>
+      </view>
+      <view class="metric-item">
+        <text class="metric-label">凭证数量</text>
+        <text class="metric-value">{{requestDetail.evidenceCount}}</text>
+      </view>
+    </view>
+    <text class="detail-latest">{{requestDetail.latest}}</text>
+    <text wx:if="{{requestDetail.reviewReason}}" class="detail-review-reason">审核说明：{{requestDetail.reviewReason}}</text>
+    <view wx:if="{{requestEvents.length}}" class="timeline">
+      <view wx:for="{{requestEvents}}" wx:key="id" class="timeline-row">
+        <view class="timeline-dot"></view>
+        <view class="timeline-main">
+          <text class="timeline-title">{{item.title}}</text>
+          <text class="timeline-message">{{item.message}}</text>
+          <text class="timeline-time">{{item.time}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="mp-bottom-bar">
+    <view class="mp-bottom-inner">
+      <view class="mp-bottom-main">
+        <text class="mp-amount">{{orderSummary.shop}}</text>
+        <text class="mp-note">{{canSubmit ? '提交后商户端和后台会进入审核队列' : '当前订单已有售后处理中，先看进度更稳'}}</text>
+      </view>
+      <button class="mp-button ghost" bindtap="handleSupportTap">联系客服</button>
+      <button class="mp-button" loading="{{submitting}}" disabled="{{submitting || loading}}" bindtap="handleSubmit">{{submitText}}</button>
+    </view>
+  </view>
+</view>

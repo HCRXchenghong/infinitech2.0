@@ -4,10 +4,10 @@
 
 ```mermaid
 flowchart LR
-  U["用户微信小程序"] --> G["CDN/WAF/API Gateway/Ingress"]
-  M["商户 uni-app"] --> G
-  R["骑手 uni-app"] --> G
-  A["管理端 Web/uni-app"] --> G
+  U["用户原生微信小程序 (WXML/WXSS/TypeScript)"] --> G["CDN/WAF/API Gateway/Ingress"]
+  M["商户 Flutter/Dart"] --> G
+  R["骑手 Flutter/Dart"] --> G
+  A["管理端 Web + 移动 Flutter/Dart"] --> G
   G --> B["BFF"]
   G --> API["Go 模块化核心 API"]
   B --> API

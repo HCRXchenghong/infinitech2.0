@@ -1,0 +1,26 @@
+<view class="page welcome">
+  <view class="hero">
+    <view class="content-wrap {{showInitialContent ? 'content-initial' : ''}} {{showFinalContent ? 'content-final' : ''}}">
+      <view class="logo-wrap">
+        <image class="logo" src="/assets/brand/logo.jpg" mode="aspectFit"></image>
+      </view>
+
+      <view class="title-wrap {{showTitle ? 'title-visible' : ''}}">
+        <text wx:if="{{showInitialContent}}" class="title-line">
+          <text class="title-text">{{displayedTitleLine2}}</text>
+        </text>
+        <text wx:else class="title-single">{{displayedTitle}}</text>
+      </view>
+
+      <text class="subtitle {{showSubtitle ? 'subtitle-visible' : ''}}">附近美食，一键下单，准时送达</text>
+    </view>
+  </view>
+
+  <view class="card {{showCard ? 'card-visible' : ''}}">
+    <button class="btn primary" bindtap="goLogin">登录 / 注册</button>
+    <button class="btn ghost" bindtap="goGuest">游客访问</button>
+    <view class="tip">
+      <text class="tip-text">登录后可同步订单、消息与优惠券</text>
+    </view>
+  </view>
+</view>

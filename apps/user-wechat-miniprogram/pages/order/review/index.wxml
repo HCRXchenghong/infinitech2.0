@@ -1,0 +1,113 @@
+<view class="mp-page">
+  <view class="mp-nav">
+    <view class="mp-back" bindtap="handleBack">‹</view>
+    <text class="mp-title">评价订单</text>
+    <text class="mp-action">{{statusText}}</text>
+  </view>
+
+  <view class="summary-card">
+    <view class="summary-head">
+      <text class="summary-shop">{{orderSummary.shop}}</text>
+      <text class="summary-status">{{orderSummary.status}}</text>
+    </view>
+    <text class="summary-line">订单号 {{orderSummary.orderNo}} · {{orderSummary.time}}</text>
+    <text class="summary-line">{{orderSummary.items}}</text>
+    <text class="summary-paid">实付 ¥{{orderSummary.paid}}</text>
+  </view>
+
+  <view class="mp-card">
+    <view class="section-head">
+      <text class="mp-section-title">总体评价</text>
+      <text class="section-note">{{hasExistingReview ? '已回填历史评价' : '提交后会同步到订单详情和商家页'}}</text>
+    </view>
+    <view class="rating-row" wx:for="{{ratings}}" wx:key="key">
+      <view class="mp-row-main">
+        <text class="mp-row-title">{{item.title}}</text>
+        <text class="mp-row-subtitle">{{item.subtitle}}</text>
+      </view>
+      <view class="star-group">
+        <text
+          wx:for="{{item.starItems}}"
+          wx:for-item="star"
+          wx:key="*this"
+          class="star {{star <= item.value ? 'active' : ''}}"
+          data-key="{{item.key}}"
+          data-value="{{star}}"
+          bindtap="handleRatingTap"
+        >★</text>
+      </view>
+    </view>
+    <view class="tag-list">
+      <text wx:for="{{tags}}" wx:key="label" data-label="{{item.label}}" bindtap="handleTagTap" class="tag {{item.active ? 'active' : ''}}">{{item.label}}</text>
+    </view>
+  </view>
+
+  <view class="mp-card">
+    <text class="mp-section-title">评价内容</text>
+    <textarea class="mp-textarea" placeholder="菜品口味、包装、配送体验怎么样？" value="{{content}}" bindinput="handleContentInput"></textarea>
+    <view class="review-tools">
+      <text>{{contentCount}}/200</text>
+      <label>
+        <switch checked="{{anonymous}}" color="#009bf5" bindchange="handleAnonymousChange" />
+        <text>匿名评价</text>
+      </label>
+    </view>
+  </view>
+
+  <view class="mp-card">
+    <text class="mp-section-title">菜品评价</text>
+    <view class="dish-row" wx:for="{{dishes}}" wx:for-item="dish" wx:for-index="dishIndex" wx:key="id">
+      <view class="dish-thumb">{{dish.thumbText}}</view>
+      <view class="dish-main">
+        <view class="dish-title-row">
+          <text class="dish-title">{{dish.name}}</text>
+          <text class="dish-quantity">{{dish.quantityText}}</text>
+        </view>
+        <view class="dish-star-group">
+          <text
+            wx:for="{{dish.starItems}}"
+            wx:for-item="star"
+            wx:key="*this"
+            class="star small {{star <= dish.rating ? 'active' : ''}}"
+            data-index="{{dishIndex}}"
+            data-value="{{star}}"
+            bindtap="handleDishRatingTap"
+          >★</text>
+        </view>
+        <view class="dish-tags">
+          <text wx:for="{{dish.tags}}" wx:for-item="tag" wx:key="*this">{{tag}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="mp-card">
+    <text class="mp-section-title">添加图片</text>
+    <view class="image-grid">
+      <view
+        wx:for="{{imageCards}}"
+        wx:key="id"
+        class="image-slot {{item.kind === 'uploaded' ? 'uploaded' : ''}} {{item.kind === 'pending' ? 'pending' : ''}} {{item.kind === 'add' ? 'action' : ''}} {{item.kind === 'empty' ? 'empty' : ''}}"
+        data-kind="{{item.kind}}"
+        data-url="{{item.url}}"
+        bindtap="handleImageTap"
+      >
+        <block wx:if="{{item.kind === 'uploaded' || item.kind === 'pending'}}">
+          <text class="image-name">{{item.name}}</text>
+          <text class="image-meta">{{item.meta}}</text>
+        </block>
+        <block wx:else>
+          <text>{{item.text}}</text>
+        </block>
+      </view>
+    </view>
+    <text class="mp-section-subtitle">{{imageHint}}</text>
+  </view>
+
+  <view class="mp-bottom-bar">
+    <view class="mp-bottom-inner">
+      <button class="mp-button ghost" bindtap="handleBack">稍后再说</button>
+      <button class="mp-button" bindtap="handleSubmit" loading="{{submitting}}" disabled="{{loading || submitting}}">{{hasExistingReview ? '更新评价' : '提交评价'}}</button>
+    </view>
+  </view>
+</view>

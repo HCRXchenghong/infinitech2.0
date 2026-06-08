@@ -1,0 +1,108 @@
+<view class="group-chat-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">{{title}}</text>
+    <text class="nav-action" bindtap="handleOpenGroupSettings">...</text>
+  </view>
+
+  <view class="group-card" bindtap="handleOpenGroupSettings">
+    <view class="group-logo">{{icon}}</view>
+    <view class="group-main">
+      <text class="group-name">{{title}}</text>
+      <text class="group-meta">{{groupSummary}}</text>
+      <text class="group-state">{{muted ? '你已设为免打扰' : '你会收到新消息提醒'}} · {{realtimeStatus}}</text>
+    </view>
+    <text class="group-link">{{groupSettingsText}} ›</text>
+  </view>
+
+  <view class="notice-card">
+    <text class="notice-icon">!</text>
+    <view>
+      <text class="notice-title">群公告</text>
+      <text class="notice-text">{{groupNotice}}</text>
+    </view>
+    <text class="notice-arrow">›</text>
+  </view>
+
+  <view class="chat-list">
+    <view class="message-row {{item.side}}" wx:for="{{messages}}" wx:key="id">
+      <view class="avatar">{{item.avatar}}</view>
+      <view class="message-main">
+        <text class="sender">{{item.sender}}</text>
+        <view class="bubble"><text>{{item.content}}</text></view>
+      </view>
+    </view>
+
+    <view class="message-row left" wx:if="{{threadId === 'merchant_blue_sea'}}">
+      <view class="avatar">{{icon}}</view>
+      <view class="message-main">
+        <view class="coupon-bubble">
+          <view class="coupon-left">
+            <text class="coupon-amount">{{couponCard.amountText}}</text>
+            <text class="coupon-threshold">{{couponCard.thresholdText}}</text>
+          </view>
+          <view class="coupon-copy">
+            <text class="card-title">{{couponCard.title}}</text>
+            <text class="coupon-subtitle">{{couponCard.subtitle}}</text>
+            <button class="{{couponClaimed ? 'claimed' : ''}}" bindtap="handleClaimCoupon">{{couponCard.buttonText}}</button>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="system-tip">{{systemTip}}</view>
+
+    <view class="message-row left">
+      <view class="avatar helper">拼</view>
+      <view class="message-main">
+        <text class="sender">拼单助手</text>
+        <view class="order-bubble">
+          <text class="card-title">拼单订单卡</text>
+          <view class="order-card-row">
+            <view class="food-thumb">饭</view>
+            <view class="order-copy">
+              <text>{{orderCard.shop}}</text>
+              <text>{{orderCard.items}}</text>
+            </view>
+            <view class="order-action">
+              <text>{{orderCard.status}}</text>
+              <button bindtap="handleGoOrder">去拼单</button>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="message-row left">
+      <view class="avatar red">¥</view>
+      <view class="message-main">
+        <text class="sender">红包助手</text>
+        <view class="redpacket-bubble" bindtap="handleOpenRedPacket">
+          <view class="redpacket-icon">福</view>
+          <view>
+            <text class="card-title">{{redPacket.title}}</text>
+            <text class="redpacket-subtitle">{{redPacket.subtitle}}</text>
+          </view>
+          <button>打开</button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="composer">
+    <view class="input-row">
+      <view class="voice-dot">)))</view>
+      <input class="chat-input" placeholder="说点什么..." value="{{draft}}" bindinput="handleDraftInput" />
+      <button class="emoji-btn">☺</button>
+      <button class="plus-btn">+</button>
+      <button class="send-btn" bindtap="handleSend">发送</button>
+    </view>
+    <view class="quick-row">
+      <view bindtap="handleSendRedPacket"><text class="quick red">¥</text><text>红包</text></view>
+      <view bindtap="handleGoOrder"><text class="quick blue">单</text><text>订单卡</text></view>
+      <view bindtap="handleCoupon"><text class="quick orange">券</text><text>优惠券</text></view>
+      <view bindtap="handleImage"><text class="quick green">图</text><text>图片</text></view>
+    </view>
+    <view class="safe-tip">文明交流，理性发言，交易请以平台订单为准</view>
+  </view>
+</view>

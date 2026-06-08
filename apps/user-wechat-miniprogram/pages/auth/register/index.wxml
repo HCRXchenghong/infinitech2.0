@@ -1,0 +1,40 @@
+<view class="auth-page register">
+  <view class="auth-spacer"></view>
+  <view class="auth-brand">
+    <text class="auth-title">悦享e食</text>
+    <text class="auth-subtitle">创建账号，开启校园美食生活</text>
+  </view>
+
+  <view class="auth-form">
+    <input class="auth-input" placeholder="昵称" value="{{nickname}}" bindinput="handleNicknameInput" />
+    <input class="auth-input" type="number" maxlength="11" placeholder="手机号" value="{{phone}}" bindinput="handlePhoneInput" />
+    <input class="auth-input" placeholder="邀请码（选填）" value="{{inviteCode}}" bindinput="handleInviteInput" />
+    <view class="auth-code-row">
+      <input class="auth-input code" type="number" maxlength="6" placeholder="验证码" value="{{code}}" bindinput="handleCodeInput" />
+      <button class="auth-code-button" size="mini" loading="{{codeSending}}" disabled="{{codeSending}}" bindtap="handleSendCode">获取验证码</button>
+    </view>
+    <text wx:if="{{codeStatusText}}" class="auth-code-status">{{codeStatusText}}</text>
+    <input class="auth-input" password placeholder="密码，至少 6 位" value="{{password}}" bindinput="handlePasswordInput" />
+    <input class="auth-input" password placeholder="确认密码" value="{{confirmPassword}}" bindinput="handleConfirmInput" />
+    <view class="auth-agreement" bindtap="handleAgreementToggle">
+      <view class="auth-check {{agreementAccepted ? 'checked' : ''}}"></view>
+      <text>已阅读并同意用户协议和隐私政策</text>
+    </view>
+    <button class="auth-primary" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleRegister">注册</button>
+  </view>
+
+  <view class="auth-footer">
+    <text>已有账号？ </text>
+    <text class="auth-link" bindtap="goLogin">去登录</text>
+  </view>
+  <text class="auth-tip">注册后可同步订单、消息与优惠券</text>
+
+  <view class="auth-divider">
+    <view></view>
+    <text>或</text>
+    <view></view>
+  </view>
+
+  <button class="auth-wechat" loading="{{wechatLoading}}" disabled="{{wechatLoading}}" bindtap="handleWechatRegister">微信注册 / 登录</button>
+  <text wx:if="{{wechatStatusText}}" class="auth-wechat-status">{{wechatStatusText}}</text>
+</view>

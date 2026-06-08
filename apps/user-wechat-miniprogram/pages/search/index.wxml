@@ -1,0 +1,70 @@
+<view class="search-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">搜索</text>
+    <text class="nav-action">{{statusText}}</text>
+  </view>
+
+  <view class="search-row">
+    <view class="search-box">
+      <text class="search-icon">⌕</text>
+      <input class="search-input" placeholder="搜索商家、菜品、团购券" value="{{keyword}}" bindinput="handleKeywordInput" confirm-type="search" bindconfirm="handleSearch" />
+      <text class="clear-icon" wx:if="{{keyword}}" bindtap="handleClearKeyword">×</text>
+    </view>
+    <text class="search-action" bindtap="handleSearch">搜索</text>
+  </view>
+
+  <view wx:if="{{hasKeyword}}" class="category-row">
+    <text class="category {{item.active}}" wx:for="{{categories}}" wx:key="id" data-id="{{item.id}}" bindtap="handleCategoryTap">{{item.title}}</text>
+  </view>
+
+  <view wx:if="{{!hasKeyword && suggestions.length}}" class="guess-card">
+    <view class="guess-head">
+      <text>猜你喜欢</text>
+      <text>后端推荐</text>
+    </view>
+    <view class="suggestion-row">
+      <text class="suggestion" wx:for="{{suggestions}}" wx:key="*this" data-keyword="{{item}}" bindtap="handleSuggestionTap">{{item}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{hasKeyword}}" class="result-head">
+    <text>{{totalText}}</text>
+    <view class="sort-row">
+      <text>综合排序 ▾</text>
+      <text>距离优先</text>
+      <text>有优惠 ⚲</text>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="empty-card">
+    <text class="empty-title">{{hasKeyword ? '正在搜索' : '正在加载猜你喜欢'}}</text>
+    <text class="empty-copy">{{hasKeyword ? '从后端实时读取搜索结果' : '从后端实时读取推荐词'}}</text>
+  </view>
+
+  <view wx:elif="{{emptyText}}" class="empty-card">
+    <text class="empty-title">暂无结果</text>
+    <text class="empty-copy">{{emptyText}}</text>
+  </view>
+
+  <block wx:if="{{hasKeyword}}">
+    <view class="result-card {{item.typeClass}}" wx:for="{{results}}" wx:key="id" data-route="{{item.route}}" bindtap="handleResultTap">
+      <view class="result-thumb">
+        <image wx:if="{{item.imageUrl}}" class="result-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+        <text wx:else>{{item.badge}}</text>
+      </view>
+      <view class="result-main">
+        <view class="result-title-row">
+          <text class="result-title">{{item.title}}</text>
+          <text wx:if="{{item.badge}}" class="type-badge">{{item.badge}}</text>
+        </view>
+        <text class="result-subtitle">{{item.subtitle}}</text>
+        <text wx:if="{{item.priceText}}" class="result-price">{{item.priceText}}</text>
+        <text wx:if="{{item.distanceText}}" class="result-distance">{{item.distanceText}}</text>
+      </view>
+      <button class="result-button">{{item.buttonText}}</button>
+    </view>
+  </block>
+
+  <view wx:if="{{hasKeyword}}" class="tip-row">搜索结果会按距离、营业状态和合规资质综合排序</view>
+</view>

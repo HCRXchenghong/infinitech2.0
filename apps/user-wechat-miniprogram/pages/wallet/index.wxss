@@ -1,0 +1,299 @@
+.wallet-page {
+  min-height: 100vh;
+  padding: 28rpx 28rpx 60rpx;
+  box-sizing: border-box;
+  background: #f3f6f9;
+}
+
+.plain-nav {
+  display: grid;
+  grid-template-columns: 72rpx 1fr 120rpx;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top) + 20rpx) 0 28rpx;
+}
+
+.nav-back {
+  width: 58rpx;
+  height: 58rpx;
+  color: #111827;
+  font-size: 56rpx;
+  line-height: 50rpx;
+}
+
+.nav-title {
+  text-align: center;
+  color: #111827;
+  font-size: 36rpx;
+  font-weight: 900;
+}
+
+.nav-action {
+  text-align: right;
+  color: #007aff;
+  font-size: 24rpx;
+}
+
+.balance-card {
+  position: relative;
+  min-height: 318rpx;
+  padding: 34rpx;
+  border-radius: 20rpx;
+  overflow: hidden;
+  color: #ffffff;
+  background: linear-gradient(135deg, #007aff, #009dff);
+}
+
+.balance-copy {
+  position: relative;
+  z-index: 2;
+}
+
+.balance-label,
+.balance-subtitle {
+  display: block;
+  font-size: 28rpx;
+}
+
+.balance-amount {
+  display: block;
+  margin-top: 16rpx;
+  font-size: 82rpx;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.balance-subtitle {
+  margin-top: 18rpx;
+  opacity: 0.9;
+}
+
+.safe-badge {
+  display: inline-block;
+  margin-top: 22rpx;
+  padding: 8rpx 18rpx;
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 24rpx;
+}
+
+.wallet-art {
+  position: absolute;
+  right: 38rpx;
+  top: 58rpx;
+  width: 170rpx;
+  height: 140rpx;
+  border-radius: 32rpx;
+  background: rgba(255, 255, 255, 0.16);
+  text-align: center;
+  line-height: 140rpx;
+  font-size: 60rpx;
+  font-weight: 900;
+}
+
+.wallet-actions {
+  position: absolute;
+  right: 34rpx;
+  bottom: 30rpx;
+  left: 334rpx;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
+}
+
+.wallet-btn {
+  height: 72rpx;
+  border-radius: 16rpx;
+  font-size: 30rpx;
+  font-weight: 900;
+  line-height: 72rpx;
+}
+
+.wallet-btn::after {
+  border: none;
+}
+
+.wallet-btn.primary {
+  color: #007aff;
+  background: #ffffff;
+}
+
+.wallet-btn.ghost {
+  color: #ffffff;
+  background: transparent;
+  border: 2rpx solid rgba(255, 255, 255, 0.86);
+}
+
+.wallet-card,
+.safe-row {
+  margin-top: 22rpx;
+  padding: 28rpx;
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(15, 23, 42, 0.05);
+}
+
+.stat-card {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 30rpx 0;
+}
+
+.wallet-stat {
+  text-align: center;
+  border-right: 1rpx solid #edf1f5;
+}
+
+.wallet-stat:last-child {
+  border-right: none;
+}
+
+.wallet-stat-icon {
+  display: block;
+  color: #007aff;
+  font-size: 42rpx;
+  font-weight: 900;
+}
+
+.wallet-stat-title {
+  display: block;
+  margin-top: 8rpx;
+  color: #4b5563;
+  font-size: 25rpx;
+}
+
+.wallet-stat-value {
+  display: block;
+  margin-top: 8rpx;
+  color: #111827;
+  font-size: 38rpx;
+  font-weight: 900;
+}
+
+.safe-row {
+  display: grid;
+  grid-template-columns: 44rpx 1fr auto;
+  gap: 16rpx;
+  align-items: center;
+  color: #6b7280;
+  font-size: 25rpx;
+  background: #f2f8ff;
+  border: 1rpx solid #d7eaff;
+}
+
+.safe-icon,
+.safe-link {
+  color: #007aff;
+}
+
+.card-title {
+  display: block;
+  color: #111827;
+  font-size: 34rpx;
+  font-weight: 900;
+}
+
+.filter-row {
+  display: flex;
+  gap: 18rpx;
+  margin-top: 26rpx;
+}
+
+.filter-chip {
+  min-width: 78rpx;
+  height: 48rpx;
+  padding: 0 20rpx;
+  border-radius: 24rpx;
+  color: #667085;
+  background: #f0f2f5;
+  font-size: 26rpx;
+  line-height: 48rpx;
+  text-align: center;
+}
+
+.filter-chip.active {
+  color: #ffffff;
+  background: #007aff;
+}
+
+.bill-row {
+  display: grid;
+  grid-template-columns: 72rpx 1fr auto;
+  align-items: center;
+  gap: 18rpx;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #edf1f5;
+}
+
+.bill-row:last-child,
+.action-row:last-child {
+  border-bottom: none;
+}
+
+.bill-icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 32rpx;
+  color: #ffffff;
+  text-align: center;
+  line-height: 64rpx;
+  font-weight: 900;
+}
+
+.bill-icon.income {
+  background: #16a34a;
+}
+
+.bill-icon.expense {
+  background: #007aff;
+}
+
+.bill-title {
+  display: block;
+  color: #111827;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.bill-subtitle,
+.bill-status {
+  display: block;
+  margin-top: 6rpx;
+  color: #667085;
+  font-size: 24rpx;
+}
+
+.bill-right {
+  text-align: right;
+}
+
+.bill-amount {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 900;
+}
+
+.bill-amount.income {
+  color: #16a34a;
+}
+
+.bill-amount.expense {
+  color: #111827;
+}
+
+.bill-status {
+  color: #ff7a00;
+}
+
+.action-list {
+  padding: 8rpx 28rpx;
+}
+
+.action-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 88rpx;
+  border-bottom: 1rpx solid #edf1f5;
+  color: #111827;
+  font-size: 30rpx;
+}

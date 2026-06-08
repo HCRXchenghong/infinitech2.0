@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -28,6 +31,7 @@ func main() {
 			authSessionOption,
 			newAdminLoginOption(),
 			httpapi.WithDevBearerAuth(devBearerAuthEnabled()),
+			newNotificationProviderCallbackSecretOption(),
 		),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
@@ -75,6 +79,14 @@ func newAdminLoginOption() httpapi.RouterOption {
 	return httpapi.WithAdminLoginCredential(accountID, password)
 }
 
+func newNotificationProviderCallbackSecretOption() httpapi.RouterOption {
+	secret := strings.TrimSpace(os.Getenv("NOTIFICATION_PROVIDER_CALLBACK_SECRET"))
+	if secret == "" {
+		log.Print("api-go notification provider callback secret is empty for local development; set NOTIFICATION_PROVIDER_CALLBACK_SECRET for production callback verification")
+	}
+	return httpapi.WithNotificationProviderCallbackSecret(secret)
+}
+
 func newAuthSessionOption(ctx context.Context) (httpapi.RouterOption, func()) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
@@ -100,6 +112,7 @@ func newRepository(ctx context.Context) (platform.Repository, func()) {
 		store := platform.NewStore(platform.DefaultHomeModules())
 		configureAuditLogIntegrity(store)
 		configureObjectStorage(store)
+		configurePhoneVerification(store)
 		return store, func() {}
 	}
 	store, err := platform.NewPostgresStore(ctx, databaseURL, platform.DefaultHomeModules())
@@ -108,11 +121,104 @@ func newRepository(ctx context.Context) (platform.Repository, func()) {
 	}
 	configureAuditLogIntegrity(store)
 	configureObjectStorage(store)
+	configurePhoneVerification(store)
 	log.Print("api-go using PostgreSQL-backed store")
 	return store, func() {
 		if err := store.Close(); err != nil {
 			log.Printf("close PostgreSQL store: %v", err)
 		}
+	}
+}
+
+type phoneVerificationConfigurator interface {
+	ConfigurePhoneVerification(platform.PhoneVerificationConfig) error
+}
+
+type phoneVerificationHTTPDispatcher struct {
+	endpoint string
+	token    string
+	client   *http.Client
+}
+
+func (dispatcher phoneVerificationHTTPDispatcher) DispatchPhoneVerificationCode(req platform.PhoneVerificationDispatchRequest) (*platform.PhoneVerificationDispatchResult, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequest(http.MethodPost, dispatcher.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(dispatcher.token) != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+strings.TrimSpace(dispatcher.token))
+	}
+	client := dispatcher.client
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("sms provider returned status %d", resp.StatusCode)
+	}
+	result := &platform.PhoneVerificationDispatchResult{
+		Provider:  req.Provider,
+		RequestID: req.RequestID,
+		Status:    "delivered",
+		SentAt:    time.Now().UTC(),
+	}
+	var envelope struct {
+		Provider  string `json:"provider"`
+		RequestID string `json:"request_id"`
+		Status    string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err == nil {
+		if strings.TrimSpace(envelope.Provider) != "" {
+			result.Provider = strings.TrimSpace(envelope.Provider)
+		}
+		if strings.TrimSpace(envelope.RequestID) != "" {
+			result.RequestID = strings.TrimSpace(envelope.RequestID)
+		}
+		if strings.TrimSpace(envelope.Status) != "" {
+			result.Status = strings.TrimSpace(envelope.Status)
+		}
+	}
+	return result, nil
+}
+
+func configurePhoneVerification(store phoneVerificationConfigurator) {
+	mode := strings.ToLower(strings.TrimSpace(env("PHONE_VERIFICATION_MODE", "dev")))
+	config := platform.PhoneVerificationConfig{
+		Mode:            mode,
+		Provider:        env("SMS_PROVIDER_NAME", "dev"),
+		TemplateID:      os.Getenv("SMS_TEMPLATE_PHONE_CODE"),
+		Cooldown:        time.Duration(envInt64("PHONE_CODE_COOLDOWN_SECONDS", 60)) * time.Second,
+		ExpiresIn:       time.Duration(envInt64("PHONE_CODE_EXPIRES_SECONDS", 10*60)) * time.Second,
+		MaxPerPhoneHour: int(envInt64("PHONE_CODE_MAX_PER_PHONE_HOUR", 5)),
+		MaxPerPhoneDay:  int(envInt64("PHONE_CODE_MAX_PER_PHONE_DAY", 20)),
+		ReturnDevCode:   envBool("PHONE_CODE_RETURN_DEV_CODE", mode != "provider"),
+	}
+	if mode == "provider" {
+		endpoint := strings.TrimSpace(os.Getenv("SMS_PROVIDER_ENDPOINT"))
+		if endpoint == "" {
+			log.Fatal("PHONE_VERIFICATION_MODE=provider requires SMS_PROVIDER_ENDPOINT")
+		}
+		config.Provider = env("SMS_PROVIDER_NAME", "sms_provider")
+		config.Dispatcher = phoneVerificationHTTPDispatcher{
+			endpoint: endpoint,
+			token:    os.Getenv("SMS_PROVIDER_TOKEN"),
+			client:   &http.Client{Timeout: time.Duration(envInt64("SMS_PROVIDER_TIMEOUT_SECONDS", 5)) * time.Second},
+		}
+		log.Print("api-go phone verification uses configured SMS provider")
+	} else {
+		log.Print("api-go phone verification uses development code return mode; set PHONE_VERIFICATION_MODE=provider for production SMS dispatch")
+	}
+	if err := store.ConfigurePhoneVerification(config); err != nil {
+		log.Fatalf("configure phone verification: %v", err)
 	}
 }
 

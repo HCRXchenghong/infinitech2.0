@@ -1,0 +1,56 @@
+<view class="group-settings-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">{{title}}</text>
+    <view class="nav-spacer"></view>
+  </view>
+
+  <view class="hero-card">
+    <view class="hero-icon">{{icon}}</view>
+    <view class="hero-main">
+      <text class="hero-title">{{groupTitle}}</text>
+      <text class="hero-summary">{{summary}}</text>
+    </view>
+    <text class="hero-badge" wx:if="{{muted}}">免打扰</text>
+    <text class="hero-badge joined" wx:elif="{{joined}}">已加入</text>
+  </view>
+
+  <view class="section-card">
+    <view class="section-row">
+      <view>
+        <text class="section-title">消息免打扰</text>
+        <text class="section-copy">开启后会保留消息记录，但不再主动提醒。</text>
+      </view>
+      <switch color="#007aff" checked="{{muted}}" bindchange="handleMuteSwitch" />
+    </view>
+    <view class="section-inline-action" bindtap="handleToggleMute">{{muted ? "恢复消息提醒" : "设为免打扰"}}</view>
+  </view>
+
+  <view class="section-card">
+    <text class="section-title">群公告</text>
+    <text class="notice-copy">{{announcement}}</text>
+  </view>
+
+  <view class="section-card">
+    <view class="member-heading">
+      <text class="section-title">活跃成员预览</text>
+      <text class="member-count">{{memberCount}} 人</text>
+    </view>
+    <view class="member-list">
+      <view class="member-item" wx:for="{{members}}" wx:key="subject_id">
+        <view class="member-avatar">{{item.avatar_text}}</view>
+        <view class="member-main">
+          <text class="member-name">{{item.display_name}}</text>
+          <text class="member-role">{{item.role_label}}</text>
+        </view>
+      </view>
+    </view>
+    <text class="member-footnote">当前展示最近活跃的成员预览，完整成员管理会在后续生产化阶段补齐。</text>
+  </view>
+
+  <view class="section-card danger-card" wx:if="{{canLeave}}">
+    <text class="section-title">退出商户群</text>
+    <text class="section-copy">退出后会从消息列表隐藏群聊入口，后续可在商家页重新加入。</text>
+    <view class="danger-action" bindtap="handleLeaveGroup">退出当前商户群</view>
+  </view>
+</view>

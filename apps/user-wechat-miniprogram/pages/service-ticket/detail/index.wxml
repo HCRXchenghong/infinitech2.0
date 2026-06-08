@@ -1,0 +1,93 @@
+<view class="ticket-page">
+  <view class="blue-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">工单详情</text>
+    <text class="nav-action" bindtap="handleContact">联系客服</text>
+  </view>
+
+  <view class="status-card">
+    <view class="status-icon">▣</view>
+    <view>
+      <text class="status-title">{{ticket.title}}</text>
+      <text class="status-meta">工单号 {{ticket.id}}</text>
+      <text class="status-meta">预计 {{ticket.replyDueText}}</text>
+    </view>
+    <text class="status-pill">{{statusText}}</text>
+  </view>
+
+  <view class="sla-card {{ticket.slaTone}}">
+    <view>
+      <text class="sla-label">SLA 状态</text>
+      <text class="sla-title">{{ticket.slaStatus}}</text>
+    </view>
+    <text class="sla-desc">{{ticket.escalationText}}</text>
+  </view>
+
+  <view class="order-card">
+    <view class="food-thumb">饭</view>
+    <view>
+      <text class="order-title">关联订单 #{{ticket.orderId}}</text>
+      <text class="order-meta">{{ticket.orderTitle}}</text>
+      <text class="order-meta">实付 ¥46.90</text>
+    </view>
+    <view class="order-side">
+      <text>{{ticket.orderStatus}}</text>
+      <text>查看订单 ›</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-title-row">
+      <view class="card-icon">述</view>
+      <text>问题描述</text>
+    </view>
+    <text class="desc-type">{{ticket.category}}</text>
+    <text class="desc-content">{{ticket.content}}</text>
+    <text class="desc-time">提交时间 14:18</text>
+  </view>
+
+  <view class="card">
+    <text class="section-title">处理进度</text>
+    <view class="timeline-row {{item.status}}" wx:for="{{events}}" wx:key="id">
+      <view class="dot"></view>
+      <view class="timeline-main">
+        <text>{{item.title}}</text>
+        <text>{{item.message}}</text>
+      </view>
+      <text class="timeline-time">{{item.time}}</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-title-row">
+      <view class="card-icon">灯</view>
+      <text>当前方案</text>
+    </view>
+    <text class="solution">{{ticket.solution}}</text>
+    <view class="action-grid">
+      <button bindtap="handleClose">接受方案</button>
+      <button bindtap="handleContact">继续沟通</button>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-title-row">
+      <view class="card-icon">附</view>
+      <text>补充材料</text>
+    </view>
+    <view class="evidence-row">
+      <view wx:for="{{evidence}}" wx:key="*this">{{item}}</view>
+      <view class="add-evidence" bindtap="handleSupplement">添加图片</view>
+    </view>
+  </view>
+
+  <view class="guard-card">
+    <text>客服不会索要支付密码、验证码或银行卡信息</text>
+    <text>超过首响时间会进入客服主管升级队列</text>
+  </view>
+
+  <view class="bottom-actions">
+    <button class="ghost" bindtap="handleClose">关闭工单</button>
+    <button bindtap="handleSupplement">补充说明</button>
+  </view>
+</view>

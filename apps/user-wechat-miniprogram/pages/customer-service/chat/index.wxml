@@ -1,0 +1,75 @@
+<view class="service-chat-page">
+  <view class="blue-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">在线客服</text>
+    <text class="nav-action" bindtap="handleTicket">工单</text>
+  </view>
+
+  <view class="service-card">
+    <view class="service-icon">☎</view>
+    <view>
+      <text class="service-title">悦享e食客服</text>
+      <text class="service-meta">当前排队 1 人 · 预计 1 分钟接入</text>
+      <text class="service-meta">7×24 小时在线</text>
+    </view>
+  </view>
+
+  <scroll-view class="scene-tabs" scroll-x="true">
+    <view class="scene-chip {{item === activeScene ? 'active' : ''}}" wx:for="{{scenes}}" wx:key="*this" data-scene="{{item}}" bindtap="handleSceneTap">{{item}}</view>
+  </scroll-view>
+
+  <view class="notice-row">已为你匹配{{activeScene}}场景，问题会同步到客服工单。</view>
+
+  <view class="risk-tip-card" wx:if="{{riskTip}}">
+    <text>{{riskTip}}</text>
+  </view>
+
+  <view class="order-card" bindtap="handleOrder">
+    <view class="food-thumb">饭</view>
+    <view class="order-copy">
+      <text>订单 #{{orderCard.id}}</text>
+      <text>{{orderCard.shop}}</text>
+      <text>{{orderCard.items}}</text>
+      <text>实付 ¥{{orderCard.amount}}</text>
+    </view>
+    <view class="order-side">
+      <text>{{orderCard.status}}</text>
+      <text>查看订单 ›</text>
+    </view>
+  </view>
+
+  <view class="chat-list">
+    <view class="message-row {{item.side}}" wx:for="{{messages}}" wx:key="id">
+      <view class="avatar">{{item.avatar}}</view>
+      <view class="bubble">
+        <text>{{item.content}}</text>
+      </view>
+    </view>
+
+    <view class="suggest-card">
+      <text class="suggest-title">处理建议</text>
+      <text wx:for="{{suggestions}}" wx:key="title">{{item.title}}</text>
+      <view class="suggest-actions">
+        <button data-text="催商家" bindtap="handleQuick">催商家</button>
+        <button data-text="申请补偿" bindtap="handleQuick">申请补偿</button>
+      </view>
+    </view>
+
+    <view class="human-row">
+      <text>需要人工继续处理吗？</text>
+      <button bindtap="handleTicket">转人工客服</button>
+    </view>
+  </view>
+
+  <view class="quick-actions">
+    <button wx:for="{{quickActions}}" wx:key="*this" data-text="{{item}}" bindtap="handleQuick">{{item}}</button>
+  </view>
+
+  <view class="composer">
+    <button class="plus">+</button>
+    <input placeholder="输入问题或补充说明" value="{{draft}}" bindinput="handleDraftInput" />
+    <button class="voice">)))</button>
+    <button class="send" bindtap="handleSend">发送</button>
+  </view>
+  <view class="safe-tip">客服不会索要支付密码、验证码或银行卡信息</view>
+</view>

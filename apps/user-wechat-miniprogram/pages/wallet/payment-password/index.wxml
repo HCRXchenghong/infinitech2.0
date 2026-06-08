@@ -1,9 +1,43 @@
 <view class="page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">余额支付密码</text>
+    <text class="nav-action"></text>
+  </view>
+  <view class="safe-icon">盾</view>
   <view class="panel">
     <text class="title">设置余额支付密码</text>
-    <text class="subtitle">余额支付前必须设置 6 位数字密码。后续会增加错误次数锁定和找回流程。</text>
-    <input class="input" password maxlength="6" type="number" placeholder="输入 6 位数字" value="{{password}}" bindinput="handlePasswordInput" />
-    <input class="input" password maxlength="6" type="number" placeholder="再次输入" value="{{confirmPassword}}" bindinput="handleConfirmInput" />
-    <button class="submit-button" bindtap="handleSubmitTap">保存</button>
+    <text class="subtitle">余额支付前必须设置 6 位数字密码，后续可用于余额支付和红包发送。</text>
+
+    <view wx:if="{{step === 'first'}}">
+      <text class="field-title">输入 6 位数字密码</text>
+      <view class="dot-row">
+        <view wx:for="{{passwordDots}}" wx:for-index="dotIndex" wx:key="dotIndex" class="dot {{item.active ? 'active' : ''}}"></view>
+      </view>
+      <input class="hidden-input" password maxlength="6" type="number" focus value="{{password}}" bindinput="handlePasswordInput" />
+      <text class="hint">下一步将再次确认密码</text>
+      <button class="submit-button" bindtap="handleNextTap">下一步</button>
+    </view>
+
+    <view wx:if="{{step === 'confirm'}}">
+      <text class="field-title">再次输入确认</text>
+      <view class="dot-row">
+        <view wx:for="{{confirmDots}}" wx:for-index="dotIndex" wx:key="dotIndex" class="dot {{item.active ? 'active' : ''}}"></view>
+      </view>
+      <input class="hidden-input" password maxlength="6" type="number" focus value="{{confirmPassword}}" bindinput="handleConfirmInput" />
+      <text class="hint">请确认和首次输入一致</text>
+      <button class="submit-button" bindtap="handleSubmitTap">保存</button>
+    </view>
+  </view>
+
+  <view class="tip-card">
+    <text>请勿使用连续或重复数字</text>
+    <text>平台不会向任何人索要支付密码</text>
+    <text>连续输错将临时锁定余额支付</text>
+  </view>
+
+  <view class="links">
+    <text bindtap="handleSafetyTap">忘记密码？</text>
+    <text bindtap="handleSafetyTap">支付安全说明</text>
   </view>
 </view>

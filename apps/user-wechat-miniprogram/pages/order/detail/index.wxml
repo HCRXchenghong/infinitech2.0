@@ -1,15 +1,33 @@
 <view class="page">
+  <view class="nav">
+    <text class="back" bindtap="handleBack">‹</text>
+    <text class="nav-title">订单详情</text>
+    <text class="nav-action"></text>
+  </view>
   <view class="status-card">
     <text class="status">{{status}}</text>
     <text class="order-id">订单号 {{orderId}}</text>
     <text class="amount">¥{{amount}}</text>
+    <text class="eta">{{eta}}</text>
+  </view>
+
+  <view class="map-card">
+    <view class="map-route"></view>
+    <view class="map-point shop">商</view>
+    <view class="map-point rider">骑</view>
+    <view class="map-point user">收</view>
+    <text class="map-text">{{mapText}}</text>
   </view>
 
   <view class="section">
-    <text class="section-title">商品明细</text>
-    <view wx:for="{{items}}" wx:key="product_name" class="row">
-      <text>{{item.product_name}} x {{item.quantity}}</text>
-      <text>¥{{item.price}}</text>
+    <text class="section-title">{{shopName}}</text>
+    <view wx:for="{{items}}" wx:key="product_id" class="product-row">
+      <image wx:if="{{item.imageUrl}}" class="product-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+      <view class="product-main">
+        <text class="product-name">{{item.product_name}}</text>
+        <text class="product-meta">x {{item.quantity}}</text>
+      </view>
+      <text class="product-price">¥{{item.price}}</text>
     </view>
   </view>
 
@@ -17,7 +35,23 @@
     <text class="section-title">订单进度</text>
     <view wx:for="{{events}}" wx:key="type" class="event-row">
       <view class="dot"></view>
-      <text class="event-text">{{item.message}}</text>
+      <view class="event-main">
+        <text class="event-text">{{item.message}}</text>
+        <text class="event-time">{{item.createdText}}</text>
+      </view>
     </view>
+  </view>
+
+  <view class="section">
+    <text class="section-title">配送地址</text>
+    <text class="address-line">{{address.detail}}</text>
+    <text class="address-contact">{{address.contact}}</text>
+  </view>
+
+  <view class="bottom-actions">
+    <button class="outline-button" size="mini" bindtap="handleMerchantTap">联系商家</button>
+    <button class="outline-button" size="mini" bindtap="handleRiderTap">联系骑手</button>
+    <button wx:if="{{status === '待评价' || reviewed}}" class="outline-button" size="mini" bindtap="handleReviewTap">{{reviewed ? '修改评价' : '去评价'}}</button>
+    <button class="primary-button" size="mini" bindtap="handleAfterSalesTap">申请售后</button>
   </view>
 </view>

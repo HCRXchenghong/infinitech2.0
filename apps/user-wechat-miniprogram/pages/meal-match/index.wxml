@@ -1,6 +1,63 @@
 <view class="page">
-  <text class="title">找饭搭</text>
-  <view class="requirement" wx:for="{{requirements}}" wx:key="*this">
-    <text>{{item}}</text>
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">找饭搭</text>
+    <text class="nav-action">{{status}}</text>
+  </view>
+  <view class="intro-card">
+    <text class="eyebrow">附近一起吃饭的人</text>
+    <text class="title">先完成真实性承诺和饮食问卷，再开启匹配</text>
+    <text class="status">{{status}}</text>
+  </view>
+
+  <view class="privacy-card">
+    <view>
+      <text class="section-title">隐私与设备安全</text>
+      <text class="privacy-line">{{privacyPolicy}}</text>
+      <text class="privacy-line">{{deviceRiskText}}</text>
+    </view>
+    <view class="privacy-badge">同校保护</view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">开启前检查</text>
+    <view class="requirement" wx:for="{{requirements}}" wx:key="title">
+      <view class="check {{item.done ? 'done' : ''}}">{{item.done ? '✓' : '!'}}</view>
+      <text class="requirement-title">{{item.title}}</text>
+      <text class="requirement-status">{{item.status}}</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">推荐饭搭</text>
+    <view wx:if="{{!candidates.length}}" class="empty-state">{{emptyText}}</view>
+    <block wx:else>
+      <view class="buddy-card" wx:for="{{candidates}}" wx:key="id">
+        <view class="avatar">饭</view>
+        <view class="buddy-main">
+          <text class="buddy-title">{{item.title}}</text>
+          <text class="buddy-subtitle">{{item.subtitle}}</text>
+          <view class="location-row">
+            <text>{{item.location}}</text>
+            <text>{{item.scope}}</text>
+          </view>
+          <text class="privacy">{{item.privacy}}</text>
+          <view class="buddy-actions">
+            <button size="mini" data-id="{{item.id}}" bindtap="handleBlockTap">不感兴趣</button>
+            <button size="mini" data-id="{{item.id}}" bindtap="handleReportTap">举报</button>
+          </view>
+        </view>
+        <view class="buddy-side">
+          <text class="distance">{{item.distance}}</text>
+          <text class="score">{{item.score}}</text>
+        </view>
+      </view>
+    </block>
+  </view>
+
+  <view class="safe-card">平台仅提供信息展示与匹配入口，请在线下见面前自行确认安全。</view>
+
+  <view class="bottom">
+    <button class="start-button" bindtap="handleStartTap">完成资料并开启</button>
   </view>
 </view>

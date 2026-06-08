@@ -1,0 +1,68 @@
+<view class="rx-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">上传处方</text>
+    <text class="nav-action"></text>
+  </view>
+
+  <view class="product-card">
+    <view class="medicine-box">药</view>
+    <view>
+      <text class="product-title">处方药购买需校医审核</text>
+      <text class="product-name">{{product.name}} <text>{{product.tag}}</text></text>
+      <text class="product-price">¥{{product.price}}</text>
+      <text class="product-tip">审核通过后可加入购物车</text>
+    </view>
+    <text class="upload-state {{uploadStateClass}}">{{uploadStatus}}</text>
+  </view>
+
+  <view class="card">
+    <text class="section-title">处方信息</text>
+    <view class="upload-box" bindtap="handleChooseImage">
+      <text class="camera">▣</text>
+      <text>{{imageText}}</text>
+      <text>支持图片，需包含姓名、药品、医生签名或盖章</text>
+      <text class="scan-hint">{{scanStatusText}}</text>
+    </view>
+    <button class="camera-button" loading="{{uploading}}" disabled="{{uploading}}" bindtap="handleChooseImage">拍照上传</button>
+  </view>
+
+  <view class="card">
+    <text class="section-title">用药人信息</text>
+    <view class="info-row">
+      <text>姓名</text>
+      <input value="{{patient}}" bindinput="handlePatientInput" />
+    </view>
+    <view class="info-row">
+      <text>手机号</text>
+      <text>{{phone}}</text>
+    </view>
+    <view class="info-row">
+      <text>校内地址</text>
+      <text>{{address}}</text>
+    </view>
+    <view class="info-row">
+      <text>修改</text>
+      <input value="{{hospital}}" bindinput="handleHospitalInput" />
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">校医审核</text>
+    <view class="audit-row">
+      <text>预计 10 分钟内反馈</text>
+      <button>在线联系校医</button>
+      <button>电话联系</button>
+    </view>
+  </view>
+
+  <view class="guard-card">
+    <text>AI 问诊仅供参考，处方药请以校医审核结果为准</text>
+    <text>处方信息仅用于本次校医务室购药审核</text>
+  </view>
+
+  <view class="bottom-actions">
+    <button class="ghost" bindtap="handleCancel">暂不购买</button>
+    <button loading="{{submitting}}" disabled="{{submitting || uploading}}" bindtap="handleSubmit">提交审核</button>
+  </view>
+</view>

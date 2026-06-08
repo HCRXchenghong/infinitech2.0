@@ -1,38 +1,57 @@
 <view class="page">
+  <view class="nav">
+    <text class="back" bindtap="handleBack">‹</text>
+    <text class="nav-title">确认订单</text>
+    <text class="nav-action"></text>
+  </view>
   <view class="address-card" bindtap="handleAddressTap">
     <text class="section-label">配送地址</text>
+    <text class="address-status">{{addressStatusText}}</text>
     <text class="address-detail">{{address.detail}}</text>
     <text class="address-contact">{{address.name}} {{address.phone}}</text>
+    <text class="arrival">约 32 分钟送达</text>
   </view>
 
   <view class="section">
-    <text class="section-title">蓝海餐厅</text>
-    <view wx:for="{{items}}" wx:key="name" class="order-row">
-      <text>{{item.name}} x {{item.quantity}}</text>
-      <text>¥{{item.price}}</text>
+    <text class="section-title">{{shopName}}</text>
+    <text wx:if="{{!cartReady}}" class="empty-copy">购物车里还没有可结算商品，回店铺页加购后再提交。</text>
+    <view wx:for="{{items}}" wx:key="id" class="product-row">
+      <image wx:if="{{item.imageUrl}}" class="product-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+      <view class="product-copy">
+        <text class="product-name">{{item.name}}</text>
+        <text class="product-meta">x {{item.quantity}}</text>
+      </view>
+      <text class="product-price">¥{{item.price}}</text>
     </view>
   </view>
 
   <view class="section">
-    <view class="order-row">
+    <view class="order-row" bindtap="handleOptionTap">
+      <text>优惠券</text>
+      <text class="discount">{{options.coupon}} · 已抵扣 ¥8</text>
+    </view>
+    <view class="order-row" bindtap="handleOptionTap">
       <text>餐具数量</text>
       <text>{{options.tableware}}</text>
     </view>
-    <view class="order-row">
+    <view class="order-row" bindtap="handleOptionTap">
       <text>订单备注</text>
       <text>{{options.remark}}</text>
     </view>
-    <view class="order-row">
-      <text>支付方式</text>
-      <navigator url="/pages/wallet/payment-password/index">微信支付 / 余额支付</navigator>
+  </view>
+
+  <view class="section">
+    <view wx:for="{{fees}}" wx:key="title" class="order-row fee {{item.discount ? 'discount' : ''}}">
+      <text>{{item.title}}</text>
+      <text>{{item.value}}</text>
     </view>
   </view>
 
   <view class="bottom-bar">
     <view>
       <text class="payable">¥{{payable}}</text>
-      <text class="bottom-note">余额支付前需设置支付密码。</text>
+      <text class="bottom-note">提交后可选择微信支付或余额支付。</text>
     </view>
-    <button class="pay-button" bindtap="handleSubmitTap">提交订单</button>
+    <button class="pay-button" loading="{{submitting}}" disabled="{{submitting || !addressId || !cartReady}}" bindtap="handleSubmitTap">提交订单</button>
   </view>
 </view>

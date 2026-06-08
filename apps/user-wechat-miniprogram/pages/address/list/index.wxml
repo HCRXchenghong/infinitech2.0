@@ -1,11 +1,32 @@
 <view class="page">
-  <view wx:for="{{addresses}}" wx:key="id" class="address-card">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">我的地址</text>
+    <text class="nav-action">{{statusText}}</text>
+  </view>
+  <text class="status">{{statusText}}</text>
+  <text class="hint">{{mode === 'select' ? '选择后会带回确认订单页，下单时会校验配送范围和地址可达性' : '下单时会校验配送范围和地址可达性'}}</text>
+  <view wx:if="{{addresses.length === 0}}" class="empty-card">
+    <text>{{emptyText}}</text>
+  </view>
+  <view wx:for="{{addresses}}" wx:key="id" class="address-card {{selectedAddressId === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="handleAddressCardTap">
     <view class="head">
-      <text class="tag">{{item.tag}}</text>
-      <text class="default" wx:if="{{item.defaulted}}">默认</text>
+      <view>
+        <text class="tag">{{item.tag}}</text>
+        <text class="default" wx:if="{{item.defaulted}}">默认</text>
+        <text class="selected-badge" wx:if="{{selectedAddressId === item.id}}">已选</text>
+      </view>
+      <text class="edit-icon" data-id="{{item.id}}" catchtap="handleEdit">编辑</text>
     </view>
     <text class="detail">{{item.detail}}</text>
     <text class="contact">{{item.name}} {{item.phone}}</text>
+    <view class="actions">
+      <text data-id="{{item.id}}" catchtap="handleSetDefault">{{item.defaulted ? '当前默认' : '设为默认'}}</text>
+      <text data-id="{{item.id}}" catchtap="handleEdit">编辑</text>
+      <text class="danger" data-id="{{item.id}}" catchtap="handleDelete">删除</text>
+    </view>
   </view>
-  <button class="add-button">新增地址</button>
+  <view class="bottom">
+    <button class="add-button" loading="{{saving}}" disabled="{{saving}}" bindtap="handleAddTap">新增地址</button>
+  </view>
 </view>

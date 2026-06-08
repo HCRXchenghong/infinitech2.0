@@ -1,0 +1,101 @@
+<view class="errand-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">快递跑腿</text>
+    <text class="nav-action">已同步</text>
+  </view>
+
+  <view class="hero-card">
+    <view>
+      <text class="hero-title">附近跑腿，约 35 分钟送达</text>
+      <text class="hero-subtitle">帮买、帮送、帮取、帮办，骑手接单后实时追踪</text>
+    </view>
+    <image wx:if="{{heroImageUrl}}" class="hero-image" src="{{heroImageUrl}}" mode="aspectFill"></image>
+    <view wx:else class="hero-art">箱</view>
+  </view>
+
+  <view class="service-card">
+    <view class="service-item {{item.active}}" wx:for="{{services}}" wx:key="type" data-type="{{item.type}}" bindtap="handleServiceTap">
+      <text class="service-icon">{{item.icon}}</text>
+      <text>{{item.title}}</text>
+    </view>
+  </view>
+
+  <view class="errand-card">
+    <text class="card-title">取送信息</text>
+    <view class="info-row" bindtap="handlePickupTap">
+      <text class="mark pickup">取</text>
+      <text>取件地址</text>
+      <text>{{pickupAddress}} ›</text>
+    </view>
+    <view class="info-row" bindtap="handleDeliveryTap">
+      <text class="mark delivery">送</text>
+      <text>送达地址</text>
+      <text>{{deliveryAddress}} ›</text>
+    </view>
+    <view class="info-row" bindtap="handleContactTap">
+      <text class="mark person">人</text>
+      <text>联系人</text>
+      <text>{{contact}} ›</text>
+    </view>
+  </view>
+
+  <view class="errand-card">
+    <text class="card-title">物品与要求</text>
+    <view class="item-preview">
+      <image wx:if="{{itemImageUrl}}" class="item-image" src="{{itemImageUrl}}" mode="aspectFill"></image>
+      <view>
+        <text>{{selectedItemType}}</text>
+        <text>{{description}}</text>
+      </view>
+    </view>
+    <view class="item-type-row">
+      <text>物品类型</text>
+      <view class="type-chips">
+        <text class="type-chip {{item.active}}" wx:for="{{itemTypes}}" wx:key="title" data-title="{{item.title}}" bindtap="handleItemTypeTap">{{item.title}}</text>
+      </view>
+    </view>
+    <view class="detail-row">
+      <text>物品描述</text>
+      <input value="{{description}}" placeholder="请填写真实取送要求" bindinput="handleDescriptionInput" />
+      <text>›</text>
+    </view>
+    <view class="detail-row">
+      <text>预估重量</text>
+      <text>{{weightText}}</text>
+      <text>›</text>
+    </view>
+    <view class="detail-row">
+      <text>取送时间</text>
+      <text>{{pickupTime}}</text>
+      <text>›</text>
+    </view>
+  </view>
+
+  <view class="errand-card fee-card">
+    <text class="card-title">费用预估</text>
+    <view class="fee-grid">
+      <view wx:for="{{feeRows}}" wx:key="title">
+        <text>{{item.title}}</text>
+        <text>{{item.value}}</text>
+      </view>
+    </view>
+    <view class="coupon-row">
+      <text>券</text>
+      <text>可用优惠券</text>
+      <text>-¥3 ›</text>
+    </view>
+  </view>
+
+  <view class="tip-card">
+    <view wx:for="{{tips}}" wx:key="*this">
+      <text>✓</text>
+      <text>{{item}}</text>
+    </view>
+  </view>
+
+  <view class="bottom-bar">
+    <button class="service-button" bindtap="handleBack">联系客服</button>
+    <button class="submit-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="handleSubmit">确认下单 ¥{{amount}}</button>
+  </view>
+</view>

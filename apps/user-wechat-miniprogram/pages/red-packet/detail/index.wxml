@@ -1,0 +1,62 @@
+<view class="red-detail-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">红包详情</text>
+    <text class="nav-action">红包记录</text>
+  </view>
+
+  <view class="packet-card">
+    <view class="envelope">福</view>
+    <view class="packet-head">
+      <text class="packet-title">{{title}}</text>
+      <text class="packet-subtitle">{{subtitle}}</text>
+      <text class="packet-message">{{message}}</text>
+    </view>
+    <view class="status-pill" bindtap="handleClaim">{{statusText}}</view>
+    <view class="amount-line"><text>¥</text><text>{{amount}}</text></view>
+    <text class="count-line">{{quantity}} 个红包 · 已领取 {{claimedCount}}/{{quantity}}</text>
+    <text class="timer-line">{{timerText}}</text>
+    <view class="progress-track"><view class="progress-fill" style="width: {{progressWidth}};"></view></view>
+    <view class="split-row">
+      <text>已领 ¥{{claimedAmount}}</text>
+      <text>待领 ¥{{pendingAmount}}</text>
+    </view>
+  </view>
+
+  <view class="risk-card {{riskState === 'blocked' ? 'blocked' : ''}}">
+    <text>领取校验</text>
+    <text>{{riskTip}}</text>
+  </view>
+
+  <view class="records-card">
+    <view class="section-title-row">
+      <text>领取记录</text>
+      <text>金额已进入余额</text>
+    </view>
+    <view class="record-row" wx:for="{{records}}" wx:key="key">
+      <view class="record-avatar">{{item.initial}}</view>
+      <text class="record-name">{{item.name}}</text>
+      <view class="record-amount">
+        <text>¥{{item.amount}}</text>
+        <text wx:if="{{item.best}}">手气最佳</text>
+      </view>
+      <text class="record-time">{{item.time}}</text>
+    </view>
+  </view>
+
+  <view class="wallet-card">
+    <view class="wallet-icon">↓</view>
+    <view>
+      <text>钱包流水</text>
+      <text>红包支出 -¥{{amount}}</text>
+    </view>
+    <text bindtap="handleRefund">退回余额 ›</text>
+  </view>
+
+  <view class="safe-tip">24 小时未领完退回余额 · 异常领取会触发校验</view>
+
+  <view class="bottom-actions">
+    <button class="ghost" bindtap="handleBack">返回群聊</button>
+    <button bindtap="handleContinue">继续发红包</button>
+  </view>
+</view>

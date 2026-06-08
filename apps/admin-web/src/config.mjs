@@ -43,8 +43,8 @@ export const ADMIN_WEB_MODULES = Object.freeze([
   { key: "circle", title: "圈子饭搭", status: "planned", priority: "P1", owner: "内容" },
   { key: "groups", title: "群聊红包", status: "planned", priority: "P1", owner: "社群" },
   { key: "reviews", title: "评价管理", status: "planned", priority: "P1", owner: "内容" },
-  { key: "support", title: "客服工作台", status: "planned", priority: "P0", owner: "客服" },
-  { key: "notifications", title: "通知推送", status: "planned", priority: "P1", owner: "运营" },
+  { key: "support", title: "客服工作台", status: "wired", priority: "P0", owner: "客服" },
+  { key: "notifications", title: "通知运营", status: "wired", priority: "P1", owner: "运营" },
   { key: "rtc", title: "RTC 审计", status: "planned", priority: "P1", owner: "质检" },
   { key: "contact-audits", title: "电话审计", status: "planned", priority: "P1", owner: "质检" },
   { key: "integrations", title: "OAuth/API", status: "planned", priority: "P0", owner: "开放平台" },
@@ -64,20 +64,23 @@ export const ADMIN_WEB_KPIS = Object.freeze([
 
 export const ADMIN_WEB_QUEUES = Object.freeze([
   { key: "after-sales-list", title: "售后审核", level: "P0", target: "30 分钟内首响", operationKey: "after-sales-list" },
+  { key: "support-tickets", title: "客服工单", level: "P0", target: "10 分钟首响/超时升级/质检", operationKey: "support-tickets" },
   { key: "merchant-invite", title: "商户邀约", level: "P0", target: "管理员创建链接", operationKey: "merchant-invite" },
   { key: "station-manager-invite", title: "站长邀约", level: "P0", target: "站点实名准入", operationKey: "station-manager-invite" },
   { key: "refund-settings-read", title: "退款策略", level: "P0", target: "余额/原路策略", operationKey: "refund-settings-read" },
+  { key: "notifications", title: "通知回执", level: "P1", target: "失败原因可追溯", operationKey: "notification-deliveries" },
   { key: "outbox-stats", title: "事件队列健康", level: "P0", target: "阻塞和租约预警", operationKey: "outbox-stats" },
+  { key: "outbox-dead-letter-triage", title: "Outbox 死信", level: "P0", target: "人工分诊和解封", operationKey: "outbox-dead-letter-triage" },
   { key: "object-cleanup-stats", title: "对象清理", level: "P1", target: "过期证据和失败账本", operationKey: "object-cleanup-stats" }
 ]);
 
 export const ADMIN_WEB_RBAC = Object.freeze([
   { role: "admin", name: "兼容管理员", scopes: ["*"] },
   { role: "super_admin", name: "超级管理员", scopes: ["*"] },
-  { role: "ops_admin", name: "运营管理员", scopes: ["operations:read", "invite:write", "after_sales:read", "after_sales:review", "order:compensate", "object_cleanup:read", "object_cleanup:write", "outbox:read", "outbox:write", "dispatch:read", "rider:read", "rbac:read"] },
+  { role: "ops_admin", name: "运营管理员", scopes: ["operations:read", "invite:write", "merchant:qualification_review", "notification:read", "notification:write", "after_sales:read", "after_sales:review", "order:compensate", "object_cleanup:read", "object_cleanup:write", "outbox:read", "outbox:write", "dispatch:read", "rider:read", "rbac:read"] },
   { role: "finance_admin", name: "财务管理员", scopes: ["operations:read", "refund:read", "refund:write", "wallet:read", "settlement:read", "rbac:read"] },
   { role: "dispatch_admin", name: "调度管理员", scopes: ["operations:read", "dispatch:read", "dispatch:write", "rider:read", "rbac:read"] },
-  { role: "support_admin", name: "客服管理员", scopes: ["operations:read", "after_sales:read", "after_sales:event", "support:read", "rtc:audit", "rbac:read"] },
+  { role: "support_admin", name: "客服管理员", scopes: ["operations:read", "after_sales:read", "after_sales:event", "notification:read", "support:read", "service_ticket:read", "service_ticket:write", "rtc:audit", "rbac:read"] },
   { role: "security_auditor", name: "安全审计员", scopes: ["audit:read", "risk:read", "system_logs:read", "rbac:read"] }
 ]);
 

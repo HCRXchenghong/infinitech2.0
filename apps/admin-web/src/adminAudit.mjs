@@ -19,12 +19,14 @@ const PAYLOAD_ALLOWLIST = Object.freeze([
   "current_scopes",
   "decision",
   "default_refund_strategy",
+  "delivery_status",
   "error_code",
   "error_message",
   "event_id",
   "expected_bytes",
   "expected_content_hash",
   "export_format",
+  "failed_count",
   "generated_at",
   "header_log_count",
   "idempotency_key",
@@ -35,18 +37,29 @@ const PAYLOAD_ALLOWLIST = Object.freeze([
   "manifest_hash",
   "manifest_hash_matched",
   "max_attempts",
+  "channel",
   "policy_version",
   "previous_scopes",
+  "provider",
+  "provider_message_id",
   "reason",
   "refund_id",
   "requested_scopes",
+  "retry_at",
   "retry_after_seconds",
+  "retry_policy",
   "role",
   "rollback_from_scopes",
   "rollback_to_scopes",
   "row_count",
+  "scheduled_at",
+  "scheduled_count",
   "status",
   "storage_key",
+  "source_event_id",
+  "source_topic",
+  "target_id",
+  "target_role",
   "topic",
   "type",
   "verified_at"
@@ -73,6 +86,10 @@ const AUDIT_TARGET_ROUTES = Object.freeze({
   order: { module: "orders", operation: "order-compensate", label: "订单监控" },
   outbox_event: { module: "dashboard", operation: "outbox-events", label: "Outbox 事件" },
   outbox_topic: { module: "dashboard", operation: "outbox-stats", label: "Outbox 健康" },
+  platform_notification: { module: "notifications", operation: "notifications", label: "通知运营" },
+  platform_notification_delivery: { module: "notifications", operation: "notification-deliveries", label: "通知回执" },
+  notification_delivery_alerts: { module: "notifications", operation: "notification-failure-alert-emit", label: "通知失败告警" },
+  notification_delivery_retries: { module: "notifications", operation: "notification-delivery-retry-schedule", label: "通知重试计划" },
   refund_settings: { module: "refund-settings", operation: "refund-settings-read", label: "退款策略" },
   rider: { module: "riders", operation: "station-riders", label: "骑手/站长" },
   rider_invite: { module: "riders", operation: "rider-invite", label: "骑手/站长" },
@@ -265,6 +282,7 @@ export function auditTargetRoute(log = {}) {
   const action = trim(log.action);
   if (action.includes("after_sales")) return AUDIT_TARGET_ROUTES.after_sales;
   if (action.includes("rbac")) return AUDIT_TARGET_ROUTES.admin_rbac_role;
+  if (action.includes("notification")) return AUDIT_TARGET_ROUTES.platform_notification;
   if (action.includes("outbox")) return AUDIT_TARGET_ROUTES.outbox_event;
   if (action.includes("refund")) return AUDIT_TARGET_ROUTES.refund_settings;
   if (action.includes("rider") || action.includes("station")) return AUDIT_TARGET_ROUTES.rider;

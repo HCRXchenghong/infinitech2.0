@@ -32,6 +32,20 @@ services:
     ports:
       - "9092:9092"
 
+  realtime-gateway:
+    image: infinitech/realtime-gateway:0.1.0
+    environment:
+      REALTIME_INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN:-}
+      REALTIME_WS_AUTH_REQUIRED: ${REALTIME_WS_AUTH_REQUIRED:-false}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:-infinitech-dev-secret-change-me}
+      REALTIME_MEMBERSHIP_AUTH_URL: ${REALTIME_MEMBERSHIP_AUTH_URL:-http://host.docker.internal:1029/internal/realtime/authorize}
+      REALTIME_REDIS_URL: ${REALTIME_REDIS_URL:-redis://redis:6379/0}
+      REALTIME_REDIS_CHANNEL: ${REALTIME_REDIS_CHANNEL:-infinitech:realtime:events}
+    ports:
+      - "9898:9898"
+    depends_on:
+      - redis
+
   outbox-relay-worker:
     image: infinitech/outbox-relay-worker:0.1.0
     profiles: ["workers"]
@@ -45,7 +59,35 @@ services:
       OUTBOX_RELAY_WORKER_ID: ${OUTBOX_RELAY_WORKER_ID:-local-outbox-relay}
       OUTBOX_RELAY_LEASE_SECONDS: "60"
       OUTBOX_RELAY_LEASE_RENEW_INTERVAL_MS: "30000"
-      OUTBOX_RELAY_TOPICS: order.paid,order.status_changed,order.completed,dispatch.assigned,dispatch.timeout,dispatch.status_changed,audit.retention_alerts
+      REALTIME_GATEWAY_URL: ${REALTIME_GATEWAY_URL:-http://realtime-gateway:9898}
+      REALTIME_INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN:-}
+      OUTBOX_RELAY_TOPICS: order.paid,order.status_changed,order.completed,dispatch.assigned,dispatch.timeout,dispatch.status_changed,merchant.qualification_reviewed,audit.retention_alerts,notification.delivery_failed_alerts,notification.delivery_retries,notification.preferences_changed,message.sent
+    depends_on:
+      - kafka
+      - realtime-gateway
+
+  notification-worker:
+    image: infinitech/notification-worker:0.1.0
+    profiles: ["workers"]
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://host.docker.internal:1029}
+      NOTIFICATION_WORKER_TOKEN: ${NOTIFICATION_WORKER_TOKEN:-}
+      NOTIFICATION_PROVIDER_CHANNELS: ${NOTIFICATION_PROVIDER_CHANNELS:-}
+      NOTIFICATION_PROVIDER_ENDPOINTS: ${NOTIFICATION_PROVIDER_ENDPOINTS:-{}}
+      NOTIFICATION_PROVIDER_TEMPLATES: ${NOTIFICATION_PROVIDER_TEMPLATES:-{}}
+      NOTIFICATION_DELIVERY_PREFERENCES: ${NOTIFICATION_DELIVERY_PREFERENCES:-{}}
+      NOTIFICATION_PREFERENCE_CACHE_TTL_MS: ${NOTIFICATION_PREFERENCE_CACHE_TTL_MS:-30000}
+      NOTIFICATION_PREFERENCE_CACHE_STALE_MS: ${NOTIFICATION_PREFERENCE_CACHE_STALE_MS:-300000}
+      NOTIFICATION_PREFERENCE_CACHE_MAX_KEYS: ${NOTIFICATION_PREFERENCE_CACHE_MAX_KEYS:-500}
+      NOTIFICATION_QUIET_RETRY_AUTO_SCHEDULE: ${NOTIFICATION_QUIET_RETRY_AUTO_SCHEDULE:-false}
+      NOTIFICATION_QUIET_RETRY_INTERVAL_MS: ${NOTIFICATION_QUIET_RETRY_INTERVAL_MS:-60000}
+      NOTIFICATION_QUIET_RETRY_LIMIT: ${NOTIFICATION_QUIET_RETRY_LIMIT:-50}
+      NOTIFICATION_PROVIDER_TOKEN: ${NOTIFICATION_PROVIDER_TOKEN:-}
+      NOTIFICATION_PROVIDER_CALLBACK_SECRET: ${NOTIFICATION_PROVIDER_CALLBACK_SECRET:-}
+      NOTIFICATION_PROVIDER_WECHAT_SUBSCRIBE_ENDPOINT: ${NOTIFICATION_PROVIDER_WECHAT_SUBSCRIBE_ENDPOINT:-}
+      NOTIFICATION_PROVIDER_SMS_ENDPOINT: ${NOTIFICATION_PROVIDER_SMS_ENDPOINT:-}
+      NOTIFICATION_PROVIDER_ENTERPRISE_WECHAT_ENDPOINT: ${NOTIFICATION_PROVIDER_ENTERPRISE_WECHAT_ENDPOINT:-}
+      NOTIFICATION_PROVIDER_PUSH_ENDPOINT: ${NOTIFICATION_PROVIDER_PUSH_ENDPOINT:-}
     depends_on:
       - kafka
 

@@ -1,0 +1,74 @@
+<view class="medicine-detail-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">药品订单详情</text>
+    <text class="nav-action"></text>
+  </view>
+
+  <view class="status-card">
+    <view class="rider-icon">骑</view>
+    <view>
+      <text class="status-title">{{status}}</text>
+      <text class="status-eta">{{eta}}</text>
+      <text class="status-meta">订单号 {{orderId}}  校医务室</text>
+      <text class="status-meta">校医出药完成，骑手正在配送</text>
+    </view>
+    <text class="arrow">›</text>
+  </view>
+
+  <view class="card">
+    <text class="section-title">配送信息</text>
+    <view class="info-row"><text>送达地址</text><text>{{address}} ›</text></view>
+    <view class="info-row"><text>联系人</text><text>{{contact}} ›</text></view>
+    <view class="info-row"><text>配送方式</text><text>{{deliveryText}}</text></view>
+    <view class="contact-actions">
+      <button>联系骑手</button>
+      <button bindtap="handleService">联系校医</button>
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">订单进度</text>
+    <view class="progress-row">
+      <view class="{{item.status}}" wx:for="{{timeline}}" wx:key="title">
+        <view class="dot"></view>
+        <text>{{item.title}}</text>
+        <text>{{item.time}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title-row">
+      <text>药品清单</text>
+      <text>处方药已通过校医审核  查看处方 ›</text>
+    </view>
+    <view class="item-row" wx:for="{{items}}" wx:key="product_id">
+      <view class="medicine-box">
+        <image wx:if="{{item.imageUrl}}" class="medicine-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+        <text wx:else>药</text>
+      </view>
+      <view>
+        <text>{{item.name}}</text>
+        <view class="tag-row"><text>{{item.category}}</text><text wx:if="{{item.approved}}">已审核</text></view>
+      </view>
+      <text>x{{item.quantity}}</text>
+      <text>¥{{item.price}}</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="section-title">费用明细</text>
+    <view class="fee-row" wx:for="{{fees}}" wx:key="title">
+      <text>{{item.title}}</text>
+      <text>{{item.value}}</text>
+    </view>
+  </view>
+
+  <view class="advice-row">{{advice}}</view>
+
+  <view class="bottom-actions">
+    <button class="ghost" bindtap="handleService">在线客服</button>
+    <button bindtap="handleConfirm">确认收药</button>
+  </view>
+</view>

@@ -1,0 +1,90 @@
+<view class="profile-page">
+  <view class="profile-blue">
+    <view class="profile-nav">
+      <view class="nav-spacer"></view>
+      <text class="profile-nav-title">我的</text>
+      <view class="profile-setting nav-action" bindtap="handleNavigate" data-route="/pages/notification-preferences/index">设置</view>
+    </view>
+  </view>
+  <view class="profile-card user-card">
+    <view class="user-top">
+      <view class="avatar">{{avatarInitial}}</view>
+      <view class="user-main">
+        <view class="user-name-row">
+          <text class="user-name">{{nickname}}</text>
+          <text class="edit-link">编辑资料 ›</text>
+        </view>
+        <text class="user-meta">✓ 悦享 e 食会员 · 已实名</text>
+        <view class="badge-row">
+          <text class="level-badge">{{memberLevel}}</text>
+          <text class="soft-badge">{{memberTitle}}</text>
+          <text class="green-badge">{{creditText}}</text>
+        </view>
+        <view class="growth-row">
+          <text>{{growthText}}</text>
+          <view class="growth-track">
+            <view class="growth-fill" style="width: {{growthPercent}}%;"></view>
+          </view>
+          <text>›</text>
+        </view>
+      </view>
+    </view>
+    <view class="profile-stats">
+      <view class="profile-stat" wx:for="{{topStats}}" wx:key="title">
+        <text class="profile-stat-icon">{{item.icon}}</text>
+        <view>
+          <text class="profile-stat-title">{{item.title}}</text>
+          <text class="profile-stat-value">{{item.value}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="profile-card asset-card">
+    <view class="asset-title" bindtap="handleNavigate" data-route="/pages/wallet/index">查看钱包 ›</view>
+    <view class="asset-grid">
+      <view class="asset-item" wx:for="{{assetStats}}" wx:key="title" data-route="{{item.route}}" bindtap="handleNavigate">
+        <text class="asset-icon">{{item.icon}}</text>
+        <text class="asset-label">{{item.title}}</text>
+        <text class="asset-value">{{item.value}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="profile-card">
+    <view class="section-head">
+      <text>我的订单</text>
+      <text bindtap="handleNavigate" data-route="/pages/order/list/index">全部订单 ›</text>
+    </view>
+    <view class="shortcut-grid four">
+      <view class="shortcut" wx:for="{{orderShortcuts}}" wx:key="title" data-route="{{item.route}}" bindtap="handleNavigate">
+        <view class="shortcut-icon-wrap">
+          <text class="shortcut-icon">{{item.icon}}</text>
+          <text wx:if="{{item.badge}}" class="shortcut-badge">{{item.badge}}</text>
+        </view>
+        <text>{{item.title}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="profile-card">
+    <view class="service-grid">
+      <view class="service-item" wx:for="{{serviceGrid}}" wx:key="title" data-route="{{item.route}}" bindtap="handleNavigate">
+        <text class="service-icon">{{item.icon}}</text>
+        <text>{{item.title}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="profile-card security-card">
+    <text class="block-title">账户与安全</text>
+    <view class="security-row" wx:for="{{securityRows}}" wx:key="title" data-route="{{item.route}}" bindtap="handleNavigate">
+      <view class="security-left">
+        <text class="security-icon">{{item.icon}}</text>
+        <text>{{item.title}}</text>
+      </view>
+      <text class="security-value">{{item.value}} ›</text>
+    </view>
+  </view>
+
+</view>

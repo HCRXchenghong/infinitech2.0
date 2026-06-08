@@ -1,0 +1,85 @@
+<view class="points-page">
+  <view class="plain-nav">
+    <view class="nav-back" bindtap="handleBack">‹</view>
+    <text class="nav-title">会员积分</text>
+    <text class="nav-action">已同步</text>
+  </view>
+
+  <view class="member-card">
+    <view class="avatar">人</view>
+    <view class="member-main">
+      <text class="member-name">{{nickname}}</text>
+      <view class="badge-row">
+        <text class="level-badge">V2</text>
+        <text class="soft-badge">{{levelName}}</text>
+        <text class="green-badge">已实名</text>
+      </view>
+      <view class="points-line">
+        <text class="coin">★</text>
+        <text class="points-number">{{points}}</text>
+        <text>积分</text>
+      </view>
+      <view class="growth-line">
+        <text>{{growthText}}</text>
+        <view class="growth-track"><view class="growth-fill" style="width: {{growthPercent}}%;"></view></view>
+      </view>
+    </view>
+    <view class="medal">章</view>
+  </view>
+
+  <view class="points-card">
+    <text class="card-title">会员权益</text>
+    <view class="benefit-grid">
+      <view class="benefit {{item.lockedClass}}" wx:for="{{benefits}}" wx:key="title">
+        <text class="benefit-icon">{{item.icon}}</text>
+        <text class="benefit-title">{{item.title}}</text>
+        <text class="benefit-status">{{item.status}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="points-card">
+    <text class="card-title">赚积分</text>
+    <view class="task-row" wx:for="{{tasks}}" wx:key="id">
+      <text class="task-icon">{{item.icon}}</text>
+      <view class="task-main">
+        <text class="task-title">{{item.title}}</text>
+        <text class="task-subtitle">{{item.subtitle}}</text>
+      </view>
+      <text class="task-reward">{{item.reward}}</text>
+      <button class="task-button" data-id="{{item.id}}" data-route="{{item.route}}" bindtap="handleTaskTap">{{item.actionText}}</button>
+    </view>
+  </view>
+
+  <view class="points-card">
+    <text class="card-title">积分兑换</text>
+    <view class="reward-grid">
+      <view class="reward-card {{item.accentClass}}" wx:for="{{rewards}}" wx:key="id" bindtap="handleRewardTap">
+        <text class="reward-amount">{{item.amount}}</text>
+        <view>
+          <text class="reward-title">{{item.title}}</text>
+          <text class="reward-subtitle">{{item.subtitle}}</text>
+        </view>
+        <text class="reward-button">兑换</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="points-card">
+    <view class="record-head">
+      <text class="card-title">积分明细</text>
+      <text>全部明细 ›</text>
+    </view>
+    <view class="filter-row">
+      <text class="filter {{item.active}}" wx:for="{{filters}}" wx:key="id">{{item.title}}</text>
+    </view>
+    <view class="record-row" wx:for="{{records}}" wx:key="id">
+      <text class="record-icon {{item.typeClass}}">{{item.icon}}</text>
+      <text class="record-title">{{item.title}}</text>
+      <text class="record-time">{{item.time}}</text>
+      <text class="record-points {{item.typeClass}}">{{item.pointsText}}</text>
+    </view>
+  </view>
+
+  <view class="tip-row">退款后订单积分会按规则扣回</view>
+</view>

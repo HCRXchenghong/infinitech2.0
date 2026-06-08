@@ -1,0 +1,309 @@
+.medicine-detail-page {
+  min-height: 100vh;
+  padding: 28rpx 32rpx 150rpx;
+  background: #f3f6f9;
+  box-sizing: border-box;
+}
+
+.plain-nav {
+  display: grid;
+  grid-template-columns: 72rpx 1fr 120rpx;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top) + 20rpx) 0 26rpx;
+}
+
+.nav-back {
+  color: #111827;
+  font-size: 56rpx;
+  line-height: 50rpx;
+}
+
+.nav-title {
+  color: #111827;
+  font-size: 38rpx;
+  font-weight: 900;
+  text-align: center;
+}
+
+.status-card,
+.card,
+.advice-row {
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 10rpx 28rpx rgba(15, 23, 42, 0.05);
+}
+
+.status-card {
+  display: grid;
+  grid-template-columns: 110rpx 1fr 32rpx;
+  gap: 22rpx;
+  align-items: center;
+  padding: 32rpx;
+}
+
+.rider-icon {
+  width: 86rpx;
+  height: 86rpx;
+  border-radius: 43rpx;
+  color: #ffffff;
+  background: #16a34a;
+  text-align: center;
+  line-height: 86rpx;
+  font-size: 38rpx;
+  font-weight: 900;
+}
+
+.status-title,
+.section-title {
+  display: block;
+  color: #111827;
+  font-size: 36rpx;
+  font-weight: 900;
+}
+
+.status-eta {
+  display: block;
+  margin-top: 10rpx;
+  color: #111827;
+  font-size: 30rpx;
+}
+
+.status-meta {
+  display: block;
+  margin-top: 10rpx;
+  color: #667085;
+  font-size: 25rpx;
+}
+
+.arrow {
+  color: #667085;
+  font-size: 48rpx;
+}
+
+.card {
+  margin-top: 18rpx;
+  padding: 28rpx;
+}
+
+.info-row {
+  display: grid;
+  grid-template-columns: 170rpx 1fr;
+  gap: 20rpx;
+  align-items: center;
+  min-height: 76rpx;
+  border-bottom: 1rpx solid #edf1f5;
+  color: #667085;
+  font-size: 28rpx;
+}
+
+.info-row text:last-child {
+  color: #374151;
+  text-align: right;
+}
+
+.contact-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24rpx;
+  margin-top: 20rpx;
+}
+
+.contact-actions button,
+.bottom-actions button {
+  height: 64rpx;
+  border-radius: 12rpx;
+  color: #007aff;
+  background: #ffffff;
+  border: 1rpx solid #007aff;
+  line-height: 64rpx;
+  font-size: 28rpx;
+  font-weight: 900;
+  padding: 0;
+}
+
+.progress-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 24rpx;
+  text-align: center;
+}
+
+.progress-row > view {
+  position: relative;
+}
+
+.dot {
+  width: 44rpx;
+  height: 44rpx;
+  margin: 0 auto 12rpx;
+  border-radius: 22rpx;
+  background: #d1d5db;
+}
+
+.done .dot {
+  background: #16a34a;
+}
+
+.active .dot {
+  background: #007aff;
+  box-shadow: 0 0 0 8rpx #eaf4ff;
+}
+
+.progress-row text {
+  display: block;
+  color: #111827;
+  font-size: 25rpx;
+}
+
+.progress-row text:last-child {
+  margin-top: 8rpx;
+  color: #667085;
+}
+
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18rpx;
+  align-items: center;
+}
+
+.section-title-row text:first-child {
+  color: #111827;
+  font-size: 34rpx;
+  font-weight: 900;
+}
+
+.section-title-row text:last-child {
+  color: #007aff;
+  font-size: 24rpx;
+  text-align: right;
+}
+
+.item-row {
+  display: grid;
+  grid-template-columns: 108rpx 1fr 70rpx 116rpx;
+  gap: 18rpx;
+  align-items: center;
+  padding: 18rpx 0;
+  border-bottom: 1rpx solid #edf1f5;
+}
+
+.item-row:last-child {
+  border-bottom: none;
+}
+
+.medicine-box {
+  width: 92rpx;
+  height: 92rpx;
+  border-radius: 14rpx;
+  color: #007aff;
+  background: #eef6ff;
+  text-align: center;
+  line-height: 92rpx;
+  font-weight: 900;
+  overflow: hidden;
+}
+
+.medicine-image {
+  display: block;
+  width: 92rpx;
+  height: 92rpx;
+}
+
+.item-row view:nth-child(2) > text {
+  display: block;
+  color: #111827;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.tag-row {
+  display: flex;
+  gap: 10rpx;
+  margin-top: 10rpx;
+}
+
+.tag-row text {
+  padding: 3rpx 8rpx;
+  border-radius: 7rpx;
+  color: #ff4d00;
+  border: 1rpx solid #ff8a4c;
+  font-size: 22rpx;
+}
+
+.tag-row text:last-child {
+  color: #16a34a;
+  border-color: #86efac;
+}
+
+.item-row > text {
+  color: #111827;
+  font-size: 28rpx;
+  text-align: right;
+}
+
+.fee-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 68rpx;
+  align-items: center;
+  color: #374151;
+  font-size: 28rpx;
+}
+
+.fee-row text:last-child {
+  text-align: right;
+}
+
+.fee-row:last-child {
+  border-top: 1rpx solid #edf1f5;
+  margin-top: 10rpx;
+  padding-top: 12rpx;
+}
+
+.fee-row:last-child text {
+  color: #007aff;
+  font-size: 36rpx;
+  font-weight: 900;
+}
+
+.advice-row {
+  margin-top: 18rpx;
+  padding: 20rpx 24rpx;
+  color: #16a34a;
+  background: #effdf5;
+  font-size: 26rpx;
+}
+
+.bottom-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24rpx;
+  padding: 20rpx 32rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 -10rpx 30rpx rgba(15, 23, 42, 0.08);
+}
+
+.bottom-actions button {
+  height: 82rpx;
+  border-radius: 14rpx;
+  color: #ffffff;
+  background: #007aff;
+  line-height: 82rpx;
+  font-size: 32rpx;
+  border: none;
+}
+
+.bottom-actions button.ghost {
+  color: #007aff;
+  background: #ffffff;
+  border: 1rpx solid #007aff;
+}
+
+button::after {
+  border: none;
+}

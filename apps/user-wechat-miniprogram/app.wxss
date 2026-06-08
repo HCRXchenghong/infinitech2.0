@@ -8,3 +8,336 @@ page {
   color: #009bf5;
 }
 
+.mp-page {
+  min-height: 100vh;
+  background: #f3f6f9;
+  box-sizing: border-box;
+  padding: 16px 14px calc(88px + env(safe-area-inset-bottom));
+}
+
+.mp-nav {
+  padding: calc(env(safe-area-inset-top) + 8px) 2px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.plain-nav,
+.blue-nav,
+.nav,
+.profile-nav,
+.mp-nav {
+  position: relative;
+  z-index: 20;
+  display: grid !important;
+  grid-template-columns: 72rpx minmax(0, 1fr) 72rpx !important;
+  align-items: center !important;
+  min-height: 176rpx !important;
+  padding: 88rpx 188rpx 22rpx 0 !important;
+  box-sizing: border-box !important;
+}
+
+.back,
+.nav-back,
+.mp-back {
+  width: 64rpx !important;
+  height: 64rpx !important;
+  border-radius: 32rpx !important;
+  color: #111827 !important;
+  background: rgba(255, 255, 255, 0.88) !important;
+  box-shadow: 0 8rpx 20rpx rgba(15, 23, 42, 0.08) !important;
+  text-align: center !important;
+  line-height: 60rpx !important;
+  font-size: 44rpx !important;
+  font-weight: 700 !important;
+}
+
+.nav-title,
+.mp-title,
+.profile-nav-title {
+  display: block !important;
+  position: absolute !important;
+  left: 50% !important;
+  top: 112rpx !important;
+  transform: translateX(-50%) !important;
+  width: 360rpx !important;
+  max-width: calc(100% - 300rpx) !important;
+  min-width: 0 !important;
+  color: #111827 !important;
+  font-size: 34rpx !important;
+  font-weight: 900 !important;
+  line-height: 1.25 !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  letter-spacing: 0 !important;
+}
+
+.nav-action,
+.mp-action,
+.nav-spacer {
+  display: none !important;
+  min-width: 0 !important;
+  max-width: 132rpx !important;
+  color: #007aff !important;
+  font-size: 24rpx !important;
+  font-weight: 700 !important;
+  line-height: 1.35 !important;
+  text-align: right !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.mp-back {
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  background: #fff;
+  color: #111827;
+  text-align: center;
+  line-height: 32px;
+  font-size: 22px;
+}
+
+.mp-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: #111827;
+  letter-spacing: 0;
+}
+
+.mp-action {
+  font-size: 13px;
+  color: #009bf5;
+}
+
+.mp-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+  box-sizing: border-box;
+}
+
+.mp-hero {
+  background: linear-gradient(135deg, #009bf5, #1fb6ff);
+  color: #fff;
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 12px;
+  box-sizing: border-box;
+}
+
+.mp-hero-title {
+  display: block;
+  font-size: 23px;
+  line-height: 1.25;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.mp-hero-subtitle {
+  display: block;
+  margin-top: 7px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.mp-section-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 800;
+  color: #111827;
+  margin-bottom: 10px;
+}
+
+.mp-section-subtitle {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #6b7280;
+  margin-top: -4px;
+  margin-bottom: 10px;
+}
+
+.mp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.mp-row:last-child {
+  border-bottom: none;
+}
+
+.mp-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.mp-row-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.4;
+}
+
+.mp-row-subtitle {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.45;
+}
+
+.mp-value {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.mp-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mp-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 12px;
+  padding: 0 10px;
+  background: #eaf7ff;
+  color: #007bc2;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.mp-tag.warn {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.mp-input {
+  width: 100%;
+  min-height: 44px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 15px;
+  color: #111827;
+  box-sizing: border-box;
+}
+
+.mp-textarea {
+  width: 100%;
+  min-height: 92px;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #111827;
+  box-sizing: border-box;
+}
+
+.mp-button {
+  width: 100%;
+  min-height: 46px;
+  line-height: 46px;
+  border-radius: 14px;
+  border: none;
+  background: linear-gradient(90deg, #009bf5, #0081cc);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  padding: 0;
+}
+
+.mp-button::after {
+  border: none;
+}
+
+.mp-button.ghost {
+  background: #fff;
+  color: #0095ff;
+  border: 1px solid rgba(0, 149, 255, 0.25);
+}
+
+.mp-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mp-grid-item {
+  min-height: 72px;
+  border-radius: 10px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.mp-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  background: #eaf7ff;
+  color: #009bf5;
+  text-align: center;
+  line-height: 30px;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.mp-bottom-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -8px 22px rgba(15, 23, 42, 0.08);
+  box-sizing: border-box;
+}
+
+.mp-bottom-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mp-bottom-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.mp-amount {
+  display: block;
+  color: #111827;
+  font-size: 21px;
+  font-weight: 900;
+}
+
+.mp-note {
+  display: block;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.45;
+}
